@@ -89,7 +89,8 @@ class Graphics2D:
         size = Block.SIZE
         if "top" in self.views:
             canvas = self.canvases["top"]
-            for b in self.map.blocks:
+            sorted_blocks = sorted(self.map.blocks, key=lambda x: x.geometry.position[0], reverse=True)
+            for b in sorted_blocks:
                 points = np.concatenate(b.geometry.corner_points_2d()).tolist()
                 for p_idx, p in enumerate(points):
                     if p_idx % 2 != 0:

@@ -1,5 +1,6 @@
 import numpy as np
 import logging
+import random
 import env.map
 from enum import Enum
 from typing import List
@@ -20,11 +21,11 @@ class Task(Enum):
     TRANSPORT_BLOCK = 1
     FIND_ATTACHMENT_SITE = 2
     PLACE_BLOCK = 3
-    FINISHED = 4
+    MOVE_UP_LAYER = 4
+    FINISHED = 5
 
 
 class Agent:
-
     MOVEMENT_PER_STEP = 5
 
     def __init__(self,
@@ -40,6 +41,7 @@ class Agent:
         self.spacing_per_level = self.geometry.size[2] + Block.SIZE + 2 * self.required_spacing
 
         self.local_occupancy_map = None
+        self.next_seed = None
         self.current_block = None
         self.current_trajectory = None
         self.current_task = Task.FETCH_BLOCK
@@ -98,7 +100,7 @@ class RandomWalkAgent(Agent):
                         min_block = b
                         min_distance = temp
                 if min_block is None:
-                    self.logger.info("Construction finished.")
+                    self.logger.info("Construction finished (4).")
                     self.current_task = Task.FINISHED
                     return
                 min_block.color = "green"
@@ -154,7 +156,8 @@ class RandomWalkAgent(Agent):
                 self.current_path = Path()
                 transport_level_z = Block.SIZE + (self.current_structure_level + 1) * self.spacing_per_level - \
                                     (self.required_spacing + self.geometry.size[2] / 2)
-                seed_location = environment.seed_position()
+                seed_location = environment.seed_position() if self.next_seed is None \
+                    else self.next_seed.geometry.position
                 self.current_path.add_position([self.geometry.position[0], self.geometry.position[1],
                                                 transport_level_z])
                 self.current_path.add_position([seed_location[0], seed_location[1], transport_level_z])
@@ -174,7 +177,8 @@ class RandomWalkAgent(Agent):
             # if the final point on the path has been reach, search for attachment site should start
             if not ret:
                 self.current_task = Task.FIND_ATTACHMENT_SITE
-                self.current_grid_position = np.copy(environment.blocks[0].grid_position)
+                self.current_grid_position = np.copy(environment.blocks[0].grid_position if self.next_seed is None
+                                                     else self.next_seed.grid_position)
                 self.current_path = None
         else:
             self.geometry.position = self.geometry.position + current_direction
@@ -192,7 +196,7 @@ class RandomWalkAgent(Agent):
         # else:
         #   use current searching scheme to find legal attachment site
 
-        seed_block = environment.blocks[0]
+        seed_block = environment.blocks[0] if self.next_seed is None else self.next_seed
 
         # orientation happens counter-clockwise -> follow seed edge in that direction once its reached
         # can either follow the perimeter itself or just fly over blocks (do the latter for now)
@@ -313,8 +317,10 @@ class RandomWalkAgent(Agent):
                         # otherwise site "around the corner" occupied -> continue straight ahead
                         self.current_grid_position += self.current_grid_direction
                         self.current_row_started = True
+                        print(self.current_grid_position)
                         self.logger.info("CASE 4: Adjacent positions ahead occupied, continuing to follow perimeter.")
-                        self.current_path.add_position(self.geometry.position + Block.SIZE * self.current_grid_direction)
+                        self.current_path.add_position(
+                            self.geometry.position + Block.SIZE * self.current_grid_direction)
 
         else:
             self.geometry.position = self.geometry.position + current_direction
@@ -329,13 +335,14 @@ class RandomWalkAgent(Agent):
         # then switch task back to fetching blocks
 
         if self.current_path is None:
-            placement_x = environment.offset_origin[0] + Block.SIZE * self.current_grid_position[0]
-            placement_y = environment.offset_origin[1] + Block.SIZE * self.current_grid_position[1]
-            placement_z = Block.SIZE + (self.current_structure_level + 1) * self.spacing_per_level - \
-                          (self.required_spacing + self.geometry.size[2] / 2)
+            init_z = Block.SIZE + (self.current_structure_level + 1) * self.spacing_per_level - \
+                     (self.required_spacing + self.geometry.size[2] / 2)
+            placement_x = Block.SIZE * self.current_grid_position[0] + environment.offset_origin[0]
+            placement_y = Block.SIZE * self.current_grid_position[1] + environment.offset_origin[1]
+            placement_z = Block.SIZE * (self.current_grid_position[2] + 1) + self.geometry.size[2] / 2
             self.current_path = Path()
+            self.current_path.add_position([placement_x, placement_y, init_z])
             self.current_path.add_position([placement_x, placement_y, placement_z])
-            self.current_path.add_position([placement_x, placement_y, Block.SIZE + self.geometry.size[2] / 2])
 
         next_position = self.current_path.next()
         current_direction = self.current_path.direction_to_next(self.geometry.position)
@@ -348,17 +355,145 @@ class RandomWalkAgent(Agent):
             # block should now be placed in the environment's occupancy matrix
             if not ret:
                 environment.place_block(self.current_grid_position, self.current_block)
-                print(environment.occupancy_map)
                 self.geometry.attached_geometries.remove(self.current_block.geometry)
                 self.current_block.placed = True
                 self.current_block.grid_position = self.current_grid_position
                 self.current_block = None
-                self.current_task = Task.FETCH_BLOCK
                 self.current_path = None
+
+                tm = np.copy(self.target_map[self.current_structure_level])
+                np.place(tm, tm == 2, 1)
+                if np.array_equal(environment.occupancy_map[self.current_structure_level], tm) \
+                        and self.target_map.shape[0] > self.current_structure_level + 1:
+                    self.current_task = Task.MOVE_UP_LAYER
+                    self.current_structure_level += 1
+                elif np.array_equal(environment.occupancy_map[self.current_structure_level], tm):
+                    self.current_task = Task.FINISHED
+                    self.logger.info("Construction finished (3).")
+                else:
+                    self.current_task = Task.FETCH_BLOCK
         else:
             self.geometry.position = self.geometry.position + current_direction
 
         # if interrupted, search for new attachment site again
+        pass
+
+    def move_up_layer(self, environment: env.map.Map):
+        if self.current_path is None:
+            def allowed_position(y, x):
+                return 0 <= y < self.target_map[self.current_structure_level].shape[0] and \
+                       0 <= x < self.target_map[self.current_structure_level].shape[1]
+
+            # determine one block to serve as seed (a position in the target map)
+            min_adjacent = 4
+            min_coords = [0, 0, self.current_structure_level]  # [x, y]
+            min_free_edges = ["up", "down", "left", "right"]
+            for i in range(0, self.target_map[self.current_structure_level].shape[0]):
+                for j in range(0, self.target_map[self.current_structure_level].shape[1]):
+                    if self.target_map[self.current_structure_level, i, j] == 0:
+                        continue
+                    current_adjacent = 0
+                    current_free_edges = ["up", "down", "left", "right"]
+                    if allowed_position(i, j + 1) and self.target_map[self.current_structure_level, i, j + 1] > 0:
+                        current_adjacent += 1
+                        current_free_edges.remove("up")
+                    if allowed_position(i, j - 1) and self.target_map[self.current_structure_level, i, j - 1] > 0:
+                        current_adjacent += 1
+                        current_free_edges.remove("down")
+                    if allowed_position(i - 1, j) and self.target_map[self.current_structure_level, i - 1, j] > 0:
+                        current_adjacent += 1
+                        current_free_edges.remove("left")
+                    if allowed_position(i + 1, j) and self.target_map[self.current_structure_level, i + 1, j] > 0:
+                        current_adjacent += 1
+                        current_free_edges.remove("right")
+                    if current_adjacent < min_adjacent:
+                        min_adjacent = current_adjacent
+                        min_coords = [j, i, self.current_structure_level]
+                        min_free_edges = current_free_edges
+
+            self.current_grid_position = np.array(min_coords)
+
+            # fetch a block and mark it as seed/fetch a seed block
+            min_block = None
+            min_distance = float("inf")
+            for b in environment.blocks:
+                temp = self.geometry.distance_2d(b.geometry)
+                if not (b.is_seed or b.placed or any(b is a.current_block for a in environment.agents)) \
+                        and temp < min_distance:
+                    min_block = b
+                    min_distance = temp
+            if min_block is None:
+                self.logger.info("Construction finished (2).")
+                self.current_task = Task.FINISHED
+                return
+
+            min_block.is_seed = True
+            min_block.color = "red"
+            min_block.seed_marked_edge = random.choice(min_free_edges)
+
+            # first add a point to get up to the level of movement for fetching blocks
+            # which is one above the current construction level
+            self.current_path = Path()
+            fetch_level_z = Block.SIZE + (self.current_structure_level + 1) * self.spacing_per_level + \
+                            self.geometry.size[2] / 2 + self.required_spacing
+            self.current_path.add_position([self.geometry.position[0], self.geometry.position[1], fetch_level_z])
+            self.current_path.add_position(
+                [min_block.geometry.position[0], min_block.geometry.position[1], fetch_level_z])
+            self.current_path.add_position([min_block.geometry.position[0], min_block.geometry.position[1],
+                                            min_block.geometry.position[2] + Block.SIZE / 2 + self.geometry.size[
+                                                2] / 2])
+
+            self.next_seed = min_block
+        else:
+            pass
+
+        next_position = self.current_path.next()
+        current_direction = self.current_path.direction_to_next(self.geometry.position)
+        current_direction /= sum(np.sqrt(current_direction ** 2))
+        current_direction *= Agent.MOVEMENT_PER_STEP
+        if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
+            self.geometry.position = next_position
+            ret = self.current_path.advance()
+
+            # if the final point on the path has been reach, search for attachment site should start
+            if not ret:
+                if self.current_block is None:
+                    self.current_block = self.next_seed
+                    self.geometry.attached_geometries.append(self.current_block.geometry)
+                    transport_level_z = Block.SIZE + (self.current_structure_level + 1) * self.spacing_per_level - \
+                                        (self.required_spacing + self.geometry.size[2] / 2)
+                    destination_x = Block.SIZE * self.current_grid_position[0] + environment.offset_origin[0]
+                    destination_y = Block.SIZE * self.current_grid_position[1] + environment.offset_origin[1]
+                    destination_z = Block.SIZE * (self.current_structure_level + 1) + self.geometry.size[2] / 2
+                    self.current_path.add_position(
+                        [self.geometry.position[0], self.geometry.position[1], transport_level_z])
+                    self.current_path.add_position([destination_x, destination_y, transport_level_z])
+                    self.current_path.add_position([destination_x, destination_y, destination_z])
+                else:
+                    environment.place_block(self.current_grid_position, self.current_block)
+                    self.geometry.attached_geometries.remove(self.current_block.geometry)
+                    self.current_block.placed = True
+                    self.current_block.grid_position = self.current_grid_position
+                    self.current_block = None
+                    self.current_path = None
+
+                    tm = np.copy(self.target_map[self.current_structure_level])
+                    np.place(tm, tm == 2, 1)
+                    if np.array_equal(environment.occupancy_map[self.current_structure_level], tm) \
+                            and self.target_map.shape[0] > self.current_structure_level + 1:
+                        self.current_task = Task.MOVE_UP_LAYER
+                        self.current_structure_level += 1
+                    elif np.array_equal(environment.occupancy_map[self.current_structure_level], tm):
+                        self.current_task = Task.FINISHED
+                        self.logger.info("Construction finished (1).")
+                    else:
+                        self.current_task = Task.FETCH_BLOCK
+        else:
+            self.geometry.position = self.geometry.position + current_direction
+
+        # move up one level in the structure and place the seed block
+
+        # continue normal operation
         pass
 
     def advance(self, environment: env.map.Map):
@@ -380,18 +515,6 @@ class RandomWalkAgent(Agent):
         elif self.current_task == Task.PLACE_BLOCK:
             self.logger.debug("Current task: PLACE_BLOCK")
             self.place_block(environment)
-
-        # determine information known about the structure
-        # self.logger.debug("Determining accessible information about structure.")
-
-        # determine whether collision avoidance is necessary
-        # self.logger.debug("Determining whether to avoid other agents.")
-
-        # update local occupancy map
-        # self.logger.debug("Updating local occupancy map if new information is available.")
-
-        # decide whether to drop or pick up a block
-        # self.logger.debug("Dropping or picking up block if possible.")
-
-        # determine current trajectory
-        # self.logger.debug("Determining trajectory.")
+        elif self.current_task == Task.MOVE_UP_LAYER:
+            self.logger.debug("Current task: MOVE_UP_LAYER")
+            self.move_up_layer(environment)
