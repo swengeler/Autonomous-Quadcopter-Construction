@@ -79,7 +79,8 @@ class Map:
         return np.array([x[0], y[0], z[0]], dtype="int32")
 
     def place_block(self, grid_position, block):
-        self.occupancy_map[tuple(reversed(grid_position))] = 1
+        print("Placing block at: {}".format(grid_position))
+        self.occupancy_map[tuple(reversed(grid_position))] = 2 if block.is_seed else 1
         self.placed_blocks.append(block)
 
     def check_occupancy_map(self, position, comparator=lambda x: x != 0):

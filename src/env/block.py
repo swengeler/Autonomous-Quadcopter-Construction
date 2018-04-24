@@ -5,6 +5,13 @@ from geom.shape import GeomBox
 
 class Block:
 
+    COLORS = {
+        0: "#023256",
+        1: "#0B3C62",
+        2: "#4E6679",
+        3: "#798085"
+    }
+
     SIZE = 15
 
     def __init__(self,
@@ -20,7 +27,17 @@ class Block:
         self.is_seed = is_seed
         self.seed_marked_edge = seed_marked_edge
         self.placed = False
-        self.grid_position = None
+        self.__grid_position = None
 
     def overlaps(self, other):
         return self.geometry.overlaps(other.geometry)
+
+    @property
+    def grid_position(self):
+        return self.__grid_position
+
+    @grid_position.setter
+    def grid_position(self, grid_position):
+        self.__grid_position = grid_position
+        if not self.is_seed:
+            self.color = Block.COLORS[self.__grid_position[2]]

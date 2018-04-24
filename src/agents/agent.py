@@ -42,6 +42,7 @@ class Agent:
 
         self.local_occupancy_map = None
         self.next_seed = None
+        self.current_seed = None
         self.current_block = None
         self.current_trajectory = None
         self.current_task = Task.FETCH_BLOCK
@@ -69,16 +70,17 @@ class Agent:
             return val
 
 
-class RandomWalkAgent(Agent):
+class SimpleSeededAgent(Agent):
 
     def __init__(self,
                  position: List[float],
                  size: List[float],
                  target_map: np.ndarray,
                  required_spacing: float = 10):
-        super(RandomWalkAgent, self).__init__(position, size, target_map, required_spacing)
+        super(SimpleSeededAgent, self).__init__(position, size, target_map, required_spacing)
         self.block_locations_known = True
         self.structure_location_known = True
+        self.logger.setLevel(logging.DEBUG)
 
     def fetch_block(self, environment: env.map.Map):
         # locate block, locations may be:
@@ -156,8 +158,7 @@ class RandomWalkAgent(Agent):
                 self.current_path = Path()
                 transport_level_z = Block.SIZE + (self.current_structure_level + 1) * self.spacing_per_level - \
                                     (self.required_spacing + self.geometry.size[2] / 2)
-                seed_location = environment.seed_position() if self.next_seed is None \
-                    else self.next_seed.geometry.position
+                seed_location = self.current_seed.geometry.position
                 self.current_path.add_position([self.geometry.position[0], self.geometry.position[1],
                                                 transport_level_z])
                 self.current_path.add_position([seed_location[0], seed_location[1], transport_level_z])
@@ -177,8 +178,7 @@ class RandomWalkAgent(Agent):
             # if the final point on the path has been reach, search for attachment site should start
             if not ret:
                 self.current_task = Task.FIND_ATTACHMENT_SITE
-                self.current_grid_position = np.copy(environment.blocks[0].grid_position if self.next_seed is None
-                                                     else self.next_seed.grid_position)
+                self.current_grid_position = np.copy(self.current_seed.grid_position)
                 self.current_path = None
         else:
             self.geometry.position = self.geometry.position + current_direction
@@ -196,7 +196,7 @@ class RandomWalkAgent(Agent):
         # else:
         #   use current searching scheme to find legal attachment site
 
-        seed_block = environment.blocks[0] if self.next_seed is None else self.next_seed
+        seed_block = self.current_seed
 
         # orientation happens counter-clockwise -> follow seed edge in that direction once its reached
         # can either follow the perimeter itself or just fly over blocks (do the latter for now)
@@ -233,15 +233,6 @@ class RandomWalkAgent(Agent):
             self.geometry.position = next_position
             ret = self.current_path.advance()
             if not ret:
-                # print("Check: {}".format(self.check_target_map(self.current_grid_position)))
-                # print("Target map: \n{}".format(self.target_map))
-                # print("Position: {}".format(self.current_grid_position))
-                # print("Row started: {}".format(self.current_row_started))
-                # print("Position ahead: {}".format(self.current_grid_position + self.current_grid_direction))
-                # print("Occupancy: {}".format(environment.check_occupancy_map(self.current_grid_position +
-                #                                                              self.current_grid_direction,
-                #                                                              lambda x: x == 0)))
-
                 # corner of the current block reached, assess next action
                 if self.check_target_map(self.current_grid_position) and \
                         (environment.check_occupancy_map(self.current_grid_position + self.current_grid_direction) or
@@ -264,35 +255,19 @@ class RandomWalkAgent(Agent):
                         log_string = log_string.format(1, self.current_grid_position)
                     else:
                         log_string = log_string.format(2, self.current_grid_position)
-                    self.logger.info(log_string)
+                    self.logger.debug(log_string)
                 else:
                     # site should not be occupied -> determine whether to turn a corner or continue, options:
                     # 1. turn right (site ahead occupied)
                     # 2. turn left
                     # 3. continue straight ahead along perimeter
-                    # print(environment.check_occupancy_map(self.current_grid_position + self.current_grid_direction +
-                    #                                      np.array([-self.current_grid_direction[1],
-                    #                                                self.current_grid_direction[0], 0],
-                    #                                               dtype="int32"),
-                    #                                      lambda x: x == 0))
-                    # print(self.current_grid_position + self.current_grid_direction +
-                    #                                      np.array([-self.current_grid_direction[1],
-                    #                                                self.current_grid_direction[0], 0],
-                    #                                               dtype="int32"))
-                    # print(np.array([-self.current_grid_direction[1],
-                    #                                                self.current_grid_direction[0], 0],
-                    #                                               dtype="int32"))
-                    # print(environment.occupancy_map)
                     if environment.check_occupancy_map(self.current_grid_position + self.current_grid_direction):
                         # turn right
-                        # print(self.current_grid_position)
-                        # print(self.current_grid_direction)
-                        # print(environment.check_occupancy_map(self.current_grid_position + self.current_grid_direction))
                         self.current_grid_direction = np.array([self.current_grid_direction[1],
                                                                 -self.current_grid_direction[0], 0],
                                                                dtype="int32")
                         # self.current_grid_position += self.current_grid_direction
-                        self.logger.info("CASE 2: Position straight ahead occupied, turning clockwise.")
+                        self.logger.debug("CASE 2: Position straight ahead occupied, turning clockwise.")
                     elif environment.check_occupancy_map(self.current_grid_position + self.current_grid_direction +
                                                          np.array([-self.current_grid_direction[1],
                                                                    self.current_grid_direction[0], 0],
@@ -311,17 +286,26 @@ class RandomWalkAgent(Agent):
                         self.current_grid_position += self.current_grid_direction
                         # might want to build the above ugliness into the Path class somehow
                         self.current_row_started = True
-                        self.logger.info("CASE 3: Reached corner of structure, turning counter-clockwise.")
+                        self.logger.debug("CASE 3: Reached corner of structure, turning counter-clockwise. {} {}".format(self.current_grid_position, self.current_grid_direction))
                         self.current_path.add_position(reference_position + Block.SIZE * self.current_grid_direction)
                     else:
                         # otherwise site "around the corner" occupied -> continue straight ahead
                         self.current_grid_position += self.current_grid_direction
                         self.current_row_started = True
-                        print(self.current_grid_position)
-                        self.logger.info("CASE 4: Adjacent positions ahead occupied, continuing to follow perimeter.")
+                        self.logger.debug("CASE 4: Adjacent positions ahead occupied, continuing to follow perimeter.")
                         self.current_path.add_position(
                             self.geometry.position + Block.SIZE * self.current_grid_direction)
 
+                # need a way to check whether the current level has been completed already
+                tm = np.copy(self.target_map[self.current_structure_level])
+                np.place(tm, tm == 2, 1)
+                om = np.copy(environment.occupancy_map[self.current_structure_level])
+                np.place(om, om == 2, 1)
+                if np.array_equal(om, tm) and self.target_map.shape[0] > self.current_structure_level + 1:
+                    self.current_task = Task.MOVE_UP_LAYER
+                    self.current_structure_level += 1
+                    self.current_path = None
+                    self.current_seed = self.current_block
         else:
             self.geometry.position = self.geometry.position + current_direction
 
@@ -344,6 +328,12 @@ class RandomWalkAgent(Agent):
             self.current_path.add_position([placement_x, placement_y, init_z])
             self.current_path.add_position([placement_x, placement_y, placement_z])
 
+        if environment.check_occupancy_map(self.current_grid_position):
+            # a different agent has already placed the block in the meantime
+            self.current_path = None
+            self.current_task = Task.TRANSPORT_BLOCK
+            return
+
         next_position = self.current_path.next()
         current_direction = self.current_path.direction_to_next(self.geometry.position)
         current_direction /= sum(np.sqrt(current_direction ** 2))
@@ -363,8 +353,9 @@ class RandomWalkAgent(Agent):
 
                 tm = np.copy(self.target_map[self.current_structure_level])
                 np.place(tm, tm == 2, 1)
-                if np.array_equal(environment.occupancy_map[self.current_structure_level], tm) \
-                        and self.target_map.shape[0] > self.current_structure_level + 1:
+                om = np.copy(environment.occupancy_map[self.current_structure_level])
+                np.place(om, om == 2, 1)
+                if np.array_equal(om, tm) and self.target_map.shape[0] > self.current_structure_level + 1:
                     self.current_task = Task.MOVE_UP_LAYER
                     self.current_structure_level += 1
                 elif np.array_equal(environment.occupancy_map[self.current_structure_level], tm):
@@ -411,21 +402,22 @@ class RandomWalkAgent(Agent):
                         min_coords = [j, i, self.current_structure_level]
                         min_free_edges = current_free_edges
 
-            self.current_grid_position = np.array(min_coords)
-
             # fetch a block and mark it as seed/fetch a seed block
             min_block = None
-            min_distance = float("inf")
-            for b in environment.blocks:
-                temp = self.geometry.distance_2d(b.geometry)
-                if not (b.is_seed or b.placed or any(b is a.current_block for a in environment.agents)) \
-                        and temp < min_distance:
-                    min_block = b
-                    min_distance = temp
-            if min_block is None:
-                self.logger.info("Construction finished (2).")
-                self.current_task = Task.FINISHED
-                return
+            if self.current_block is None:
+                min_distance = float("inf")
+                for b in environment.blocks:
+                    temp = self.geometry.distance_2d(b.geometry)
+                    if not (b.is_seed or b.placed or any(b is a.current_block for a in environment.agents)) \
+                            and temp < min_distance:
+                        min_block = b
+                        min_distance = temp
+                if min_block is None:
+                    self.logger.info("Construction finished (2).")
+                    self.current_task = Task.FINISHED
+                    return
+            else:
+                min_block = self.current_block
 
             min_block.is_seed = True
             min_block.color = "red"
@@ -437,13 +429,24 @@ class RandomWalkAgent(Agent):
             fetch_level_z = Block.SIZE + (self.current_structure_level + 1) * self.spacing_per_level + \
                             self.geometry.size[2] / 2 + self.required_spacing
             self.current_path.add_position([self.geometry.position[0], self.geometry.position[1], fetch_level_z])
-            self.current_path.add_position(
-                [min_block.geometry.position[0], min_block.geometry.position[1], fetch_level_z])
-            self.current_path.add_position([min_block.geometry.position[0], min_block.geometry.position[1],
-                                            min_block.geometry.position[2] + Block.SIZE / 2 + self.geometry.size[
-                                                2] / 2])
+            if self.current_block is None:
+                self.current_path.add_position(
+                    [min_block.geometry.position[0], min_block.geometry.position[1], fetch_level_z])
+                self.current_path.add_position([min_block.geometry.position[0], min_block.geometry.position[1],
+                                                min_block.geometry.position[2] + Block.SIZE / 2 + self.geometry.size[
+                                                    2] / 2])
+            else:
+                transport_level_z = Block.SIZE + (self.current_structure_level + 1) * self.spacing_per_level - \
+                                    (self.required_spacing + self.geometry.size[2] / 2)
+                destination_x = self.current_seed.geometry.position[0]
+                destination_y = self.current_seed.geometry.position[1]
+                self.current_path.add_position(
+                    [self.geometry.position[0], self.geometry.position[1], transport_level_z])
+                self.current_path.add_position([destination_x, destination_y, transport_level_z])
 
             self.next_seed = min_block
+            self.next_seed.grid_position = np.array(min_coords)
+            self.current_grid_position = self.next_seed.grid_position
         else:
             pass
 
@@ -455,32 +458,87 @@ class RandomWalkAgent(Agent):
             self.geometry.position = next_position
             ret = self.current_path.advance()
 
+            destination = [Block.SIZE * self.next_seed.grid_position[0] + environment.offset_origin[0],
+                           Block.SIZE * self.next_seed.grid_position[1] + environment.offset_origin[1]]
+            if self.current_block is not None and all([self.geometry.position[i] == destination[i] for i in range(2)]):
+                # check whether seed block has already been placed
+                print("In position: {}".format(self.next_seed.grid_position))
+                print(environment.occupancy_map)
+                if environment.check_occupancy_map(self.next_seed.grid_position):
+                    print("Already occupied")
+                    self.current_block.color = "green"
+                    self.current_block.is_seed = False
+                    self.current_block.seed_marked_edge = "down"
+                    self.current_path = None
+                    self.current_seed = None
+                    for b in environment.placed_blocks:
+                        if b.is_seed and all([b.grid_position[i] == self.next_seed.grid_position[i] for i in range(3)]):
+                            self.current_seed = b
+                            break
+                    self.next_seed = None
+                    self.current_task = Task.TRANSPORT_BLOCK
+                    return
+            else:
+                print("Own position: {}".format(self.geometry.position))
+                print("Destination: {}".format(destination))
+                print("Seed grid: {}".format(self.next_seed.grid_position))
+
             # if the final point on the path has been reach, search for attachment site should start
             if not ret:
+                # also need to check whether there is already a seed on that layer or nah
+                # -> to simplify things, can assume that agents would all choose the same seed location
                 if self.current_block is None:
+                    print("CASE 1")
                     self.current_block = self.next_seed
                     self.geometry.attached_geometries.append(self.current_block.geometry)
                     transport_level_z = Block.SIZE + (self.current_structure_level + 1) * self.spacing_per_level - \
                                         (self.required_spacing + self.geometry.size[2] / 2)
+
+                    # the following two basically assume perfect knowledge (could be done using unique blocks),
+                    # but it makes more sense (here) to go to the seed on the previous level first
                     destination_x = Block.SIZE * self.current_grid_position[0] + environment.offset_origin[0]
                     destination_y = Block.SIZE * self.current_grid_position[1] + environment.offset_origin[1]
-                    destination_z = Block.SIZE * (self.current_structure_level + 1) + self.geometry.size[2] / 2
+
+                    # computing the seed position for the previous layer
+                    destination_x = self.current_seed.geometry.position[0]
+                    destination_y = self.current_seed.geometry.position[1]
+
                     self.current_path.add_position(
                         [self.geometry.position[0], self.geometry.position[1], transport_level_z])
                     self.current_path.add_position([destination_x, destination_y, transport_level_z])
+                elif all([self.geometry.position[i] == self.current_seed.geometry.position[i] for i in range(2)]) \
+                        and not all([self.current_seed.geometry.position[i] == destination[i] for i in range(2)]):
+                    print("CASE 2")
+                    # old seed position has been reached, now the path to the next seed's location should commence
+                    # what should really happen is to use the shortest path over the existing blocks to the next
+                    # seed location to reach it and at the same time ensure that the location is correct
+
+                    # to make things less tedious for now, a simple path is used
+                    destination_x = Block.SIZE * self.next_seed.grid_position[0] + environment.offset_origin[0]
+                    destination_y = Block.SIZE * self.next_seed.grid_position[1] + environment.offset_origin[1]
+                    destination_z = Block.SIZE * (self.current_structure_level + 1) + self.geometry.size[2] / 2
+
+                    self.current_path.add_position([destination_x, destination_y, self.geometry.position[2]])
                     self.current_path.add_position([destination_x, destination_y, destination_z])
+
+                    # need to check at this point (or actually in between here and the next else block)
+                    # whether the determined seed location is already occupied
                 else:
-                    environment.place_block(self.current_grid_position, self.current_block)
+                    print("CASE 3")
                     self.geometry.attached_geometries.remove(self.current_block.geometry)
+                    self.current_seed = self.next_seed
                     self.current_block.placed = True
                     self.current_block.grid_position = self.current_grid_position
+                    environment.place_block(self.current_grid_position, self.current_block)
                     self.current_block = None
                     self.current_path = None
+                    self.next_seed = None
 
                     tm = np.copy(self.target_map[self.current_structure_level])
                     np.place(tm, tm == 2, 1)
-                    if np.array_equal(environment.occupancy_map[self.current_structure_level], tm) \
-                            and self.target_map.shape[0] > self.current_structure_level + 1:
+                    om = np.copy(environment.occupancy_map[self.current_structure_level])
+                    np.place(om, om == 2, 1)
+                    if np.array_equal(om, tm) and self.target_map.shape[0] > self.current_structure_level + 1:
                         self.current_task = Task.MOVE_UP_LAYER
                         self.current_structure_level += 1
                     elif np.array_equal(environment.occupancy_map[self.current_structure_level], tm):
@@ -502,19 +560,16 @@ class RandomWalkAgent(Agent):
         # bring block to structure (i.e. until it comes into sight)
         # find attachment site
         # place block
+        if self.current_seed is None:
+            self.current_seed = environment.blocks[0]
 
         if self.current_task == Task.FETCH_BLOCK:
-            self.logger.debug("Current task: FETCH_BLOCK")
             self.fetch_block(environment)
         elif self.current_task == Task.TRANSPORT_BLOCK:
-            self.logger.debug("Current task: TRANSPORT_BLOCK")
             self.transport_block(environment)
         elif self.current_task == Task.FIND_ATTACHMENT_SITE:
-            self.logger.debug("Current task: FIND_ATTACHMENT_SITE")
             self.find_attachment_site(environment)
         elif self.current_task == Task.PLACE_BLOCK:
-            self.logger.debug("Current task: PLACE_BLOCK")
             self.place_block(environment)
         elif self.current_task == Task.MOVE_UP_LAYER:
-            self.logger.debug("Current task: MOVE_UP_LAYER")
             self.move_up_layer(environment)
