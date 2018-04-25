@@ -4,6 +4,7 @@ import random
 import env.map
 from enum import Enum
 from typing import List
+from abc import ABCMeta, abstractmethod
 from env.block import Block
 from geom.shape import *
 from geom.path import Path
@@ -27,6 +28,9 @@ class Task(Enum):
 
 
 class Agent:
+
+    __metaclass__ = ABCMeta
+
     MOVEMENT_PER_STEP = 5
 
     def __init__(self,
@@ -38,6 +42,7 @@ class Agent:
 
         self.geometry = GeomBox(position, size, 0.0)
         self.target_map = target_map
+        self.component_target_map = None
         self.required_spacing = required_spacing
         self.spacing_per_level = self.geometry.size[2] + Block.SIZE + 2 * self.required_spacing
 
@@ -53,11 +58,14 @@ class Agent:
         self.current_grid_direction = None
         self.current_row_started = False
 
-    def overlaps(self, other):
-        return self.geometry.overlaps(other.geometry)
+        self.seed_on_perimeter = False
 
+    @abstractmethod
     def advance(self, environment: env.map.Map):
         pass
+
+    def overlaps(self, other):
+        return self.geometry.overlaps(other.geometry)
 
     def check_target_map(self, position, comparator=lambda x: x != 0):
         if any(position < 0):
@@ -71,14 +79,34 @@ class Agent:
             return val
 
 
-class SimpleSeededAgent(Agent):
+class CollisionAvoidanceAgent(Agent):
 
     def __init__(self,
                  position: List[float],
                  size: List[float],
                  target_map: np.ndarray,
                  required_spacing: float = 10):
-        super(SimpleSeededAgent, self).__init__(position, size, target_map, required_spacing)
+        super(CollisionAvoidanceAgent, self).__init__(position, size, target_map, required_spacing)
+        self.block_locations_known = True
+        self.structure_location_known = True
+        self.logger.setLevel(logging.DEBUG)
+
+    def advance(self, environment: env.map.Map):
+        # decide on paths randomly and follow them
+        # then dodge any traffic using the experimental collision avoidance scheme
+        # TODO: implement collision avoidance scheme
+        # (only taking position and geometry into account first, not the current task/path to be followed)
+        pass
+
+
+class PerimeterFollowingAgent(Agent):
+
+    def __init__(self,
+                 position: List[float],
+                 size: List[float],
+                 target_map: np.ndarray,
+                 required_spacing: float = 10):
+        super(PerimeterFollowingAgent, self).__init__(position, size, target_map, required_spacing)
         self.block_locations_known = True
         self.structure_location_known = True
         self.logger.setLevel(logging.DEBUG)
@@ -121,6 +149,7 @@ class SimpleSeededAgent(Agent):
                                                     2] / 2])
                 self.current_block = min_block
         else:
+            # TODO: instead of having scattered blocks, use block stashes
             pass
 
         # assuming that the if-statement above takes care of setting the path:
@@ -176,14 +205,18 @@ class SimpleSeededAgent(Agent):
 
             # if the final point on the path has been reach, search for attachment site should start
             if not ret:
-                self.current_task = Task.MOVE_TO_PERIMETER
                 self.current_grid_position = np.copy(self.current_seed.grid_position)
                 self.current_path = None
+                if not self.seed_on_perimeter:
+                    self.current_task = Task.MOVE_TO_PERIMETER
 
-                # since MOVE_TO_PERIMETER is used, the direction to go into is initialised randomly
-                # a better way of doing it would probably be to take the shortest path to the perimeter
-                # using the available knowledge about the current state of the structure
-                self.current_grid_direction = np.array(random.sample([[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0]], 1)[0])
+                    # since MOVE_TO_PERIMETER is used, the direction to go into is initialised randomly
+                    # a better way of doing it would probably be to take the shortest path to the perimeter
+                    # using the available knowledge about the current state of the structure (this could even
+                    # include leading the agent to an area where it is likely to find an attachment site soon)
+                    self.current_grid_direction = np.array(random.sample([[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0]], 1)[0])
+                else:
+                    self.current_task = Task.FIND_ATTACHMENT_SITE
         else:
             self.geometry.position = self.geometry.position + current_direction
 
@@ -212,10 +245,9 @@ class SimpleSeededAgent(Agent):
 
             if not ret:
                 self.current_grid_position += self.current_grid_direction
-                if not environment.check_over_structure(self.geometry.position):
+                if not environment.check_over_structure(self.geometry.position, self.current_structure_level):
                     # have reached perimeter
                     self.current_task = Task.FIND_ATTACHMENT_SITE
-                    print("Reached perimeter: {}, {}".format(self.current_grid_position, self.current_grid_direction))
                     self.current_grid_direction = np.array(
                         [-self.current_grid_direction[1], self.current_grid_direction[0], 0], dtype="int32")
                 else:
@@ -276,7 +308,6 @@ class SimpleSeededAgent(Agent):
             self.geometry.position = next_position
             ret = self.current_path.advance()
             if not ret:
-                print("Corner reached")
                 # corner of the current block reached, assess next action
                 if self.check_target_map(self.current_grid_position) and \
                         (environment.check_occupancy_map(self.current_grid_position + self.current_grid_direction) or
@@ -417,38 +448,53 @@ class SimpleSeededAgent(Agent):
 
     def move_up_layer(self, environment: env.map.Map):
         if self.current_path is None:
-            def allowed_position(y, x):
-                return 0 <= y < self.target_map[self.current_structure_level].shape[0] and \
-                       0 <= x < self.target_map[self.current_structure_level].shape[1]
+            min_free_edges = None
+            if self.seed_on_perimeter:
+                def allowed_position(y, x):
+                    return 0 <= y < self.target_map[self.current_structure_level].shape[0] and \
+                           0 <= x < self.target_map[self.current_structure_level].shape[1]
 
-            # determine one block to serve as seed (a position in the target map)
-            min_adjacent = 4
-            min_coords = [0, 0, self.current_structure_level]  # [x, y]
-            min_free_edges = ["up", "down", "left", "right"]
-            for i in range(0, self.target_map[self.current_structure_level].shape[0]):
-                for j in range(0, self.target_map[self.current_structure_level].shape[1]):
-                    if self.target_map[self.current_structure_level, i, j] == 0:
-                        continue
-                    current_adjacent = 0
-                    current_free_edges = ["up", "down", "left", "right"]
-                    if allowed_position(i, j + 1) and self.target_map[self.current_structure_level, i, j + 1] > 0:
-                        current_adjacent += 1
-                        current_free_edges.remove("up")
-                    if allowed_position(i, j - 1) and self.target_map[self.current_structure_level, i, j - 1] > 0:
-                        current_adjacent += 1
-                        current_free_edges.remove("down")
-                    if allowed_position(i - 1, j) and self.target_map[self.current_structure_level, i - 1, j] > 0:
-                        current_adjacent += 1
-                        current_free_edges.remove("left")
-                    if allowed_position(i + 1, j) and self.target_map[self.current_structure_level, i + 1, j] > 0:
-                        current_adjacent += 1
-                        current_free_edges.remove("right")
-                    if current_adjacent < min_adjacent:
-                        min_adjacent = current_adjacent
-                        min_coords = [j, i, self.current_structure_level]
-                        min_free_edges = current_free_edges
+                # determine one block to serve as seed (a position in the target map)
+                min_adjacent = 4
+                min_coordinates = [0, 0, self.current_structure_level]  # [x, y]
+                min_free_edges = ["up", "down", "left", "right"]
+                for i in range(0, self.target_map[self.current_structure_level].shape[0]):
+                    for j in range(0, self.target_map[self.current_structure_level].shape[1]):
+                        if self.target_map[self.current_structure_level, i, j] == 0:
+                            continue
+                        current_adjacent = 0
+                        current_free_edges = ["up", "down", "left", "right"]
+                        if allowed_position(i, j + 1) and self.target_map[self.current_structure_level, i, j + 1] > 0:
+                            current_adjacent += 1
+                            current_free_edges.remove("up")
+                        if allowed_position(i, j - 1) and self.target_map[self.current_structure_level, i, j - 1] > 0:
+                            current_adjacent += 1
+                            current_free_edges.remove("down")
+                        if allowed_position(i - 1, j) and self.target_map[self.current_structure_level, i - 1, j] > 0:
+                            current_adjacent += 1
+                            current_free_edges.remove("left")
+                        if allowed_position(i + 1, j) and self.target_map[self.current_structure_level, i + 1, j] > 0:
+                            current_adjacent += 1
+                            current_free_edges.remove("right")
+                        if current_adjacent < min_adjacent:
+                            min_adjacent = current_adjacent
+                            min_coordinates = [j, i, self.current_structure_level]
+                            min_free_edges = current_free_edges
+            else:
+                # pick random location on the next layer
+                # might actually want the MAXIMUM number of adjacent blocks
+                # in the case of "dangling" (what) parts of the structures (i.e. overhanging ledges etc.),
+                # should also choose one that is actually supported by the underlying structure
+                # TODO: implement better selection of location for next seed
+                occupied_locations = np.nonzero(self.target_map[self.current_structure_level])
+                occupied_locations = list(zip(occupied_locations[0], occupied_locations[1]))
+                supported_locations = np.nonzero(self.target_map[self.current_structure_level - 1])
+                supported_locations = list(zip(supported_locations[0], supported_locations[1]))
+                occupied_locations = [x for x in occupied_locations if x in supported_locations]
+                coordinates = random.sample(occupied_locations, 1)
+                min_coordinates = [coordinates[0][0], coordinates[0][1], self.current_structure_level]
+                print("MIN COORDINATES: {}".format(min_coordinates))
 
-            # fetch a block and mark it as seed/fetch a seed block
             min_block = None
             if self.current_block is None:
                 min_distance = float("inf")
@@ -466,8 +512,9 @@ class SimpleSeededAgent(Agent):
                 min_block = self.current_block
 
             min_block.is_seed = True
-            min_block.color = "red"
-            min_block.seed_marked_edge = random.choice(min_free_edges)
+            min_block.color = Block.COLORS["seed"]
+            if self.seed_on_perimeter:
+                min_block.seed_marked_edge = random.choice(min_free_edges)
 
             # first add a point to get up to the level of movement for fetching blocks
             # which is one above the current construction level
@@ -491,7 +538,7 @@ class SimpleSeededAgent(Agent):
                 self.current_path.add_position([destination_x, destination_y, transport_level_z])
 
             self.next_seed = min_block
-            self.next_seed.grid_position = np.array(min_coords)
+            self.next_seed.grid_position = np.array(min_coordinates)
             self.current_grid_position = self.next_seed.grid_position
         else:
             pass
@@ -506,19 +553,41 @@ class SimpleSeededAgent(Agent):
 
             destination = [Block.SIZE * self.next_seed.grid_position[0] + environment.offset_origin[0],
                            Block.SIZE * self.next_seed.grid_position[1] + environment.offset_origin[1]]
-            if self.current_block is not None and all([self.geometry.position[i] == destination[i] for i in range(2)]):
-                # check whether seed block has already been placed (this assumes that all agents will choose the same
-                # location for the next seed block, which works for now but should probably be changed later)
-                if environment.check_occupancy_map(self.next_seed.grid_position):
+            if self.seed_on_perimeter:
+                if self.current_block is not None and all([self.geometry.position[i] == destination[i] for i in range(2)]):
+                    # check whether seed block has already been placed (this assumes that all agents will choose the
+                    # same location for the next seed block, which works for now but should probably be changed later)
+                    if environment.check_occupancy_map(self.next_seed.grid_position):
+                        self.current_block.color = "green"
+                        self.current_block.is_seed = False
+                        self.current_block.seed_marked_edge = "down"
+                        self.current_path = None
+                        self.current_seed = None
+                        for b in environment.placed_blocks:
+                            if b.is_seed and all([b.grid_position[i] == self.next_seed.grid_position[i] for i in range(3)]):
+                                self.current_seed = b
+                                break
+                        self.next_seed = None
+                        self.current_task = Task.TRANSPORT_BLOCK
+                        return
+            else:
+                # the following could also be used for the other case (where the seed has to be on the perimeter)
+                # however, this also assumes that knowledge of the entire structure is available immediately upon
+                # arriving somewhere at the structure, which is unrealistic -> this would have to be changed into
+                # surveying the structure beforehand to be sure that it is the case
+                if environment.check_over_structure(self.geometry.position) \
+                        and np.count_nonzero(environment.occupancy_map[self.current_structure_level]) != 0:
                     self.current_block.color = "green"
                     self.current_block.is_seed = False
-                    self.current_block.seed_marked_edge = "down"
                     self.current_path = None
                     self.current_seed = None
+                    # this needs a-changing:
+                    y, x = np.where(environment.occupancy_map[self.current_structure_level] != 0)
                     for b in environment.placed_blocks:
-                        if b.is_seed and all([b.grid_position[i] == self.next_seed.grid_position[i] for i in range(3)]):
-                            self.current_seed = b
-                            break
+                        for c in zip(x, y):
+                            if b.is_seed and all([b.grid_position[i] == c[i] for i in range(2)]):
+                                self.current_seed = b
+                                break
                     self.next_seed = None
                     self.current_task = Task.TRANSPORT_BLOCK
                     return
@@ -593,6 +662,35 @@ class SimpleSeededAgent(Agent):
 
         # continue normal operation
         pass
+
+    def split_into_components(self, environment: env.map.Map):
+        def flood_fill(layer, i, j, marker):
+            if layer[i, j] == 1:
+                layer[i, j] = marker
+
+                if i > 0:
+                    flood_fill(layer, i - 1, j, marker)
+                if i < layer.shape[0] - 1:
+                    flood_fill(layer, i + 1, j, marker)
+                if j > 0:
+                    flood_fill(layer, i, j - 1, marker)
+                if j < layer.shape[1] - 1:
+                    flood_fill(layer, i, j + 1, marker)
+
+        # go through the target map layer by layer and split each one into disconnected components
+        # how to store these components? could be separate target map, using numbers to denote each component
+        # for
+        self.component_target_map = np.copy(self.target_map)
+        np.place(self.component_target_map, self.component_target_map > 1, 1)
+        component_marker = 2
+        for z in range(self.component_target_map.shape[0]):
+            # use flood fill to identify components of layer
+            for y in range(self.component_target_map.shape[1]):
+                for x in range(self.component_target_map.shape[2]):
+                    if self.component_target_map[z, y, x] == 1:
+                        flood_fill(self.component_target_map[z], y, x, component_marker)
+                        component_marker += 1
+        return self.component_target_map
 
     def advance(self, environment: env.map.Map):
         # determine current task:

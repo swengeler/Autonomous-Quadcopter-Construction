@@ -126,10 +126,10 @@ def main():
                          [1, 1, 0, 0, 1, 1],
                          [1, 1, 0, 0, 1, 1]]])
 
-    another_big_h = np.array([[[2, 1, 0, 0, 1, 1],
+    another_big_h = np.array([[[1, 1, 0, 0, 1, 1],
                                [1, 1, 0, 0, 1, 1],
                                [1, 1, 0, 0, 1, 1],
-                               [1, 1, 1, 1, 1, 1],
+                               [1, 1, 2, 1, 1, 1],
                                [1, 1, 1, 1, 1, 1],
                                [1, 1, 0, 0, 1, 1],
                                [1, 1, 0, 0, 1, 1],
@@ -174,12 +174,12 @@ def main():
                         [1, 1, 1, 1, 1, 1, 0, 0, 1],
                         [1, 1, 1, 1, 1, 1, 1, 1, 1]]])
 
-    test_3d = np.array([[[2, 1, 1],
-                         [1, 1, 1],
+    test_3d = np.array([[[1, 1, 1],
+                         [1, 2, 1],
                          [1, 1, 1]],
-                        [[0, 0, 0],
-                         [0, 1, 0],
-                         [0, 0, 0]]])
+                        [[1, 1, 1],
+                         [1, 1, 1],
+                         [1, 1, 1]]])
 
     test_4 = np.array([[[0, 0, 0, 1, 2, 1, 1, 0, 0],
                         [0, 1, 1, 1, 0, 0, 1, 1, 0],
@@ -225,7 +225,47 @@ def main():
                          [0, 0, 0, 0, 0, 0, 0],
                          [0, 0, 0, 0, 0, 0, 0]]])
 
-    other_target_map = test
+    tower = np.array([[[0, 0, 0, 0],
+                       [0, 1, 2, 0],
+                       [0, 1, 1, 0],
+                       [0, 0, 0, 0]],
+
+                      [[1, 1, 1, 1],
+                       [1, 1, 1, 1],
+                       [1, 1, 1, 1],
+                       [1, 1, 1, 1]],
+
+                      [[0, 0, 0, 0],
+                       [0, 1, 1, 0],
+                       [0, 1, 1, 0],
+                       [0, 0, 0, 0]],
+
+                      [[1, 1, 1, 1],
+                       [1, 1, 1, 1],
+                       [1, 1, 1, 1],
+                       [1, 1, 1, 1]],
+
+                      [[0, 0, 0, 0],
+                       [0, 1, 1, 0],
+                       [0, 1, 1, 0],
+                       [0, 0, 0, 0]],
+
+                      [[1, 1, 1, 1],
+                       [1, 1, 1, 1],
+                       [1, 1, 1, 1],
+                       [1, 1, 1, 1]],
+
+                      [[0, 0, 0, 0],
+                       [0, 1, 1, 0],
+                       [0, 1, 1, 0],
+                       [0, 0, 0, 0]],
+
+                      [[1, 1, 1, 1],
+                       [1, 1, 1, 1],
+                       [1, 1, 1, 1],
+                       [1, 1, 1, 1]]])
+
+    other_target_map = tower
 
     # offset of the described target occupancy map to the origin (only in x/y directions)
     offset_origin = (60.0, 100.0)
@@ -244,7 +284,7 @@ def main():
     # block positions, (for now) only x and y required
     block_list[0].is_seed = True
     block_list[0].placed = True
-    block_list[0].color = "red"
+    block_list[0].color = Block.COLORS["seed"]
     block_list[0].geometry = GeomBox(list(environment.seed_position()), [Block.SIZE] * 3, 0.0)
     block_list[0].grid_position = environment.seed_grid_position()
     block_list[0].seed_marked_edge = "down"

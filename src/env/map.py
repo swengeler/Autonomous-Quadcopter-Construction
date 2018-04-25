@@ -2,7 +2,6 @@ import numpy as np
 import logging
 import env.block
 from typing import List, Tuple
-from tkinter import *
 
 
 class Map:
@@ -79,7 +78,6 @@ class Map:
         return np.array([x[0], y[0], z[0]], dtype="int32")
 
     def place_block(self, grid_position, block):
-        print("Placing block at: {}".format(grid_position))
         self.occupancy_map[tuple(reversed(grid_position))] = 2 if block.is_seed else 1
         self.placed_blocks.append(block)
 
@@ -94,51 +92,16 @@ class Map:
             val = comparator(temp)
             return val
 
-    def check_over_structure(self, position):
+    def check_over_structure(self, position, structure_level=None):
         closest_x = int((position[0] - self.offset_origin[0]) / env.block.Block.SIZE)
         closest_y = int((position[1] - self.offset_origin[1]) / env.block.Block.SIZE)
-        print(closest_x, closest_y)
-        for height_level in range(self.occupancy_map.shape[0]):
-            if 0 <= closest_x < self.occupancy_map.shape[2] and 0 <= closest_y < self.occupancy_map.shape[1] \
-                    and self.check_occupancy_map(np.array([closest_x, closest_y, height_level])):
-                return True
+        if structure_level is None:
+            for height_level in range(self.occupancy_map.shape[0]):
+                if 0 <= closest_x < self.occupancy_map.shape[2] and 0 <= closest_y < self.occupancy_map.shape[1] \
+                        and self.check_occupancy_map(np.array([closest_x, closest_y, height_level])):
+                    return True
+        elif 0 <= closest_x < self.occupancy_map.shape[2] and 0 <= closest_y < self.occupancy_map.shape[1] \
+                and self.check_occupancy_map(np.array([closest_x, closest_y, structure_level])):
+            return True
         return False
 
-    '''
-    def draw_grid(self, canvas: Canvas):
-        size = env.block.Block.SIZE
-        for i in range(self.target_map.shape[2] + 1):
-            x_const = self.offset_origin[0] + (i - 0.5) * size
-            y_start = self.environment_extent[1] - (self.offset_origin[1] - size / 2)
-            y_end = y_start - size * (self.target_map.shape[1])
-            canvas.create_line(x_const, y_start, x_const, y_end)
-
-        for i in range(self.target_map.shape[1] + 1):
-            x_start = self.offset_origin[0] - size / 2
-            x_end = x_start + size * (self.target_map.shape[2])
-            y_const = self.environment_extent[1] - (self.offset_origin[1] + (i - 0.5) * size)
-            canvas.create_line(x_start, y_const, x_end, y_const)
-
-    def draw_agents(self, canvas: Canvas):
-        for a in self.agents:
-            # x_base = a.geometry.position[0] - a.geometry.size[0] / 2
-            # y_base = self.environment_extent[1] - (a.geometry.position[1] - a.geometry.size[1] / 2)
-            # canvas.create_rectangle(x_base, y_base, x_base + a.geometry.size[0], y_base - a.geometry.size[1], fill="blue")
-            points = np.concatenate(a.geometry.corner_points_2d()).tolist()
-            for p_idx, p in enumerate(points):
-                if p_idx % 2 != 0:
-                    points[p_idx] = self.environment_extent[1] - p
-            canvas.create_polygon(points, fill="blue", outline="black")
-
-    def draw_blocks(self, canvas: Canvas):
-        size = env.block.Block.SIZE
-        for b in self.blocks:
-            # x_base = b.geometry.position[0] - size / 2
-            # y_base = self.environment_extent[1] - (b.geometry.position[1] - size / 2)
-            # canvas.create_rectangle(x_base, y_base, x_base + size, y_base - size, fill=b.color)
-            points = np.concatenate(b.geometry.corner_points_2d()).tolist()
-            for p_idx, p in enumerate(points):
-                if p_idx % 2 != 0:
-                    points[p_idx] = self.environment_extent[1] - p
-            canvas.create_polygon(points, fill=b.color, outline="black")
-    '''
