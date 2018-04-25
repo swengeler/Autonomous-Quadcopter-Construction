@@ -126,6 +126,23 @@ def main():
                          [1, 1, 0, 0, 1, 1],
                          [1, 1, 0, 0, 1, 1]]])
 
+    another_big_h = np.array([[[2, 1, 0, 0, 1, 1],
+                               [1, 1, 0, 0, 1, 1],
+                               [1, 1, 0, 0, 1, 1],
+                               [1, 1, 1, 1, 1, 1],
+                               [1, 1, 1, 1, 1, 1],
+                               [1, 1, 0, 0, 1, 1],
+                               [1, 1, 0, 0, 1, 1],
+                               [1, 1, 0, 0, 1, 1]],
+                              [[0, 1, 0, 0, 1, 0],
+                               [0, 1, 0, 0, 1, 0],
+                               [0, 1, 0, 0, 1, 0],
+                               [0, 1, 1, 1, 1, 0],
+                               [0, 1, 1, 1, 1, 0],
+                               [0, 1, 0, 0, 1, 0],
+                               [0, 1, 0, 0, 1, 0],
+                               [0, 1, 0, 0, 1, 0]]])
+
     a_big_2 = np.array([[[2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
                          [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
                          [1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0],
@@ -141,8 +158,8 @@ def main():
                                   [1, 1, 1],
                                   [1, 1, 1]]])
 
-    test = np.array([[[2, 1, 1],
-                      [1, 0, 1],
+    test = np.array([[[1, 1, 1],
+                      [1, 2, 1],
                       [1, 1, 1]]])
 
     test_2 = np.array([[[0, 2, 1, 1, 1],
@@ -179,12 +196,41 @@ def main():
                                  [0, 0, 0],
                                  [1, 0, 1]]])
 
-    other_target_map = a_big_h
+    pyramid = np.array([[[2, 1, 1, 1, 1, 1, 1],
+                         [1, 1, 1, 1, 1, 1, 1],
+                         [1, 1, 1, 1, 1, 1, 1],
+                         [1, 1, 1, 1, 1, 1, 1],
+                         [1, 1, 1, 1, 1, 1, 1],
+                         [1, 1, 1, 1, 1, 1, 1],
+                         [1, 1, 1, 1, 1, 1, 1]],
+                        [[0, 0, 0, 0, 0, 0, 0],
+                         [0, 1, 1, 1, 1, 1, 0],
+                         [0, 1, 1, 1, 1, 1, 0],
+                         [0, 1, 1, 1, 1, 1, 0],
+                         [0, 1, 1, 1, 1, 1, 0],
+                         [0, 1, 1, 1, 1, 1, 0],
+                         [0, 0, 0, 0, 0, 0, 0]],
+                        [[0, 0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0, 0],
+                         [0, 0, 1, 1, 1, 0, 0],
+                         [0, 0, 1, 1, 1, 0, 0],
+                         [0, 0, 1, 1, 1, 0, 0],
+                         [0, 0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0, 0]],
+                        [[0, 0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 1, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0, 0]]])
+
+    other_target_map = test
 
     # offset of the described target occupancy map to the origin (only in x/y directions)
     offset_origin = (60.0, 100.0)
     environment_extent = [150.0, 200.0, 200.0]
-    environment_extent = [500.0, 500.0, 500.0]
+    environment_extent = [300.0, 300.0, 300.0]
 
     # creating Map object and getting the required number of block_list (of each type)
     environment = Map(other_target_map, offset_origin, environment_extent)
@@ -214,7 +260,7 @@ def main():
             processed_counter += 1
 
     # creating the agent_list
-    agent_count = 3
+    agent_count = 1
     agent_type = AgentType.RANDOM_WALK_AGENT
     agent_list = [create_agent(agent_type, [50, 60, 7.5], [40, 40, 15], other_target_map)
                   for _ in range(0, agent_count)]

@@ -6,10 +6,12 @@ from geom.shape import GeomBox
 class Block:
 
     COLORS = {
-        0: "#023256",
-        1: "#0B3C62",
-        2: "#4E6679",
-        3: "#798085"
+        0: "#c70039",
+        1: "#57c785",
+        2: "#ff5733",
+        3: "#00baad",
+        4: "#ffc300",
+        5: "#3d3d6b"
     }
 
     SIZE = 15

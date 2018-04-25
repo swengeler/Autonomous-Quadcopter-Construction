@@ -19,10 +19,11 @@ class AgentType(Enum):
 class Task(Enum):
     FETCH_BLOCK = 0
     TRANSPORT_BLOCK = 1
-    FIND_ATTACHMENT_SITE = 2
-    PLACE_BLOCK = 3
-    MOVE_UP_LAYER = 4
-    FINISHED = 5
+    MOVE_TO_PERIMETER = 2
+    FIND_ATTACHMENT_SITE = 3
+    PLACE_BLOCK = 4
+    MOVE_UP_LAYER = 5
+    FINISHED = 6
 
 
 class Agent:
@@ -162,8 +163,6 @@ class SimpleSeededAgent(Agent):
                 self.current_path.add_position([self.geometry.position[0], self.geometry.position[1],
                                                 transport_level_z])
                 self.current_path.add_position([seed_location[0], seed_location[1], transport_level_z])
-        else:
-            pass
 
         # assuming that the if-statement above takes care of setting the path:
         # collision detection should intervene here if necessary
@@ -177,16 +176,56 @@ class SimpleSeededAgent(Agent):
 
             # if the final point on the path has been reach, search for attachment site should start
             if not ret:
-                self.current_task = Task.FIND_ATTACHMENT_SITE
+                self.current_task = Task.MOVE_TO_PERIMETER
                 self.current_grid_position = np.copy(self.current_seed.grid_position)
                 self.current_path = None
+
+                # since MOVE_TO_PERIMETER is used, the direction to go into is initialised randomly
+                # a better way of doing it would probably be to take the shortest path to the perimeter
+                # using the available knowledge about the current state of the structure
+                self.current_grid_direction = np.array(random.sample([[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0]], 1)[0])
         else:
             self.geometry.position = self.geometry.position + current_direction
 
         # determine path to structure location
 
         # avoid collisions until structure/seed comes in sight
-        pass
+
+    def move_to_perimeter(self, environment: env.map.Map):
+        if self.current_path is None:
+            # move to next block position in designated direction (which could be the shortest path or
+            # just some direction chosen e.g. at the start, which is assumed here)
+            self.current_path = Path()
+            destination_x = (self.current_grid_position + self.current_grid_direction)[0] * Block.SIZE + \
+                            environment.offset_origin[0]
+            destination_y = (self.current_grid_position + self.current_grid_direction)[1] * Block.SIZE + \
+                            environment.offset_origin[1]
+            self.current_path.add_position([destination_x, destination_y, self.geometry.position[2]])
+
+        next_position = self.current_path.next()
+        current_direction = self.current_path.direction_to_next(self.geometry.position)
+        current_direction /= sum(np.sqrt(current_direction ** 2))
+        current_direction *= Agent.MOVEMENT_PER_STEP
+        if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
+            self.geometry.position = next_position
+            ret = self.current_path.advance()
+
+            if not ret:
+                self.current_grid_position += self.current_grid_direction
+                if not environment.check_over_structure(self.geometry.position):
+                    # have reached perimeter
+                    self.current_task = Task.FIND_ATTACHMENT_SITE
+                    print("Reached perimeter: {}, {}".format(self.current_grid_position, self.current_grid_direction))
+                    self.current_grid_direction = np.array(
+                        [-self.current_grid_direction[1], self.current_grid_direction[0], 0], dtype="int32")
+                else:
+                    destination_x = (self.current_grid_position + self.current_grid_direction)[0] * Block.SIZE + \
+                                    environment.offset_origin[0]
+                    destination_y = (self.current_grid_position + self.current_grid_direction)[1] * Block.SIZE + \
+                                    environment.offset_origin[1]
+                    self.current_path.add_position([destination_x, destination_y, self.geometry.position[2]])
+        else:
+            self.geometry.position = self.geometry.position + current_direction
 
     def find_attachment_site(self, environment: env.map.Map):
         # structure should be in view at this point
@@ -203,6 +242,7 @@ class SimpleSeededAgent(Agent):
         if self.current_path is None:
             # path only leads to next possible site (assumption for now is that only block below is known)
             # first go to actual perimeter of structure (correct side of seed block)
+            # THE FOLLOWING IS USED ONLY WHEN THE SEED IS ON THE PERIMETER AND USED AS THE ONLY REFERENCE POINT:
             seed_perimeter = np.copy(seed_block.geometry.position)
             if seed_block.seed_marked_edge == "down":
                 seed_perimeter += np.array([0, -Block.SIZE, 0])
@@ -225,6 +265,9 @@ class SimpleSeededAgent(Agent):
             self.current_path = Path()
             self.current_path.add_position(seed_perimeter)
 
+            # THE FOLLOWING IS USED WHEN THE PERIMETER HAS BEEN FOUND USING MOVE_TO_PERIMETER:
+            # the grid direction is assumed to be correct, so it just has to be turned counter-clockwise
+
         next_position = self.current_path.next()
         current_direction = self.current_path.direction_to_next(self.geometry.position)
         current_direction /= sum(np.sqrt(current_direction ** 2))
@@ -233,6 +276,7 @@ class SimpleSeededAgent(Agent):
             self.geometry.position = next_position
             ret = self.current_path.advance()
             if not ret:
+                print("Corner reached")
                 # corner of the current block reached, assess next action
                 if self.check_target_map(self.current_grid_position) and \
                         (environment.check_occupancy_map(self.current_grid_position + self.current_grid_direction) or
@@ -286,7 +330,9 @@ class SimpleSeededAgent(Agent):
                         self.current_grid_position += self.current_grid_direction
                         # might want to build the above ugliness into the Path class somehow
                         self.current_row_started = True
-                        self.logger.debug("CASE 3: Reached corner of structure, turning counter-clockwise. {} {}".format(self.current_grid_position, self.current_grid_direction))
+                        self.logger.debug(
+                            "CASE 3: Reached corner of structure, turning counter-clockwise. {} {}".format(
+                                self.current_grid_position, self.current_grid_direction))
                         self.current_path.add_position(reference_position + Block.SIZE * self.current_grid_direction)
                     else:
                         # otherwise site "around the corner" occupied -> continue straight ahead
@@ -461,11 +507,9 @@ class SimpleSeededAgent(Agent):
             destination = [Block.SIZE * self.next_seed.grid_position[0] + environment.offset_origin[0],
                            Block.SIZE * self.next_seed.grid_position[1] + environment.offset_origin[1]]
             if self.current_block is not None and all([self.geometry.position[i] == destination[i] for i in range(2)]):
-                # check whether seed block has already been placed
-                print("In position: {}".format(self.next_seed.grid_position))
-                print(environment.occupancy_map)
+                # check whether seed block has already been placed (this assumes that all agents will choose the same
+                # location for the next seed block, which works for now but should probably be changed later)
                 if environment.check_occupancy_map(self.next_seed.grid_position):
-                    print("Already occupied")
                     self.current_block.color = "green"
                     self.current_block.is_seed = False
                     self.current_block.seed_marked_edge = "down"
@@ -478,10 +522,6 @@ class SimpleSeededAgent(Agent):
                     self.next_seed = None
                     self.current_task = Task.TRANSPORT_BLOCK
                     return
-            else:
-                print("Own position: {}".format(self.geometry.position))
-                print("Destination: {}".format(destination))
-                print("Seed grid: {}".format(self.next_seed.grid_position))
 
             # if the final point on the path has been reach, search for attachment site should start
             if not ret:
@@ -567,6 +607,8 @@ class SimpleSeededAgent(Agent):
             self.fetch_block(environment)
         elif self.current_task == Task.TRANSPORT_BLOCK:
             self.transport_block(environment)
+        elif self.current_task == Task.MOVE_TO_PERIMETER:
+            self.move_to_perimeter(environment)
         elif self.current_task == Task.FIND_ATTACHMENT_SITE:
             self.find_attachment_site(environment)
         elif self.current_task == Task.PLACE_BLOCK:
