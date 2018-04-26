@@ -272,6 +272,64 @@ class PerimeterFollowingAgent(Agent):
 
         seed_block = self.current_seed
 
+        if self.current_component_marker != -1:
+            print("FIND_ATTACHMENT_SITE TRIGGERED")
+            tm = np.zeros_like(self.target_map[self.current_structure_level])
+            np.place(tm, self.component_target_map[self.current_structure_level] ==
+                     self.current_component_marker, 1)
+            om = np.copy(environment.occupancy_map[self.current_structure_level])
+            np.place(om, om > 0, 1)
+            np.place(om, self.component_target_map[self.current_structure_level] !=
+                     self.current_component_marker, 0)
+            if np.array_equal(om, tm):
+                # current component completed, see whether there is a different one that should be constructed
+                # NOTE: for now it is assumed that these components are also seeded already, therefore we
+                # can immediately move on to construction
+
+                # checking if unfinished components left
+                candidate_components = []
+                for marker in np.unique(self.component_target_map[self.current_structure_level]):
+                    if marker != 0 and marker != self.current_component_marker:
+                        subset_indices = np.where(
+                            self.component_target_map[self.current_structure_level] == marker)
+                        candidate_values = environment.occupancy_map[self.current_structure_level][
+                            subset_indices]
+                        # the following check means that on the occupancy map, this component still has all
+                        # positions unoccupied, i.e. no seed has been placed -> this makes it a candidate
+                        # for placing the currently transported seed there
+                        if np.count_nonzero(candidate_values == 0) > 0:
+                            candidate_components.append(marker)
+
+                if len(candidate_components) > 0:
+                    # choosing one of the candidate components to continue constructing
+                    self.current_component_marker = random.sample(candidate_components, 1)
+                    print("(FIND_ATTACHMENT_SITE) After placing block: unfinished components left, choosing {}".format(
+                        self.current_component_marker))
+                    # getting the coordinates of those positions where the other component already has blocks
+                    correct_locations = np.where(
+                        self.component_target_map[self.current_structure_level] == self.current_component_marker)
+                    correct_locations = list(zip(correct_locations[0], correct_locations[1]))
+                    occupied_locations = np.where(environment.occupancy_map[self.current_structure_level] != 0)
+                    occupied_locations = list(zip(occupied_locations[0], occupied_locations[1]))
+                    occupied_locations = list(set(occupied_locations).intersection(correct_locations))
+                    for b in environment.placed_blocks:
+                        if b.is_seed and b.grid_position[2] == self.current_structure_level \
+                                and (b.grid_position[1], b.grid_position[0]) in occupied_locations:
+                            self.current_seed = b
+                            print("New seed location: {}".format(self.current_seed))
+                            self.current_path = None
+                            self.current_task = Task.TRANSPORT_BLOCK
+                            break
+                else:
+                    if self.current_structure_level >= self.target_map.shape[0] - 1:
+                        self.current_task = Task.FINISHED
+                    else:
+                        self.current_task = Task.MOVE_UP_LAYER
+                        self.current_structure_level += 1
+                        self.current_path = None
+                    self.current_component_marker = -1
+                return
+
         # orientation happens counter-clockwise -> follow seed edge in that direction once its reached
         # can either follow the perimeter itself or just fly over blocks (do the latter for now)
         if self.current_path is None:
@@ -439,10 +497,8 @@ class PerimeterFollowingAgent(Agent):
                     np.place(om, om > 0, 1)
                     np.place(om, self.component_target_map[self.current_structure_level] !=
                              self.current_component_marker, 0)
-                    print("tm: {}".format(tm))
-                    print("om: {}".format(om))
                     if np.array_equal(om, tm):
-                        # current component completed, see whether there is a different one that should constructed
+                        # current component completed, see whether there is a different one that should be constructed
                         # NOTE: for now it is assumed that these components are also seeded already, therefore we
                         # can immediately move on to construction
 
@@ -471,7 +527,8 @@ class PerimeterFollowingAgent(Agent):
                             occupied_locations = list(zip(occupied_locations[0], occupied_locations[1]))
                             occupied_locations = list(set(occupied_locations).intersection(correct_locations))
                             for b in environment.placed_blocks:
-                                if b.is_seed and (b.grid_position[1], b.grid_position[0]) in occupied_locations:
+                                if b.is_seed and b.grid_position[2] == self.current_structure_level \
+                                        and (b.grid_position[1], b.grid_position[0]) in occupied_locations:
                                     self.current_seed = b
                                     print("New seed location: {}".format(self.current_seed))
                                     self.current_path = None
@@ -480,9 +537,11 @@ class PerimeterFollowingAgent(Agent):
                         else:
                             if self.current_structure_level >= self.target_map.shape[0] - 1:
                                 self.current_task = Task.FINISHED
+                            else:
+                                self.current_task = Task.MOVE_UP_LAYER
+                                self.current_structure_level += 1
+                                self.current_path = None
                             self.current_component_marker = -1
-                            self.current_task = Task.MOVE_UP_LAYER
-                            self.current_structure_level += 1
                     else:
                         self.current_task = Task.FETCH_BLOCK
                 else:
@@ -494,6 +553,7 @@ class PerimeterFollowingAgent(Agent):
                     if np.array_equal(om, tm) and self.target_map.shape[0] > self.current_structure_level + 1:
                         self.current_task = Task.MOVE_UP_LAYER
                         self.current_structure_level += 1
+                        self.current_path = None
                     elif np.array_equal(environment.occupancy_map[self.current_structure_level], tm):
                         self.current_task = Task.FINISHED
                         self.logger.info("Construction finished (3).")
@@ -726,7 +786,8 @@ class PerimeterFollowingAgent(Agent):
                         y, x = np.where(environment.occupancy_map[self.current_structure_level] != 0)
                         for b in environment.placed_blocks:
                             for c in zip(x, y):
-                                if b.is_seed and all([b.grid_position[i] == c[i] for i in range(2)]):
+                                if b.is_seed and b.grid_position[2] == self.current_structure_level\
+                                        and all([b.grid_position[i] == c[i] for i in range(2)]):
                                     self.current_seed = b
                                     break
                         print("next_seed = None bc block should be placed rather than used as seed")
@@ -847,6 +908,7 @@ class PerimeterFollowingAgent(Agent):
                             self.current_task = Task.MOVE_UP_LAYER
                             self.current_structure_level += 1
                             self.current_component_marker = -1
+                            self.current_path = None
                         elif np.array_equal(om, tm):
                             self.current_task = Task.FINISHED
                             self.logger.info("Construction finished (1).")

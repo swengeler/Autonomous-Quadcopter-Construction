@@ -150,8 +150,8 @@ def main():
                          [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]]])
 
     target_map = np.array([[[2, 1, 1],
-                                  [1, 1, 1],
-                                  [1, 1, 1]]])
+                            [1, 1, 1],
+                            [1, 1, 1]]])
 
     test = np.array([[[1, 1, 1],
                       [1, 2, 1],
@@ -381,7 +381,52 @@ def main():
                               [1, 1, 1, 1],
                               [1, 1, 1, 1]]])
 
-    target_map = multi_component_test
+    alternating_tower = np.array([[[1, 1, 1, 1],
+                                   [1, 2, 1, 1],
+                                   [1, 1, 1, 1],
+                                   [1, 1, 1, 1]],
+
+                                  [[1, 0, 0, 1],
+                                   [1, 0, 0, 1],
+                                   [1, 0, 0, 1],
+                                   [1, 0, 0, 1]],
+
+                                  [[1, 1, 1, 1],
+                                   [0, 0, 0, 0],
+                                   [0, 0, 0, 0],
+                                   [1, 1, 1, 1]],
+
+                                  [[1, 0, 0, 1],
+                                   [1, 0, 0, 1],
+                                   [1, 0, 0, 1],
+                                   [1, 0, 0, 1]],
+
+                                  [[1, 1, 1, 1],
+                                   [0, 0, 0, 0],
+                                   [0, 0, 0, 0],
+                                   [1, 1, 1, 1]],
+
+                                  [[1, 0, 0, 1],
+                                   [1, 0, 0, 1],
+                                   [1, 0, 0, 1],
+                                   [1, 0, 0, 1]],
+
+                                  [[1, 1, 1, 1],
+                                   [0, 0, 0, 0],
+                                   [0, 0, 0, 0],
+                                   [1, 1, 1, 1]],
+
+                                  [[1, 0, 0, 1],
+                                   [1, 0, 0, 1],
+                                   [1, 0, 0, 1],
+                                   [1, 0, 0, 1]],
+
+                                  [[1, 1, 1, 1],
+                                   [1, 1, 1, 1],
+                                   [1, 1, 1, 1],
+                                   [1, 1, 1, 1]]])
+
+    target_map = alternating_tower
 
     palette_block = list(sns.color_palette("Blues_d", target_map.shape[0]))
     palette_seed = list(sns.color_palette("Reds_d", target_map.shape[0]))
@@ -393,7 +438,7 @@ def main():
         hex_palette_block.append("#{:02x}{:02x}{:02x}".format(*rgb_block))
         hex_palette_seed.append("#{:02x}{:02x}{:02x}".format(*rgb_seed))
     Block.COLORS_BLOCKS = hex_palette_block
-    Block.COLORS_SEEDS= hex_palette_seed
+    Block.COLORS_SEEDS = hex_palette_seed
 
     # offset of the described target occupancy map to the origin (only in x/y directions)
     offset_origin = (60.0, 100.0)
@@ -430,7 +475,7 @@ def main():
             processed_counter += 1
 
     # creating the agent_list
-    agent_count = 1
+    agent_count = 2
     agent_type = AgentType.RANDOM_WALK_AGENT
     agent_list = [create_agent(agent_type, [50, 60, 7.5], [40, 40, 15], target_map)
                   for _ in range(0, agent_count)]
@@ -495,4 +540,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
