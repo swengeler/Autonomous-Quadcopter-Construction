@@ -21,9 +21,9 @@ class Editor2D(Tk):
 
         # super necessary GUI variables
         self.row_variable = IntVar()
-        self.row_variable.set(1)
+        self.row_variable.set(4)
         self.column_variable = IntVar()
-        self.column_variable.set(1)
+        self.column_variable.set(4)
 
         # GUI elements
         self.canvas = None
@@ -178,7 +178,7 @@ class Editor2D(Tk):
             button_copy.grid(row=0, column=0, sticky="NSEW")
 
             text_window = Text(new_window, height=20, width=70)
-            text_window.config(font=("roboto", 10), undo=True, wrap="word")
+            text_window.config(font=("parts of the structureroboto", 10), undo=True, wrap="word")
             text_window.grid(row=1, column=0, sticky="NSEW")
 
             scrollbar = Scrollbar(new_window, command=text_window.yview)

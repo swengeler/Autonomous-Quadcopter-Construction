@@ -5,15 +5,8 @@ from geom.shape import GeomBox
 
 class Block:
 
-    COLORS = {
-        "seed": "black",
-        0: "#c70039",
-        1: "#57c785",
-        2: "#ff5733",
-        3: "#00baad",
-        4: "#ffc300",
-        5: "#3d3d6b"
-    }
+    COLORS_SEEDS = ["red"]
+    COLORS_BLOCKS = ["blue"]
 
     SIZE = 15
 
@@ -42,5 +35,7 @@ class Block:
     @grid_position.setter
     def grid_position(self, grid_position):
         self.__grid_position = grid_position
-        if not self.is_seed and self.__grid_position[2] <= 5:
-            self.color = Block.COLORS[self.__grid_position[2]]
+        if self.is_seed:
+            self.color = Block.COLORS_SEEDS[self.__grid_position[2]]
+        else:
+            self.color = Block.COLORS_BLOCKS[self.__grid_position[2]]

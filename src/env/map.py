@@ -1,4 +1,5 @@
 import numpy as np
+import seaborn as sns
 import logging
 import env.block
 from typing import List, Tuple
@@ -68,7 +69,7 @@ class Map:
         return np.count_nonzero(self.target_map)
 
     def seed_position(self):
-        z, y, x = np.where(self.target_map == 2)
+        y, x = np.where(self.target_map[0] == 2)
         return x[0] * env.block.Block.SIZE + self.offset_origin[0], \
                y[0] * env.block.Block.SIZE + self.offset_origin[1], \
                env.block.Block.SIZE / 2  # + env.block.Block.SIZE

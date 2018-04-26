@@ -87,11 +87,6 @@ def main():
     # could use "requirements" class or dictionary to specify that a certain block should be in a certain place
     # 1: occupied
     # 2: seed
-    target_map = np.array([[[0, 1, 0, 0, 0, 1],
-                            [1, 1, 1, 1, 1, 1],
-                            [2, 1, 1, 1, 0, 0],
-                            [0, 0, 1, 1, 0, 0],
-                            [0, 0, 1, 0, 0, 0]]])
 
     a_big_h = np.array([[[2, 1, 0, 0, 1, 1],
                          [1, 1, 0, 0, 1, 1],
@@ -154,7 +149,7 @@ def main():
                          [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
                          [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]]])
 
-    other_target_map = np.array([[[2, 1, 1],
+    target_map = np.array([[[2, 1, 1],
                                   [1, 1, 1],
                                   [1, 1, 1]]])
 
@@ -265,7 +260,140 @@ def main():
                        [1, 1, 1, 1],
                        [1, 1, 1, 1]]])
 
-    other_target_map = tower
+    thing = np.array([[[2, 1, 1, 1, 1, 1],
+                       [1, 1, 1, 1, 1, 1],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 1, 1, 1, 1],
+                       [1, 1, 1, 1, 1, 1]],
+
+                      [[1, 1, 1, 1, 1, 1],
+                       [1, 1, 1, 1, 1, 1],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 1, 1, 1, 1],
+                       [1, 1, 1, 1, 1, 1]],
+
+                      [[1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0]],
+
+                      [[1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0]],
+
+                      [[1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0]],
+
+                      [[1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0]],
+
+                      [[1, 1, 1, 1, 1, 1],
+                       [1, 1, 1, 1, 1, 1],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 1, 1, 1, 1],
+                       [1, 1, 1, 1, 1, 1]],
+
+                      [[1, 1, 1, 1, 1, 1],
+                       [1, 1, 1, 1, 1, 1],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 0, 0, 0, 0],
+                       [1, 1, 1, 1, 1, 1],
+                       [1, 1, 1, 1, 1, 1]]])
+
+    asymmetry_test = np.array([[[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                                [2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]],
+
+                               [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]],
+
+                               [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]]])
+
+    multi_component_test = np.array([[[2, 1, 1],
+                                      [1, 1, 1],
+                                      [1, 1, 1]],
+                                     [[1, 0, 1],
+                                      [1, 0, 1],
+                                      [1, 0, 1]],
+                                     [[1, 0, 1],
+                                      [1, 0, 1],
+                                      [1, 0, 1]]])
+
+    tower_stilts = np.array([[[2, 1, 1, 1],
+                              [1, 1, 1, 1],
+                              [1, 1, 1, 1],
+                              [1, 1, 1, 1]],
+
+                             [[1, 0, 0, 1],
+                              [0, 0, 0, 0],
+                              [0, 0, 0, 0],
+                              [1, 0, 0, 1]],
+
+                             [[1, 0, 0, 1],
+                              [0, 0, 0, 0],
+                              [0, 0, 0, 0],
+                              [1, 0, 0, 1]],
+
+                             [[1, 0, 0, 1],
+                              [0, 0, 0, 0],
+                              [0, 0, 0, 0],
+                              [1, 0, 0, 1]],
+
+                             [[1, 0, 0, 1],
+                              [0, 0, 0, 0],
+                              [0, 0, 0, 0],
+                              [1, 0, 0, 1]],
+
+                             [[1, 0, 0, 1],
+                              [0, 0, 0, 0],
+                              [0, 0, 0, 0],
+                              [1, 0, 0, 1]],
+
+                             [[1, 0, 0, 1],
+                              [0, 0, 0, 0],
+                              [0, 0, 0, 0],
+                              [1, 0, 0, 1]],
+
+                             [[1, 1, 1, 1],
+                              [1, 1, 1, 1],
+                              [1, 1, 1, 1],
+                              [1, 1, 1, 1]]])
+
+    target_map = multi_component_test
+
+    palette_block = list(sns.color_palette("Blues_d", target_map.shape[0]))
+    palette_seed = list(sns.color_palette("Reds_d", target_map.shape[0]))
+    hex_palette_block = []
+    hex_palette_seed = []
+    for i in range(len(palette_block)):
+        rgb_block = (int(palette_block[i][0] * 255), int(palette_block[i][1] * 255), int(palette_block[i][2] * 255))
+        rgb_seed = (int(palette_seed[i][0] * 255), int(palette_seed[i][1] * 255), int(palette_seed[i][2] * 255))
+        hex_palette_block.append("#{:02x}{:02x}{:02x}".format(*rgb_block))
+        hex_palette_seed.append("#{:02x}{:02x}{:02x}".format(*rgb_seed))
+    Block.COLORS_BLOCKS = hex_palette_block
+    Block.COLORS_SEEDS= hex_palette_seed
 
     # offset of the described target occupancy map to the origin (only in x/y directions)
     offset_origin = (60.0, 100.0)
@@ -273,8 +401,10 @@ def main():
     environment_extent = [300.0, 300.0, 300.0]
 
     # creating Map object and getting the required number of block_list (of each type)
-    environment = Map(other_target_map, offset_origin, environment_extent)
+    environment = Map(target_map, offset_origin, environment_extent)
     block_count = environment.required_blocks()
+
+    print(block_count)
 
     # creating the block_list and a list of initial positions
     block_list = []
@@ -284,7 +414,7 @@ def main():
     # block positions, (for now) only x and y required
     block_list[0].is_seed = True
     block_list[0].placed = True
-    block_list[0].color = Block.COLORS["seed"]
+    # block_list[0].color = Block.COLORS_SEEDS[0]
     block_list[0].geometry = GeomBox(list(environment.seed_position()), [Block.SIZE] * 3, 0.0)
     block_list[0].grid_position = environment.seed_grid_position()
     block_list[0].seed_marked_edge = "down"
@@ -302,7 +432,7 @@ def main():
     # creating the agent_list
     agent_count = 1
     agent_type = AgentType.RANDOM_WALK_AGENT
-    agent_list = [create_agent(agent_type, [50, 60, 7.5], [40, 40, 15], other_target_map)
+    agent_list = [create_agent(agent_type, [50, 60, 7.5], [40, 40, 15], target_map)
                   for _ in range(0, agent_count)]
 
     processed_counter = 0
@@ -365,3 +495,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
