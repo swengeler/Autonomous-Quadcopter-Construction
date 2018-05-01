@@ -61,13 +61,14 @@ class Editor2D(Tk):
             for x in range(self.layers[self.current_layer].shape[1]):
                 if self.layers[self.current_layer, y, x] > 0:
                     x_start = self.padding[0] + x * self.cell_size
-                    y_start = self.padding[1] + y * self.cell_size
+                    y_start = self.padding[1] + (self.number_rows - 1 - y) * self.cell_size
                     self.canvas.create_rectangle(x_start, y_start, x_start + self.cell_size, y_start + self.cell_size,
                                                  fill=("#329134" if self.layers[self.current_layer, y, x] == 1 else
                                                        "#b53030"))
 
     def setup(self):
         self.wm_title("Map editor")
+        self.wm_minsize(800, 400)
 
         for i in range(50):
             self.rowconfigure(i, weight=1)
@@ -81,11 +82,11 @@ class Editor2D(Tk):
             if closest_y > self.number_rows - 1 or closest_x > self.number_columns - 1:
                 return
             if button == "left":
-                self.layers[self.current_layer, closest_y, closest_x] = 1
+                self.layers[self.current_layer, self.number_rows - 1 - closest_y, closest_x] = 1
             elif button == "middle":
-                self.layers[self.current_layer, closest_y, closest_x] = 2
+                self.layers[self.current_layer, self.number_rows - 1 - closest_y, closest_x] = 2
             elif button == "right":
-                self.layers[self.current_layer, closest_y, closest_x] = 0
+                self.layers[self.current_layer, self.number_rows - 1 - closest_y, closest_x] = 0
             self.redraw()
 
         self.canvas = Canvas(self)

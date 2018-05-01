@@ -14,6 +14,14 @@ class GeomBox:
         self.__size = np.array(size)
         self.__rotation = rotation  # rotation in radians
         self.attached_geometries = []
+        self.following_geometries = []
+
+    def set_to_match(self, other_geometry):
+        self.position = other_geometry.position
+        self.size = other_geometry.size
+        self.rotation = other_geometry.rotation
+        for g in other_geometry.attached_geometries:
+            self.attached_geometries.append(g)
 
     @property
     def position(self):
@@ -24,6 +32,8 @@ class GeomBox:
         difference = np.array(position) - self.__position
         self.__position += difference
         for g in self.attached_geometries:
+            g.position += difference
+        for g in self.following_geometries:
             g.position += difference
 
     @property
@@ -43,6 +53,8 @@ class GeomBox:
         difference = rotation - self.__rotation
         self.__rotation += difference
         for g in self.attached_geometries:
+            g.position += difference
+        for g in self.following_geometries:
             g.position += difference
 
     def normals_2d(self):
@@ -70,7 +82,7 @@ class GeomBox:
         # check if overlap in height occurs
         if not interval_overlaps(self.position[2] - self.size[2] / 2, self.position[2] + self.size[2] / 2,
                                  other.position[2] - other.size[2] / 2, other.position[2] + other.size[2] / 2):
-            return False
+            return any([g.overlaps(other) for g in self.attached_geometries])
 
         points_self = list(self.corner_points_2d())
         normals_self = list(self.normals_2d())
@@ -89,7 +101,7 @@ class GeomBox:
                 min_other = min(min_other, dot)
                 max_other = max(max_other, dot)
             if not interval_overlaps(min_self, max_self, min_other, max_other):
-                return False
+                return any([g.overlaps(other) for g in self.attached_geometries])
 
         for n in normals_other:
             min_self = min_other = float("inf")
@@ -103,7 +115,7 @@ class GeomBox:
                 min_other = min(min_other, dot)
                 max_other = max(max_other, dot)
             if not interval_overlaps(min_self, max_self, min_other, max_other):
-                return False
+                return any([g.overlaps(other) for g in self.attached_geometries])
 
         # compute all normals for both rectangles (pretty easy since they are rectangles rotated only around z)
 
@@ -111,6 +123,12 @@ class GeomBox:
 
         # check if there is overlap between them, if not done, if yes keep trying
         return True
+
+    def geometry_is_attached(self, other):
+        for g in self.attached_geometries:
+            if g[0] is other:
+                return True
+        return False
 
     def distance_3d(self, other):
         return np.sqrt((self.position[0] - other.position[0]) ** 2 +

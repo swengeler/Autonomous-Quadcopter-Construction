@@ -80,7 +80,7 @@ def main():
     logger = logging.getLogger(__name__)
 
     # setting global parameters
-    interval = 0.2
+    interval = 0.3
     paused = False
 
     # creating the target map
@@ -153,8 +153,8 @@ def main():
                             [1, 1, 1],
                             [1, 1, 1]]])
 
-    test = np.array([[[1, 1, 1],
-                      [1, 2, 1],
+    test = np.array([[[1, 2, 1],
+                      [1, 0, 1],
                       [1, 1, 1]]])
 
     test_2 = np.array([[[0, 2, 1, 1, 1],
@@ -426,7 +426,118 @@ def main():
                                    [1, 1, 1, 1],
                                    [1, 1, 1, 1]]])
 
-    target_map = alternating_tower
+    cycle_test = np.array([[[1, 1, 1, 1, 1],
+                            [1, 1, 2, 1, 1],
+                            [1, 1, 0, 1, 1],
+                            [1, 1, 1, 1, 1],
+                            [1, 1, 1, 1, 1]]])
+
+    irregular_cycle_test = np.array([[[0, 0, 1, 2, 1, 1, 0, 0],
+                                      [1, 1, 1, 0, 0, 1, 1, 0],
+                                      [1, 0, 0, 0, 0, 0, 1, 1],
+                                      [1, 1, 0, 0, 0, 0, 0, 1],
+                                      [0, 1, 0, 0, 0, 1, 1, 1],
+                                      [0, 1, 1, 1, 1, 1, 0, 0]]])
+
+    simple_rectangle_10x10 = np.array([[[1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                                        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                                        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                                        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                                        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                                        [1, 1, 1, 1, 2, 1, 1, 1, 1, 1],
+                                        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                                        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                                        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                                        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]]])
+
+    corner_less_test = np.array([[[2, 1, 1, 1, 1, 1],
+                                  [1, 1, 0, 0, 1, 1],
+                                  [1, 1, 0, 0, 1, 1],
+                                  [1, 1, 1, 1, 0, 0],
+                                  [1, 1, 1, 1, 0, 0],
+                                  [1, 1, 1, 1, 0, 0]]])
+
+    double_hole_test = np.array([[[2, 1, 0, 1, 1],
+                                  [1, 1, 0, 0, 1],
+                                  [1, 0, 0, 0, 1],
+                                  [1, 1, 1, 1, 1],
+                                  [1, 0, 0, 1, 1],
+                                  [1, 0, 0, 0, 1],
+                                  [1, 1, 1, 1, 1]]])
+
+    quadruple_hole_test = np.array([[[1, 2, 1, 1, 1, 1, 1],
+                                     [1, 0, 0, 1, 0, 0, 1],
+                                     [1, 0, 0, 1, 0, 0, 1],
+                                     [1, 1, 1, 1, 1, 1, 1],
+                                     [1, 0, 0, 1, 0, 0, 1],
+                                     [1, 0, 0, 1, 0, 0, 1],
+                                     [1, 1, 1, 1, 1, 1, 1]]])
+
+    sextuple_hole_test = np.array([[[2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                                    [0, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 1],
+                                    [0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 1],
+                                    [0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1],
+                                    [0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1],
+                                    [0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0],
+                                    [1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+                                    [1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1],
+                                    [1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1],
+                                    [1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1],
+                                    [1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1],
+                                    [1, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1],
+                                    [1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1],
+                                    [1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0]]])
+
+    tower_loop = np.array([[[2, 1, 1, 1, 1, 1, 1],
+                            [1, 0, 0, 1, 0, 0, 1],
+                            [1, 0, 0, 1, 0, 0, 1],
+                            [1, 1, 1, 1, 1, 1, 1]],
+
+                           [[1, 1, 1, 1, 1, 1, 1],
+                            [1, 0, 0, 1, 0, 0, 1],
+                            [1, 0, 0, 1, 0, 0, 1],
+                            [1, 1, 1, 1, 1, 1, 1]],
+
+                           [[1, 1, 1, 1, 1, 1, 1],
+                            [1, 0, 0, 1, 0, 0, 1],
+                            [1, 0, 0, 1, 0, 0, 1],
+                            [1, 1, 1, 1, 1, 1, 1]],
+
+                           [[1, 1, 1, 1, 1, 1, 1],
+                            [1, 0, 0, 1, 0, 0, 1],
+                            [1, 0, 0, 1, 0, 0, 1],
+                            [1, 1, 1, 1, 1, 1, 1]],
+
+                           [[1, 1, 1, 1, 1, 1, 1],
+                            [1, 0, 0, 1, 0, 0, 1],
+                            [1, 0, 0, 1, 0, 0, 1],
+                            [1, 1, 1, 1, 1, 1, 1]],
+
+                           [[1, 1, 1, 1, 1, 1, 1],
+                            [1, 0, 0, 1, 0, 0, 1],
+                            [1, 0, 0, 1, 0, 0, 1],
+                            [1, 1, 1, 1, 1, 1, 1]],
+
+                           [[1, 1, 1, 1, 1, 1, 1],
+                            [1, 1, 1, 1, 1, 1, 1],
+                            [1, 1, 1, 1, 1, 1, 1],
+                            [1, 1, 1, 1, 1, 1, 1]]])
+
+    mixed_corner_test = np.array([[[2, 1, 1, 1, 1, 1],
+                                   [1, 0, 0, 0, 0, 1],
+                                   [1, 0, 1, 1, 1, 1],
+                                   [1, 0, 1, 0, 0, 1],
+                                   [1, 0, 1, 0, 0, 1],
+                                   [1, 1, 1, 1, 1, 0]]])
+
+    mixed_corner_test_2 = np.array([[[0, 1, 1, 2, 1, 1],
+                                     [1, 0, 0, 1, 0, 1],
+                                     [1, 0, 0, 1, 0, 1],
+                                     [1, 1, 1, 1, 0, 1],
+                                     [1, 0, 0, 1, 1, 1],
+                                     [0, 1, 1, 1, 0, 0]]])
+
+    target_map = mixed_corner_test_2
 
     palette_block = list(sns.color_palette("Blues_d", target_map.shape[0]))
     palette_seed = list(sns.color_palette("Reds_d", target_map.shape[0]))
@@ -441,15 +552,13 @@ def main():
     Block.COLORS_SEEDS = hex_palette_seed
 
     # offset of the described target occupancy map to the origin (only in x/y directions)
-    offset_origin = (60.0, 100.0)
+    offset_origin = (100.0, 100.0)
     environment_extent = [150.0, 200.0, 200.0]
-    environment_extent = [300.0, 300.0, 300.0]
+    environment_extent = [500.0] * 3
 
     # creating Map object and getting the required number of block_list (of each type)
     environment = Map(target_map, offset_origin, environment_extent)
     block_count = environment.required_blocks()
-
-    print(block_count)
 
     # creating the block_list and a list of initial positions
     block_list = []
@@ -469,15 +578,19 @@ def main():
         candidate_x = random.uniform(0.0, environment.environment_extent[0])
         candidate_y = random.uniform(0.0, environment.environment_extent[1])
         candidate_box = GeomBox([candidate_x, candidate_y, Block.SIZE / 2], [Block.SIZE] * 3, 0.0)
-        if all([not candidate_box.overlaps(p.geometry) for p in processed]):
-            block_list[processed_counter].geometry = candidate_box
+        if not ((environment.offset_origin[0] <= candidate_x <= environment.offset_origin[0]
+                 + Block.SIZE * environment.target_map.shape[2]) or
+                (environment.offset_origin[1] <= candidate_y <= environment.offset_origin[1]
+                 + Block.SIZE * environment.target_map.shape[1])) \
+                and all([not candidate_box.overlaps(p.geometry) for p in processed]):
+            block_list[processed_counter].geometry.set_to_match(candidate_box)
             processed.append(block_list[processed_counter])
             processed_counter += 1
 
     # creating the agent_list
     agent_count = 2
     agent_type = AgentType.RANDOM_WALK_AGENT
-    agent_list = [create_agent(agent_type, [50, 60, 7.5], [40, 40, 15], target_map)
+    agent_list = [create_agent(agent_type, [50, 60, 7.5], [40, 40, 15], target_map, 10.0)
                   for _ in range(0, agent_count)]
 
     processed_counter = 0
@@ -487,7 +600,7 @@ def main():
         candidate_box = GeomBox([candidate_x, candidate_y, agent_list[processed_counter].geometry.size[2] / 2],
                                 agent_list[processed_counter].geometry.size, 0.0)
         if all([not candidate_box.overlaps(p.geometry) for p in processed]):
-            agent_list[processed_counter].geometry = candidate_box
+            agent_list[processed_counter].geometry.set_to_match(candidate_box)
             processed.append(agent_list[processed_counter])
             processed_counter += 1
 
@@ -513,6 +626,8 @@ def main():
             if not paused:
                 for a in agent_list:
                     a.advance(environment)
+                # if len(agent_list) > 1 and agent_list[0].collision_potential(agent_list[1]):
+                #     paused = True
                 environment.update()
             # submit_to_tkinter(update_window, environment)
             request_queue.put(Graphics2D.UPDATE_REQUEST)

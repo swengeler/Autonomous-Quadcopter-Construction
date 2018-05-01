@@ -8,7 +8,7 @@ from abc import ABCMeta, abstractmethod
 from env.block import Block
 from geom.shape import *
 from geom.path import Path
-from geom.util import simple_distance
+from geom.util import simple_distance, rotation_2d, rotation_2d_experimental
 
 np.seterr(divide='ignore', invalid='ignore')
 
@@ -27,6 +27,18 @@ class Task(Enum):
     FINISHED = 6
 
 
+def check_map(map_to_check, position, comparator=lambda x: x != 0):
+    if any(position < 0):
+        return comparator(0)
+    try:
+        temp = map_to_check[tuple(np.flip(position, 0))]
+    except IndexError:
+        return comparator(0)
+    else:
+        val = comparator(temp)
+        return val
+
+
 class Agent:
     __metaclass__ = ABCMeta
 
@@ -40,6 +52,17 @@ class Agent:
         self.logger = logging.getLogger(self.__class__.__name__)
 
         self.geometry = GeomBox(position, size, 0.0)
+        self.collision_avoidance_geometry = GeomBox(position,
+                                                    [size[0] + required_spacing * 2,
+                                                     size[1] + required_spacing * 2,
+                                                     size[2] + required_spacing * 2], 0.0)
+        self.collision_avoidance_geometry_with_block = GeomBox([position[0], position[1],
+                                                                position[2] - (Block.SIZE - size[2]) / 2 - size[2] / 2],
+                                                               [size[0] + required_spacing * 2,
+                                                                size[1] + required_spacing * 2,
+                                                                size[2] + Block.SIZE + required_spacing * 2], 0.0)
+        self.geometry.following_geometries.append(self.collision_avoidance_geometry)
+        self.geometry.following_geometries.append(self.collision_avoidance_geometry_with_block)
         self.target_map = target_map
         self.component_target_map = None
         self.required_spacing = required_spacing
@@ -67,16 +90,26 @@ class Agent:
     def overlaps(self, other):
         return self.geometry.overlaps(other.geometry)
 
-    def check_target_map(self, position, comparator=lambda x: x != 0):
-        if any(position < 0):
-            return comparator(0)
-        try:
-            temp = self.target_map[tuple(np.flip(position, 0))]
-        except IndexError:
-            return comparator(0)
+    def collision_potential(self, other):
+        # check whether self and other have other geometries attached
+        # find midpoint of collective geometries
+        # compute minimum required distance to not physically collide
+        # check whether distance is large enough
+
+        # OR: use collision box and check overlap
+        if self.current_block is not None and self.current_block.geometry in self.geometry.following_geometries:
+            # block is attached, use collision_avoidance_geometry_with_block geometry
+            if other.current_block is not None and other.current_block.geometry in other.geometry.following_geometries:
+                return self.collision_avoidance_geometry_with_block.overlaps(
+                    other.collision_avoidance_geometry_with_block)
+            else:
+                return self.collision_avoidance_geometry_with_block.overlaps(other.collision_avoidance_geometry)
         else:
-            val = comparator(temp)
-            return val
+            # no block attached, check only quadcopter
+            if other.current_block is not None and other.current_block.geometry in other.geometry.following_geometries:
+                return self.collision_avoidance_geometry.overlaps(other.collision_avoidance_geometry_with_block)
+            else:
+                return self.collision_avoidance_geometry.overlaps(other.collision_avoidance_geometry)
 
 
 class CollisionAvoidanceAgent(Agent):
@@ -85,7 +118,7 @@ class CollisionAvoidanceAgent(Agent):
                  position: List[float],
                  size: List[float],
                  target_map: np.ndarray,
-                 required_spacing: float = 10):
+                 required_spacing: float = 5.0):
         super(CollisionAvoidanceAgent, self).__init__(position, size, target_map, required_spacing)
         self.block_locations_known = True
         self.structure_location_known = True
@@ -105,11 +138,13 @@ class PerimeterFollowingAgent(Agent):
                  position: List[float],
                  size: List[float],
                  target_map: np.ndarray,
-                 required_spacing: float = 10):
+                 required_spacing: float = 5.0):
         super(PerimeterFollowingAgent, self).__init__(position, size, target_map, required_spacing)
         self.block_locations_known = True
         self.structure_location_known = True
+        self.collision_possible = False
         self.component_target_map = self.split_into_components()
+        self.closing_corners, self.hole_map, self.hole_boundaries = self.find_closing_corners()
         self.logger.setLevel(logging.DEBUG)
 
     def fetch_block(self, environment: env.map.Map):
@@ -158,7 +193,22 @@ class PerimeterFollowingAgent(Agent):
         next_position = self.current_path.next()
         current_direction = self.current_path.direction_to_next(self.geometry.position)
         current_direction /= sum(np.sqrt(current_direction ** 2))
+
+        # do (force field, not planned) collision avoidance
+        if self.collision_possible:
+            for a in environment.agents:
+                if self is not a and self.collision_potential(a):
+                    force_field_vector = np.array([0.0, 0.0, 0.0])
+                    force_field_vector += (self.geometry.position - a.geometry.position)
+                    force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
+                    force_field_vector = rotation_2d(force_field_vector, np.pi / 4)
+                    # force_field_vector = rotation_2d_experimental(force_field_vector, np.pi / 4)
+                    force_field_vector *= 50 / simple_distance(self.geometry.position, a.geometry.position)
+                    current_direction += 2 * force_field_vector
+
+        current_direction /= sum(np.sqrt(current_direction ** 2))
         current_direction *= Agent.MOVEMENT_PER_STEP
+
         if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
             self.geometry.position = next_position
             ret = self.current_path.advance()
@@ -169,7 +219,7 @@ class PerimeterFollowingAgent(Agent):
                 self.current_task = Task.TRANSPORT_BLOCK
                 self.current_path = None
         else:
-            self.geometry.position += current_direction
+            self.geometry.position = self.geometry.position + current_direction
 
         # fly down and pick up block, then switch to TRANSPORT_BLOCK
         pass
@@ -199,7 +249,22 @@ class PerimeterFollowingAgent(Agent):
         next_position = self.current_path.next()
         current_direction = self.current_path.direction_to_next(self.geometry.position)
         current_direction /= sum(np.sqrt(current_direction ** 2))
+
+        # do (force field, not planned) collision avoidance
+        if self.collision_possible:
+            for a in environment.agents:
+                if self is not a and self.collision_potential(a):
+                    force_field_vector = np.array([0.0, 0.0, 0.0])
+                    force_field_vector += (self.geometry.position - a.geometry.position)
+                    force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
+                    force_field_vector = rotation_2d(force_field_vector, np.pi / 4)
+                    # force_field_vector = rotation_2d_experimental(force_field_vector, np.pi / 4)
+                    force_field_vector *= 50 / simple_distance(self.geometry.position, a.geometry.position)
+                    current_direction += 2 * force_field_vector
+
+        current_direction /= sum(np.sqrt(current_direction ** 2))
         current_direction *= Agent.MOVEMENT_PER_STEP
+
         if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
             self.geometry.position = next_position
             ret = self.current_path.advance()
@@ -217,6 +282,7 @@ class PerimeterFollowingAgent(Agent):
                     # include leading the agent to an area where it is likely to find an attachment site soon)
                     self.current_grid_direction = np.array(
                         random.sample([[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0]], 1)[0])
+                    # self.current_grid_direction = [0, -1, 0]
                 else:
                     self.current_task = Task.FIND_ATTACHMENT_SITE
                 # TODO: check whether current component is finished, if yes, check whether others are not yet
@@ -241,14 +307,54 @@ class PerimeterFollowingAgent(Agent):
         next_position = self.current_path.next()
         current_direction = self.current_path.direction_to_next(self.geometry.position)
         current_direction /= sum(np.sqrt(current_direction ** 2))
+
+        # do (force field, not planned) collision avoidance
+        if self.collision_possible:
+            for a in environment.agents:
+                if self is not a and self.collision_potential(a):
+                    force_field_vector = np.array([0.0, 0.0, 0.0])
+                    force_field_vector += (self.geometry.position - a.geometry.position)
+                    force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
+                    force_field_vector = rotation_2d(force_field_vector, np.pi / 4)
+                    # force_field_vector = rotation_2d_experimental(force_field_vector, np.pi / 4)
+                    force_field_vector *= 50 / simple_distance(self.geometry.position, a.geometry.position)
+                    current_direction += 2 * force_field_vector
+
+        current_direction /= sum(np.sqrt(current_direction ** 2))
         current_direction *= Agent.MOVEMENT_PER_STEP
+
         if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
             self.geometry.position = next_position
             ret = self.current_path.advance()
 
             if not ret:
                 self.current_grid_position += self.current_grid_direction
-                if not environment.check_over_structure(self.geometry.position, self.current_structure_level):
+                # TODO: don't cheat when checking whether the hole is closed
+                # could e.g. try to go to perimeter and when revisiting the same site on attachment site finding,
+                # you know that you must be either in a hole or might have to move up a layer
+                try:
+                    # print("CHECK AT {}".format(self.current_grid_position))
+                    # print("RESULTS IN {}".format(self.hole_map[
+                    #     self.current_grid_position[2], self.current_grid_position[1], self.current_grid_position[0]]))
+                    # print("AND FURTHER IN {}".format(self.hole_boundaries[self.hole_map[
+                    #     self.current_grid_position[2], self.current_grid_position[1], self.current_grid_position[0]]]))
+                    # print("GIVING: {}".format(environment.occupancy_map[self.hole_boundaries[self.hole_map[
+                    #     self.current_grid_position[2], self.current_grid_position[1], self.current_grid_position[
+                    #         0]]]]))
+                    # print("CHECK: \n{}".format(environment.occupancy_map[self.hole_boundaries[self.hole_map[
+                    #     self.current_grid_position[2], self.current_grid_position[1], self.current_grid_position[
+                    #         0]]]]))
+                    # this is basically getting all values of the occupancy map at the locations where the hole map
+                    # has the value of the hole which we are currently over
+                    result = all(environment.occupancy_map[self.hole_boundaries[self.hole_map[
+                        self.current_grid_position[2], self.current_grid_position[1], self.current_grid_position[
+                            0]]]] != 0)
+                    # print("CHECKING OVER HOLE, BUT HOLE IS NOT CLOSED YET")
+                except (IndexError, KeyError):
+                    result = False
+
+                if not environment.check_over_structure(self.geometry.position, self.current_structure_level) and \
+                        (check_map(self.hole_map, self.current_grid_position, lambda x: x < 2) or not result):
                     # have reached perimeter
                     self.current_task = Task.FIND_ATTACHMENT_SITE
                     self.current_grid_direction = np.array(
@@ -364,34 +470,87 @@ class PerimeterFollowingAgent(Agent):
         next_position = self.current_path.next()
         current_direction = self.current_path.direction_to_next(self.geometry.position)
         current_direction /= sum(np.sqrt(current_direction ** 2))
+
+        # do (force field, not planned) collision avoidance
+        if self.collision_possible:
+            for a in environment.agents:
+                if self is not a and self.collision_potential(a):
+                    force_field_vector = np.array([0.0, 0.0, 0.0])
+                    force_field_vector += (self.geometry.position - a.geometry.position)
+                    force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
+                    force_field_vector = rotation_2d(force_field_vector, np.pi / 4)
+                    # force_field_vector = rotation_2d_experimental(force_field_vector, np.pi / 4)
+                    force_field_vector *= 50 / simple_distance(self.geometry.position, a.geometry.position)
+                    current_direction += 2 * force_field_vector
+
+        current_direction /= sum(np.sqrt(current_direction ** 2))
         current_direction *= Agent.MOVEMENT_PER_STEP
+
         if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
             self.geometry.position = next_position
             ret = self.current_path.advance()
             if not ret:
                 # corner of the current block reached, assess next action
-                if self.check_target_map(self.current_grid_position) and \
+                # TODO: check whether this is the corner of a loop and if so whether it can be closed
+                loop_corner_attachable = False
+                if (self.current_grid_position[2], self.current_grid_position[1], self.current_grid_position[0]) \
+                        in self.closing_corners[self.current_structure_level]:
+                    print("TRYING TO ATTACH AT CORNER OF LOOP, COORDINATES {}".format(self.current_grid_position))
+                    # need to check whether the adjacent blocks have been placed already
+                    counter = 0
+                    surrounded_in_y = False
+                    surrounded_in_x = False
+                    if environment.check_occupancy_map(self.current_grid_position + np.array([0, -1, 0])):
+                        counter += 1
+                        surrounded_in_y = True
+                    if not surrounded_in_y and environment.check_occupancy_map(
+                            self.current_grid_position + np.array([0, 1, 0])):
+                        counter += 1
+                    if environment.check_occupancy_map(self.current_grid_position + np.array([-1, 0, 0])):
+                        counter += 1
+                        surrounded_in_x = True
+                    if not surrounded_in_x and environment.check_occupancy_map(
+                            self.current_grid_position + np.array([1, 0, 0])):
+                        counter += 1
+                    if counter >= 2:
+                        print("CORNER ALREADY SURROUNDED BY ADJACENT BLOCKS")
+                        loop_corner_attachable = True
+                    else:
+                        print("CORNER NOT SURROUNDED BY ADJACENT BLOCKS YET")
+                else:
+                    loop_corner_attachable = True
+                if loop_corner_attachable and check_map(self.target_map, self.current_grid_position) and \
                         (environment.check_occupancy_map(self.current_grid_position + self.current_grid_direction) or
-                         (self.current_row_started and (self.check_target_map(self.current_grid_position +
-                                                                              self.current_grid_direction,
-                                                                              lambda x: x == 0) or
+                         (self.current_row_started and (check_map(self.target_map, self.current_grid_position +
+                                                                                   self.current_grid_direction,
+                                                                  lambda x: x == 0) or
                                                         environment.check_occupancy_map(
                                                             self.current_grid_position + self.current_grid_direction +
                                                             np.array([-self.current_grid_direction[1],
                                                                       self.current_grid_direction[0], 0],
                                                                      dtype="int32"), lambda x: x == 0)))):
-                    # site should be occupied AND
-                    # 1. site ahead has a block (inner corner) OR
-                    # 2. the current "identified" row ends (i.e. no chance of obstructing oneself)
-                    self.current_task = Task.PLACE_BLOCK
-                    self.current_row_started = False
-                    self.current_path = None
-                    log_string = "CASE 1-{}: Attachment site found, block can be placed at {}."
-                    if environment.check_occupancy_map(self.current_grid_position + self.current_grid_direction):
-                        log_string = log_string.format(1, self.current_grid_position)
+
+                    if (environment.check_occupancy_map(self.current_grid_position + np.array([1, 0, 0])) and
+                        environment.check_occupancy_map(self.current_grid_position + np.array([-1, 0, 0]))) or \
+                            (environment.check_occupancy_map(self.current_grid_position + np.array([0, 1, 0])) and
+                             environment.check_occupancy_map(self.current_grid_position + np.array([0, -1, 0]))):
+                        self.current_task = Task.FINISHED
+                        self.current_path = None
+                        self.logger.debug("CASE 1-3: Attachment site found, but block cannot be placed at {}."
+                                          .format(self.current_grid_position))
                     else:
-                        log_string = log_string.format(2, self.current_grid_position)
-                    self.logger.debug(log_string)
+                        # site should be occupied AND
+                        # 1. site ahead has a block (inner corner) OR
+                        # 2. the current "identified" row ends (i.e. no chance of obstructing oneself)
+                        self.current_task = Task.PLACE_BLOCK
+                        self.current_row_started = False
+                        self.current_path = None
+                        log_string = "CASE 1-{}: Attachment site found, block can be placed at {}."
+                        if environment.check_occupancy_map(self.current_grid_position + self.current_grid_direction):
+                            log_string = log_string.format(1, self.current_grid_position)
+                        else:
+                            log_string = log_string.format(2, self.current_grid_position)
+                        self.logger.debug(log_string)
                 else:
                     # site should not be occupied -> determine whether to turn a corner or continue, options:
                     # 1. turn right (site ahead occupied)
@@ -519,9 +678,11 @@ class PerimeterFollowingAgent(Agent):
                         if len(candidate_components) > 0:
                             # choosing one of the candidate components to continue constructing
                             self.current_component_marker = random.sample(candidate_components, 1)
-                            print("After placing block: unfinished components left, choosing {}".format(self.current_component_marker))
+                            print("After placing block: unfinished components left, choosing {}".format(
+                                self.current_component_marker))
                             # getting the coordinates of those positions where the other component already has blocks
-                            correct_locations = np.where(self.component_target_map[self.current_structure_level] == self.current_component_marker)
+                            correct_locations = np.where(self.component_target_map[
+                                                             self.current_structure_level] == self.current_component_marker)
                             correct_locations = list(zip(correct_locations[0], correct_locations[1]))
                             occupied_locations = np.where(environment.occupancy_map[self.current_structure_level] != 0)
                             occupied_locations = list(zip(occupied_locations[0], occupied_locations[1]))
@@ -584,16 +745,20 @@ class PerimeterFollowingAgent(Agent):
                                 continue
                             current_adjacent = 0
                             current_free_edges = ["up", "down", "left", "right"]
-                            if allowed_position(i, j + 1) and self.target_map[self.current_structure_level, i, j + 1] > 0:
+                            if allowed_position(i, j + 1) and self.target_map[
+                                self.current_structure_level, i, j + 1] > 0:
                                 current_adjacent += 1
                                 current_free_edges.remove("up")
-                            if allowed_position(i, j - 1) and self.target_map[self.current_structure_level, i, j - 1] > 0:
+                            if allowed_position(i, j - 1) and self.target_map[
+                                self.current_structure_level, i, j - 1] > 0:
                                 current_adjacent += 1
                                 current_free_edges.remove("down")
-                            if allowed_position(i - 1, j) and self.target_map[self.current_structure_level, i - 1, j] > 0:
+                            if allowed_position(i - 1, j) and self.target_map[
+                                self.current_structure_level, i - 1, j] > 0:
                                 current_adjacent += 1
                                 current_free_edges.remove("left")
-                            if allowed_position(i + 1, j) and self.target_map[self.current_structure_level, i + 1, j] > 0:
+                            if allowed_position(i + 1, j) and self.target_map[
+                                self.current_structure_level, i + 1, j] > 0:
                                 current_adjacent += 1
                                 current_free_edges.remove("right")
                             if current_adjacent < min_adjacent:
@@ -616,8 +781,7 @@ class PerimeterFollowingAgent(Agent):
 
                     # pick some connected component on this layer (randomly for now) and get a seed for it
                     unique_values = np.unique(self.component_target_map[self.current_structure_level]).tolist()
-                    if 0 in unique_values:
-                        unique_values.remove(0)
+                    unique_values = [x for x in unique_values if x != 0]
                     self.current_component_marker = random.sample(unique_values, 1)
                     occupied_locations = np.where(
                         self.component_target_map[self.current_structure_level] == self.current_component_marker)
@@ -628,9 +792,12 @@ class PerimeterFollowingAgent(Agent):
                     supported_locations = np.nonzero(self.target_map[self.current_structure_level - 1])
                     supported_locations = list(zip(supported_locations[0], supported_locations[1]))
                     occupied_locations = [x for x in occupied_locations if x in supported_locations]
+                    occupied_locations = [x for x in occupied_locations if (self.current_structure_level, x[0], x[1])
+                                          not in self.closing_corners[self.current_structure_level]]
                     coordinates = random.sample(occupied_locations, 1)
                     min_coordinates = [coordinates[0][1], coordinates[0][0], self.current_structure_level]
                     print("MIN COORDINATES: {}".format(min_coordinates))
+                    print(self.closing_corners)
 
                 min_block = None
                 if self.current_block is None:
@@ -669,9 +836,10 @@ class PerimeterFollowingAgent(Agent):
             if self.current_block is None:
                 self.current_path.add_position(
                     [self.next_seed.geometry.position[0], self.next_seed.geometry.position[1], fetch_level_z])
-                self.current_path.add_position([self.next_seed.geometry.position[0], self.next_seed.geometry.position[1],
-                                                self.next_seed.geometry.position[2] + Block.SIZE / 2 + self.geometry.size[
-                                                    2] / 2])
+                self.current_path.add_position(
+                    [self.next_seed.geometry.position[0], self.next_seed.geometry.position[1],
+                     self.next_seed.geometry.position[2] + Block.SIZE / 2 + self.geometry.size[
+                         2] / 2])
             else:
                 transport_level_z = Block.SIZE * (self.current_structure_level + 3) + \
                                     self.required_spacing + self.geometry.size[2] / 2
@@ -786,7 +954,7 @@ class PerimeterFollowingAgent(Agent):
                         y, x = np.where(environment.occupancy_map[self.current_structure_level] != 0)
                         for b in environment.placed_blocks:
                             for c in zip(x, y):
-                                if b.is_seed and b.grid_position[2] == self.current_structure_level\
+                                if b.is_seed and b.grid_position[2] == self.current_structure_level \
                                         and all([b.grid_position[i] == c[i] for i in range(2)]):
                                     self.current_seed = b
                                     break
@@ -951,6 +1119,145 @@ class PerimeterFollowingAgent(Agent):
                         component_marker += 1
         return self.component_target_map
 
+    def find_closing_corners(self):
+        # for each layer, check whether there are any holes, i.e. 0's that - when flood-filled - only connect to 1's
+        def flood_fill(layer, i, j, marker):
+            if layer[i, j] == 0:
+                layer[i, j] = marker
+
+                if i > 0:
+                    flood_fill(layer, i - 1, j, marker)
+                if i < layer.shape[0] - 1:
+                    flood_fill(layer, i + 1, j, marker)
+                if j > 0:
+                    flood_fill(layer, i, j - 1, marker)
+                if j < layer.shape[1] - 1:
+                    flood_fill(layer, i, j + 1, marker)
+
+        hole_map = np.copy(self.target_map)
+        np.place(hole_map, hole_map > 1, 1)
+        hole_marker = 2
+        valid_markers = []
+        for z in range(hole_map.shape[0]):
+            valid_markers.append([])
+            # use flood fill to identify hole(s)
+            for y in range(hole_map.shape[1]):
+                for x in range(hole_map.shape[2]):
+                    if hole_map[z, y, x] == 0:
+                        flood_fill(hole_map[z], y, x, hole_marker)
+                        valid_markers[z].append(hole_marker)
+                        hole_marker += 1
+
+        print("VALID MARKERS: {}".format(valid_markers))
+        print(hole_map)
+
+        for z in range(len(valid_markers)):
+            temp_copy = valid_markers[z].copy()
+            for m in valid_markers[z]:
+                locations = np.where(hole_map == m)
+                print("FOR MARKER {} LOCATIONS ARE {}".format(m, locations))
+                if 0 in locations[1] or 0 in locations[2] or hole_map.shape[1] - 1 in locations[1] \
+                        or hole_map.shape[2] - 1 in locations[2]:
+                    temp_copy.remove(m)
+                    hole_map[locations] = 0
+                    print("REMOVING MARKER {}".format(m))
+            valid_markers[z][:] = temp_copy
+
+        print("VALID MARKERS AFTER: {}".format(valid_markers))
+
+        # now need to find the enclosing cycles/loops for each hole
+        def boundary_search(layer, z, i, j, marker, visited, c_list):
+            if visited is None:
+                visited = []
+            if not (i, j) in visited and layer[i, j] == marker:
+                visited.append((i, j))
+                if i > 0:
+                    boundary_search(layer, z, i - 1, j, marker, visited, c_list)
+                if i < layer.shape[0] - 1:
+                    boundary_search(layer, z, i + 1, j, marker, visited, c_list)
+                if j > 0:
+                    boundary_search(layer, z, i, j - 1, marker, visited, c_list)
+                if j < layer.shape[1] - 1:
+                    boundary_search(layer, z, i, j + 1, marker, visited, c_list)
+            elif layer[i, j] != marker:
+                c_list.append((z, i, j))
+
+        hole_boundaries = []
+        for z in range(hole_map.shape[0]):
+            hole_boundaries.append([])
+            for m in valid_markers[z]:
+                coord_list = []
+                locations = np.where(hole_map == m)
+                boundary_search(hole_map[z], z, locations[1][0], locations[2][0], m, None, coord_list)
+                coord_list = tuple(np.moveaxis(np.array(coord_list), -1, 0))
+                # hole_map[coord_list] = -m
+                hole_boundaries[z].append(coord_list)
+
+        # hole_map[hole_map < 0] = 1
+
+        hole_corners = []
+        checked_hole_corners = []
+        hole_boundary_coords = dict()
+        for z in range(hole_map.shape[0]):
+            hole_corners.append([])
+            checked_hole_corners.append([])
+            for m_idx, m in enumerate(valid_markers[z]):
+                # find corners as coordinates that are not equal to the marker and adjacent to
+                # two of the boundary coordinates (might only want to look for outside corners though)
+                coord_tuple_list = list(zip(
+                    hole_boundaries[z][m_idx][0], hole_boundaries[z][m_idx][1], hole_boundaries[z][m_idx][2]))
+                hole_boundary_coords[m] = hole_boundaries[z][m_idx]
+                corner_coord_list = []
+                print("HOLE BOUNDARY COORDS FOR {}: {}".format(m, coord_tuple_list))
+                print("HOLE MAP AT THIS POINT:\n{}".format(hole_map))
+                for y in range(hole_map.shape[1]):
+                    for x in range(hole_map.shape[2]):
+                        if hole_map[z, y, x] == 1:
+                            counter = 0
+                            surrounded_in_y = False
+                            surrounded_in_x = False
+                            if y - 1 > 0 and (z, y - 1, x) in coord_tuple_list:
+                                counter += 1
+                                surrounded_in_y = True
+                            if not surrounded_in_y and y + 1 < hole_map.shape[1] and (z, y + 1, x) in coord_tuple_list:
+                                counter += 1
+                            if x - 1 > 0 and (z, y, x - 1) in coord_tuple_list:
+                                counter += 1
+                                surrounded_in_x = True
+                            if not surrounded_in_x and x + 1 < hole_map.shape[2] and (z, y, x + 1) in coord_tuple_list:
+                                counter += 1
+                            if counter >= 2:
+                                # hole_map[z, y, x] = -m
+                                corner_coord_list.append((z, y, x))
+                        elif hole_map[z, y, x] == 0:
+                            counter = 0
+                            surrounded_in_y = False
+                            surrounded_in_x = False
+                            if y - 1 > 0 and (z, y - 1, x) in coord_tuple_list:
+                                counter += 1
+                                surrounded_in_y = True
+                            if not surrounded_in_y and y + 1 < hole_map.shape[1] and (z, y + 1, x) in coord_tuple_list:
+                                counter += 1
+                            if x - 1 > 0 and (z, y, x - 1) in coord_tuple_list:
+                                counter += 1
+                                surrounded_in_x = True
+                            if not surrounded_in_x and x + 1 < hole_map.shape[2] and (z, y, x + 1) in coord_tuple_list:
+                                counter += 1
+                            if counter >= 2:
+                                # in that case it should not matter, because the hole is not closed anyway (?)
+                                # hole_map[z, y, x] = 10
+                                pass
+                print("HOLE WITH MARKER {}, CORNER LENGTH {}".format(m, len(corner_coord_list)))
+                if len(corner_coord_list) % 2 == 0:
+                    # else there must be some "open" corner and it should not be necessary to explicitly
+                    # leave a corner open -> now choose the "right and upper"-most corner
+                    sorted_by_y = sorted(corner_coord_list, key=lambda e: e[1], reverse=True)
+                    sorted_by_x = sorted(sorted_by_y, key=lambda e: e[2], reverse=True)
+                    checked_hole_corners[z].append(sorted_by_x[0])
+                hole_corners[z].append(corner_coord_list)
+
+        return checked_hole_corners, hole_map, hole_boundary_coords
+
     def advance(self, environment: env.map.Map):
         # determine current task:
         # fetch block
@@ -959,6 +1266,10 @@ class PerimeterFollowingAgent(Agent):
         # place block
         if self.current_seed is None:
             self.current_seed = environment.blocks[0]
+
+        for a in environment.agents:
+            if self is not a and self.overlaps(a):
+                print("COLLIDING!")
 
         if self.current_task == Task.FETCH_BLOCK:
             self.fetch_block(environment)
@@ -973,3 +1284,6 @@ class PerimeterFollowingAgent(Agent):
         elif self.current_task == Task.MOVE_UP_LAYER:
             self.move_up_layer(environment)
 
+        for a in environment.agents:
+            if self is not a and self.overlaps(a):
+                print("COLLIDING!")
