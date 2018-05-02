@@ -8,7 +8,7 @@ class Path:
         self.positions = []
         if positions is not None:
             for p in positions:
-                self.add_position(positions)
+                self.add_position(p)
         self.current_index = 0
 
     def add_position(self, position, index=None):

@@ -22,13 +22,15 @@ class Graphics2D:
                  return_queue: queue.Queue,
                  views: List[str] = None,
                  min_update_interval=200,
-                 padding: Tuple[float, float] = (20, 20)):
+                 padding: Tuple[float, float] = (20, 20),
+                 render: bool = True):
         self.map = map
         self.update_queue = request_queue
         self.return_queue = return_queue
         self.views = views if views is not None else ["top", "front"]
         self.update_interval = int(min_update_interval / 2)
         self.padding = padding
+        self.render = render
         self.master = None
         self.canvases = dict()
 
@@ -124,6 +126,7 @@ class Graphics2D:
     def draw_agents(self):
         if "top" in self.views:
             canvas = self.canvases["top"]
+            counter = 0
             for a in self.map.agents:
                 if False and a.current_path is not None:
                     canvas.create_line(a.geometry.position[0] + self.padding[0],
@@ -158,6 +161,11 @@ class Graphics2D:
                         points[p_idx] = p + self.padding[0]
                 canvas.create_polygon(points, fill="blue", outline="black")
 
+                canvas.create_text(a.geometry.position[0] + self.padding[0],
+                                   self.map.environment_extent[1] - a.geometry.position[1] + self.padding[1],
+                                   fill="white", font="Times 20 italic bold", text="{}".format(counter))
+                counter += 1
+
         if "front" in self.views:
             canvas = self.canvases["front"]
             sorted_agents = sorted(self.map.agents, key=lambda x: x.geometry.position[1], reverse=True)
@@ -179,12 +187,44 @@ class Graphics2D:
                 canvas.create_polygon([min_x, z - size / 2, max_x, z - size / 2,
                                        max_x, z + size / 2, min_x, z + size / 2], fill="blue", outline="black")
 
+    def draw_numbers(self):
+        # TODO: at least don't show the seed numbers that should be covered if possible
+        if "top" in self.views:
+            canvas = self.canvases["top"]
+            for a in self.map.agents:
+                canvas.create_text(a.geometry.position[0] + self.padding[0],
+                                   self.map.environment_extent[1] - a.geometry.position[1] + self.padding[1],
+                                   fill="white", font="Times 20 italic bold", text="{}".format(a.id))
+
+            for b in self.map.placed_blocks:
+                if b.is_seed:
+                    canvas.create_text(b.geometry.position[0] + self.padding[0],
+                                       self.map.environment_extent[1] - b.geometry.position[1] + self.padding[1],
+                                       fill="white", font="Times 10 italic bold", text="{}".format(b.grid_position[2]))
+
+        if "front" in self.views:
+            canvas = self.canvases["front"]
+            for a in self.map.agents:
+                canvas.create_text(a.geometry.position[0] + self.padding[0],
+                                   self.map.environment_extent[2] - a.geometry.position[2] +
+                                   self.padding[1] + a.geometry.size[2] / 2,
+                                   fill="white", font="Times 20 italic bold", text="{}".format(a.id))
+
+            for b in self.map.placed_blocks:
+                if b.is_seed:
+                    canvas.create_text(b.geometry.position[0] + self.padding[0],
+                                       self.map.environment_extent[2] - b.geometry.position[2] +
+                                       self.padding[1] + b.geometry.size[2] / 2,
+                                       fill="white", font="Times 10 italic bold", text="{}".format(b.grid_position[2]))
+
     def update_graphics(self):
-        for c in list(self.canvases.values()):
-            c.delete("all")
-        self.draw_grid()
-        self.draw_agents()
-        self.draw_blocks()
+        if self.render:
+            for c in list(self.canvases.values()):
+                c.delete("all")
+            self.draw_grid()
+            self.draw_agents()
+            self.draw_blocks()
+            self.draw_numbers()
 
     def window_setup(self):
         self.master = Tk()
@@ -262,6 +302,13 @@ class Graphics2D:
                 pass
 
         e.bind("<Return>", callback_interval)
+
+        # initialise graphics
+        for c in list(self.canvases.values()):
+            c.delete("all")
+        self.draw_grid()
+        self.draw_agents()
+        self.draw_blocks()
 
         timer_tick()
         self.master.protocol("WM_DELETE_WINDOW", on_closing)

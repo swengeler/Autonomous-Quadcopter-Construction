@@ -13,7 +13,11 @@ class Editor2D(Tk):
         self.number_columns = 4
         self.current_layer = 0
         self.number_layers = 1
-        self.layers = np.zeros_like(np.ndarray((self.number_layers, self.number_rows, self.number_columns)), dtype="int64")
+        self.layers = np.zeros_like(np.ndarray((self.number_layers, self.number_rows, self.number_columns)),
+                                    dtype="int64")
+        self.shift_activated = False
+        self.shift_origin = None
+        self.shift_layer = np.zeros_like(self.layers[0])
 
         # GUI data representation stuff
         self.padding = (20, 20)
@@ -65,6 +69,11 @@ class Editor2D(Tk):
                     self.canvas.create_rectangle(x_start, y_start, x_start + self.cell_size, y_start + self.cell_size,
                                                  fill=("#329134" if self.layers[self.current_layer, y, x] == 1 else
                                                        "#b53030"))
+                if self.shift_activated and self.shift_layer[y, x] > 0:
+                    x_start = self.padding[0] + x * self.cell_size
+                    y_start = self.padding[1] + (self.number_rows - 1 - y) * self.cell_size
+                    self.canvas.create_rectangle(x_start, y_start, x_start + self.cell_size, y_start + self.cell_size,
+                                                 fill="#f4e242")
 
     def setup(self):
         self.wm_title("Map editor")
@@ -81,13 +90,60 @@ class Editor2D(Tk):
             closest_y = int((e.y - self.padding[1]) / self.cell_size)
             if closest_y > self.number_rows - 1 or closest_x > self.number_columns - 1:
                 return
-            if button == "left":
-                self.layers[self.current_layer, self.number_rows - 1 - closest_y, closest_x] = 1
-            elif button == "middle":
-                self.layers[self.current_layer, self.number_rows - 1 - closest_y, closest_x] = 2
-            elif button == "right":
-                self.layers[self.current_layer, self.number_rows - 1 - closest_y, closest_x] = 0
+            print("self.shift_activated: {}".format(self.shift_activated))
+            if not self.shift_activated:
+                if button == "left":
+                    self.layers[self.current_layer, self.number_rows - 1 - closest_y, closest_x] = 1
+                elif button == "middle":
+                    self.layers[self.current_layer, self.number_rows - 1 - closest_y, closest_x] = 2
+                elif button == "right":
+                    self.layers[self.current_layer, self.number_rows - 1 - closest_y, closest_x] = 0
+            elif button == "left":
+                self.shift_activated = not self.shift_activated
+                print("SHIFT LAYER:")
+                print(self.shift_layer)
+                self.layers[self.current_layer][np.where(self.shift_layer == 1)] = 1
             self.redraw()
+
+        def on_shift_click(e, button):
+            if e.x - self.padding[0] < 0 or e.y - self.padding[1] < 0:
+                return
+            closest_x = int((e.x - self.padding[0]) / self.cell_size)
+            closest_y = int((e.y - self.padding[1]) / self.cell_size)
+            if closest_y > self.number_rows - 1 or closest_x > self.number_columns - 1:
+                return
+
+            if not self.shift_activated:
+                self.shift_activated = True
+            if self.shift_activated:
+                self.shift_origin = [closest_x, closest_y]
+            print("SHIFT CLICK HAPPENED")
+
+        def on_hover(e):
+            if self.shift_activated:
+                closest_x = int((e.x - self.padding[0]) / self.cell_size)
+                closest_y = int((e.y - self.padding[1]) / self.cell_size)
+                if closest_x < 0:
+                    closest_x = 0
+                if closest_y < 0:
+                    closest_y = 0
+                if closest_x > self.number_columns - 1:
+                    closest_x = self.number_columns - 1
+                if closest_y > self.number_rows - 1:
+                    closest_y = self.number_rows - 1
+
+                if closest_x < self.shift_origin[0]:
+                    x_slice = (closest_x, self.shift_origin[0] + 1)
+                else:
+                    x_slice = (self.shift_origin[0], closest_x + 1)
+                if self.number_rows - 1 - closest_y < self.number_rows - 1 - self.shift_origin[1]:
+                    y_slice = (self.number_rows - 1 - closest_y, self.number_rows - self.shift_origin[1])
+                else:
+                    y_slice = (self.number_rows - 1 - self.shift_origin[1], self.number_rows - closest_y)
+
+                self.shift_layer[self.shift_layer > 0] = 0
+                self.shift_layer[slice(*y_slice), slice(*x_slice)] = 1
+                self.redraw()
 
         self.canvas = Canvas(self)
         self.canvas.grid(row=1, column=0, rowspan=49, columnspan=47, sticky="NESW")
@@ -95,40 +151,52 @@ class Editor2D(Tk):
         self.canvas.bind("<Button-1>", lambda e: on_click(e, "left"))
         self.canvas.bind("<Button-2>", lambda e: on_click(e, "middle"))
         self.canvas.bind("<Button-3>", lambda e: on_click(e, "right"))
+        self.canvas.bind("<Shift-Button-1>", lambda e: on_shift_click(e, "left"))
+        self.canvas.bind("<Shift-Button-3>", lambda e: on_shift_click(e, "right"))
+        self.canvas.bind("<Motion>", on_hover)
 
         def on_change(t):
+            self.shift_activated = False
             if t == "row":
                 self.number_rows = int(self.row_variable.get())
-                new_layers = np.zeros_like(np.ndarray((self.number_layers, self.number_rows, self.number_columns)), dtype="int64")
+                new_layers = np.zeros_like(np.ndarray((self.number_layers, self.number_rows, self.number_columns)),
+                                           dtype="int64")
                 for i in range(self.number_layers):
                     for j in range(min(self.layers.shape[1], self.number_rows)):
                         for k in range(min(self.layers.shape[2], self.number_columns)):
                             new_layers[i, j, k] = self.layers[i, j, k]
                 self.layers = new_layers
+                self.shift_layer = np.zeros_like(self.layers[0])
             elif t == "col":
                 self.number_columns = int(self.column_variable.get())
-                new_layers = np.zeros_like(np.ndarray((self.number_layers, self.number_rows, self.number_columns)), dtype="int64")
+                new_layers = np.zeros_like(np.ndarray((self.number_layers, self.number_rows, self.number_columns)),
+                                           dtype="int64")
                 for i in range(self.number_layers):
                     for j in range(min(self.layers.shape[1], self.number_rows)):
                         for k in range(min(self.layers.shape[2], self.number_columns)):
                             new_layers[i, j, k] = self.layers[i, j, k]
                 self.layers = new_layers
-            print(self.layers)
+                self.shift_layer = np.zeros_like(self.layers[0])
             self.redraw()
 
         label_rows = Label(self, text="Rows:")
         label_rows.grid(row=1, column=48, sticky=W)
         self.entry_rows = Spinbox(self, from_=1, to=20, command=lambda: on_change("row"),
                                   textvariable=self.row_variable)
+        self.entry_rows.bind("<Return>", lambda e: on_change("row"))
+        self.entry_rows.bind("<Tab>", lambda e: on_change("row"))
         self.entry_rows.grid(row=1, column=49)
 
         label_columns = Label(self, text="Columns:")
         label_columns.grid(row=2, column=48, sticky=W)
         self.entry_columns = Spinbox(self, from_=1, to=20, command=lambda: on_change("col"),
                                      textvariable=self.column_variable)
+        self.entry_columns.bind("<Return>", lambda e: on_change("col"))
+        self.entry_columns.bind("<Tab>", lambda e: on_change("col"))
         self.entry_columns.grid(row=2, column=49)
 
         def add_layer():
+            self.shift_activated = False
             new_layer = np.zeros_like(np.ndarray((1, self.number_rows, self.number_columns)))
             self.layers = np.vstack((self.layers, new_layer))
             self.number_layers += 1
@@ -140,6 +208,7 @@ class Editor2D(Tk):
         self.button_add_layer.grid(row=3, column=48, sticky=W)
 
         def move_layer(t):
+            self.shift_activated = False
             if t == "up":
                 self.current_layer += 1 if self.current_layer < self.number_layers - 1 else 0
                 self.label_layer["text"] = "{}/{}".format(self.current_layer + 1, self.number_layers)
@@ -163,6 +232,7 @@ class Editor2D(Tk):
         self.label_layer.grid(row=7, column=48, sticky=W)
 
         def show():
+            self.shift_activated = False
             self.layers = self.layers.astype(dtype="int64")
             string_representation = "np." + repr(self.layers)
 
@@ -193,6 +263,7 @@ class Editor2D(Tk):
         self.button_show.grid(row=9, column=48, sticky=W)
 
         def save():
+            self.shift_activated = False
             file_name = asksaveasfilename(defaultextension=".npy")
             if file_name is None or len(file_name) == 0:
                 return
@@ -202,6 +273,7 @@ class Editor2D(Tk):
         self.button_save.grid(row=10, column=48, sticky=W)
 
         def load():
+            self.shift_activated = False
             file_name = askopenfilename(defaultextension=".npy")
             if file_name is None or len(file_name) == 0:
                 return

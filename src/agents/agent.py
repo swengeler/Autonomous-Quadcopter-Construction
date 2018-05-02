@@ -24,7 +24,29 @@ class Task(Enum):
     FIND_ATTACHMENT_SITE = 3
     PLACE_BLOCK = 4
     MOVE_UP_LAYER = 5
-    FINISHED = 6
+    AVOID_COLLISION = 6
+    LAND = 7
+    FINISHED = 8
+
+
+class AgentStatistics:
+
+    def __init__(self, agent):
+        self.agent = agent
+        self.task_counter = {
+            Task.FETCH_BLOCK: 0,
+            Task.TRANSPORT_BLOCK: 0,
+            Task.MOVE_TO_PERIMETER: 0,
+            Task.FIND_ATTACHMENT_SITE: 0,
+            Task.PLACE_BLOCK: 0,
+            Task.MOVE_UP_LAYER: 0,
+            Task.AVOID_COLLISION: 0,
+            Task.LAND: 0,
+            Task.FINISHED: 0
+        }
+
+    def step(self, environment):
+        self.task_counter[self.agent.current_task] = self.task_counter[self.agent.current_task] + 1
 
 
 def check_map(map_to_check, position, comparator=lambda x: x != 0):
@@ -37,6 +59,11 @@ def check_map(map_to_check, position, comparator=lambda x: x != 0):
     else:
         val = comparator(temp)
         return val
+
+
+def aprint(id, *args, **kwargs):
+    print("[Agent {}]: ".format(id), end="")
+    print(*args, **kwargs)
 
 
 class Agent:
@@ -66,6 +93,7 @@ class Agent:
         self.target_map = target_map
         self.component_target_map = None
         self.required_spacing = required_spacing
+        self.required_distance = 80
 
         self.local_occupancy_map = None
         self.next_seed = None
@@ -80,8 +108,16 @@ class Agent:
         self.current_row_started = False
         self.current_component_marker = -1
         self.backup_grid_position = None
+        self.previous_task = Task.FETCH_BLOCK
 
         self.seed_on_perimeter = False
+        self.collision_using_geometries = False
+        self.task_history = []
+        self.task_history.append(self.current_task)
+        self.LAND_CALLED_FIRST_TIME = False
+        self.id = -1
+
+        self.agent_statistics = AgentStatistics(self)
 
     @abstractmethod
     def advance(self, environment: env.map.Map):
@@ -97,19 +133,24 @@ class Agent:
         # check whether distance is large enough
 
         # OR: use collision box and check overlap
-        if self.current_block is not None and self.current_block.geometry in self.geometry.following_geometries:
-            # block is attached, use collision_avoidance_geometry_with_block geometry
-            if other.current_block is not None and other.current_block.geometry in other.geometry.following_geometries:
-                return self.collision_avoidance_geometry_with_block.overlaps(
-                    other.collision_avoidance_geometry_with_block)
+        if self.collision_using_geometries:
+            if self.current_block is not None and self.current_block.geometry in self.geometry.following_geometries:
+                # block is attached, use collision_avoidance_geometry_with_block geometry
+                if other.current_block is not None and other.current_block.geometry in other.geometry.following_geometries:
+                    return self.collision_avoidance_geometry_with_block.overlaps(
+                        other.collision_avoidance_geometry_with_block)
+                else:
+                    return self.collision_avoidance_geometry_with_block.overlaps(other.collision_avoidance_geometry)
             else:
-                return self.collision_avoidance_geometry_with_block.overlaps(other.collision_avoidance_geometry)
+                # no block attached, check only quadcopter
+                if other.current_block is not None and other.current_block.geometry in other.geometry.following_geometries:
+                    return self.collision_avoidance_geometry.overlaps(other.collision_avoidance_geometry_with_block)
+                else:
+                    return self.collision_avoidance_geometry.overlaps(other.collision_avoidance_geometry)
         else:
-            # no block attached, check only quadcopter
-            if other.current_block is not None and other.current_block.geometry in other.geometry.following_geometries:
-                return self.collision_avoidance_geometry.overlaps(other.collision_avoidance_geometry_with_block)
-            else:
-                return self.collision_avoidance_geometry.overlaps(other.collision_avoidance_geometry)
+            if simple_distance(self.geometry.position, other.geometry.position) < self.required_distance:
+                return True
+        return False
 
 
 class CollisionAvoidanceAgent(Agent):
@@ -142,9 +183,9 @@ class PerimeterFollowingAgent(Agent):
         super(PerimeterFollowingAgent, self).__init__(position, size, target_map, required_spacing)
         self.block_locations_known = True
         self.structure_location_known = True
-        self.collision_possible = False
+        self.collision_possible = True
         self.component_target_map = self.split_into_components()
-        self.closing_corners, self.hole_map, self.hole_boundaries = self.find_closing_corners()
+        self.closing_corners, self.hole_map, self.hole_boundaries, self.closing_corner_boundaries = self.find_closing_corners()
         self.logger.setLevel(logging.DEBUG)
 
     def fetch_block(self, environment: env.map.Map):
@@ -168,7 +209,9 @@ class PerimeterFollowingAgent(Agent):
                         min_distance = temp
                 if min_block is None:
                     self.logger.info("Construction finished (4).")
-                    self.current_task = Task.FINISHED
+                    self.current_task = Task.LAND
+                    self.task_history.append(self.current_task)
+                    self.current_path = None
                     return
                 min_block.color = "green"
 
@@ -201,7 +244,7 @@ class PerimeterFollowingAgent(Agent):
                     force_field_vector = np.array([0.0, 0.0, 0.0])
                     force_field_vector += (self.geometry.position - a.geometry.position)
                     force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
-                    force_field_vector = rotation_2d(force_field_vector, np.pi / 4)
+                    # # force_field_vector = rotation_2d(force_field_vector, np.pi / 4)
                     # force_field_vector = rotation_2d_experimental(force_field_vector, np.pi / 4)
                     force_field_vector *= 50 / simple_distance(self.geometry.position, a.geometry.position)
                     current_direction += 2 * force_field_vector
@@ -217,6 +260,7 @@ class PerimeterFollowingAgent(Agent):
             if not ret:
                 self.geometry.attached_geometries.append(self.current_block.geometry)
                 self.current_task = Task.TRANSPORT_BLOCK
+                self.task_history.append(self.current_task)
                 self.current_path = None
         else:
             self.geometry.position = self.geometry.position + current_direction
@@ -257,7 +301,7 @@ class PerimeterFollowingAgent(Agent):
                     force_field_vector = np.array([0.0, 0.0, 0.0])
                     force_field_vector += (self.geometry.position - a.geometry.position)
                     force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
-                    force_field_vector = rotation_2d(force_field_vector, np.pi / 4)
+                    # force_field_vector = rotation_2d(force_field_vector, np.pi / 4)
                     # force_field_vector = rotation_2d_experimental(force_field_vector, np.pi / 4)
                     force_field_vector *= 50 / simple_distance(self.geometry.position, a.geometry.position)
                     current_direction += 2 * force_field_vector
@@ -275,6 +319,7 @@ class PerimeterFollowingAgent(Agent):
                 self.current_path = None
                 if not self.seed_on_perimeter:
                     self.current_task = Task.MOVE_TO_PERIMETER
+                    self.task_history.append(self.current_task)
 
                     # since MOVE_TO_PERIMETER is used, the direction to go into is initialised randomly
                     # a better way of doing it would probably be to take the shortest path to the perimeter
@@ -285,6 +330,7 @@ class PerimeterFollowingAgent(Agent):
                     # self.current_grid_direction = [0, -1, 0]
                 else:
                     self.current_task = Task.FIND_ATTACHMENT_SITE
+                    self.task_history.append(self.current_task)
                 # TODO: check whether current component is finished, if yes, check whether others are not yet
         else:
             self.geometry.position = self.geometry.position + current_direction
@@ -315,7 +361,7 @@ class PerimeterFollowingAgent(Agent):
                     force_field_vector = np.array([0.0, 0.0, 0.0])
                     force_field_vector += (self.geometry.position - a.geometry.position)
                     force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
-                    force_field_vector = rotation_2d(force_field_vector, np.pi / 4)
+                    # force_field_vector = rotation_2d(force_field_vector, np.pi / 4)
                     # force_field_vector = rotation_2d_experimental(force_field_vector, np.pi / 4)
                     force_field_vector *= 50 / simple_distance(self.geometry.position, a.geometry.position)
                     current_direction += 2 * force_field_vector
@@ -333,15 +379,15 @@ class PerimeterFollowingAgent(Agent):
                 # could e.g. try to go to perimeter and when revisiting the same site on attachment site finding,
                 # you know that you must be either in a hole or might have to move up a layer
                 try:
-                    # print("CHECK AT {}".format(self.current_grid_position))
-                    # print("RESULTS IN {}".format(self.hole_map[
+                    # aprint(self.id, "CHECK AT {}".format(self.current_grid_position))
+                    # aprint(self.id, "RESULTS IN {}".format(self.hole_map[
                     #     self.current_grid_position[2], self.current_grid_position[1], self.current_grid_position[0]]))
-                    # print("AND FURTHER IN {}".format(self.hole_boundaries[self.hole_map[
+                    # aprint(self.id, "AND FURTHER IN {}".format(self.hole_boundaries[self.hole_map[
                     #     self.current_grid_position[2], self.current_grid_position[1], self.current_grid_position[0]]]))
-                    # print("GIVING: {}".format(environment.occupancy_map[self.hole_boundaries[self.hole_map[
+                    # aprint(self.id, "GIVING: {}".format(environment.occupancy_map[self.hole_boundaries[self.hole_map[
                     #     self.current_grid_position[2], self.current_grid_position[1], self.current_grid_position[
                     #         0]]]]))
-                    # print("CHECK: \n{}".format(environment.occupancy_map[self.hole_boundaries[self.hole_map[
+                    # aprint(self.id, "CHECK: \n{}".format(environment.occupancy_map[self.hole_boundaries[self.hole_map[
                     #     self.current_grid_position[2], self.current_grid_position[1], self.current_grid_position[
                     #         0]]]]))
                     # this is basically getting all values of the occupancy map at the locations where the hole map
@@ -349,7 +395,7 @@ class PerimeterFollowingAgent(Agent):
                     result = all(environment.occupancy_map[self.hole_boundaries[self.hole_map[
                         self.current_grid_position[2], self.current_grid_position[1], self.current_grid_position[
                             0]]]] != 0)
-                    # print("CHECKING OVER HOLE, BUT HOLE IS NOT CLOSED YET")
+                    # aprint(self.id, "CHECKING OVER HOLE, BUT HOLE IS NOT CLOSED YET")
                 except (IndexError, KeyError):
                     result = False
 
@@ -357,6 +403,7 @@ class PerimeterFollowingAgent(Agent):
                         (check_map(self.hole_map, self.current_grid_position, lambda x: x < 2) or not result):
                     # have reached perimeter
                     self.current_task = Task.FIND_ATTACHMENT_SITE
+                    self.task_history.append(self.current_task)
                     self.current_grid_direction = np.array(
                         [-self.current_grid_direction[1], self.current_grid_direction[0], 0], dtype="int32")
                 else:
@@ -379,7 +426,8 @@ class PerimeterFollowingAgent(Agent):
         seed_block = self.current_seed
 
         if self.current_component_marker != -1:
-            print("FIND_ATTACHMENT_SITE TRIGGERED")
+            aprint(self.id, "FIND_ATTACHMENT_SITE TRIGGERED")
+            # checking below whether the current component (as designated by self.current_component_marker) is finished
             tm = np.zeros_like(self.target_map[self.current_structure_level])
             np.place(tm, self.component_target_map[self.current_structure_level] ==
                      self.current_component_marker, 1)
@@ -409,8 +457,9 @@ class PerimeterFollowingAgent(Agent):
                 if len(candidate_components) > 0:
                     # choosing one of the candidate components to continue constructing
                     self.current_component_marker = random.sample(candidate_components, 1)
-                    print("(FIND_ATTACHMENT_SITE) After placing block: unfinished components left, choosing {}".format(
-                        self.current_component_marker))
+                    aprint(self.id,
+                           "(FIND_ATTACHMENT_SITE) After placing block: unfinished components left, choosing {}".format(
+                               self.current_component_marker))
                     # getting the coordinates of those positions where the other component already has blocks
                     correct_locations = np.where(
                         self.component_target_map[self.current_structure_level] == self.current_component_marker)
@@ -422,17 +471,23 @@ class PerimeterFollowingAgent(Agent):
                         if b.is_seed and b.grid_position[2] == self.current_structure_level \
                                 and (b.grid_position[1], b.grid_position[0]) in occupied_locations:
                             self.current_seed = b
-                            print("New seed location: {}".format(self.current_seed))
+                            aprint(self.id, "New seed location: {}".format(self.current_seed))
                             self.current_path = None
                             self.current_task = Task.TRANSPORT_BLOCK
+                            self.task_history.append(self.current_task)
                             break
                 else:
                     if self.current_structure_level >= self.target_map.shape[0] - 1:
-                        self.current_task = Task.FINISHED
+                        self.current_task = Task.LAND
+                        aprint(self.id, "LANDING INITIALISED IN FIND_ATTACHMENT_SITE 1")
+                        aprint(self.id, "current_component_marker:", self.current_component_marker)
+                        aprint(self.id, "TARGET MAP:\n{}\nOCCUPANCY MAP:\n{}".format(tm, om))
+                        self.task_history.append(self.current_task)
                     else:
                         self.current_task = Task.MOVE_UP_LAYER
+                        self.task_history.append(self.current_task)
                         self.current_structure_level += 1
-                        self.current_path = None
+                    self.current_path = None
                     self.current_component_marker = -1
                 return
 
@@ -478,7 +533,7 @@ class PerimeterFollowingAgent(Agent):
                     force_field_vector = np.array([0.0, 0.0, 0.0])
                     force_field_vector += (self.geometry.position - a.geometry.position)
                     force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
-                    force_field_vector = rotation_2d(force_field_vector, np.pi / 4)
+                    # force_field_vector = rotation_2d(force_field_vector, np.pi / 4)
                     # force_field_vector = rotation_2d_experimental(force_field_vector, np.pi / 4)
                     force_field_vector *= 50 / simple_distance(self.geometry.position, a.geometry.position)
                     current_direction += 2 * force_field_vector
@@ -492,33 +547,42 @@ class PerimeterFollowingAgent(Agent):
             if not ret:
                 # corner of the current block reached, assess next action
                 # TODO: check whether this is the corner of a loop and if so whether it can be closed
+                # TODO: need to prioritise closing holes, i.e. get hole closed first, then build outside of said hole
+                # otherwise it is possible that the "outer layers" can block finishing the hole
                 loop_corner_attachable = False
-                if (self.current_grid_position[2], self.current_grid_position[1], self.current_grid_position[0]) \
-                        in self.closing_corners[self.current_structure_level]:
-                    print("TRYING TO ATTACH AT CORNER OF LOOP, COORDINATES {}".format(self.current_grid_position))
+                if tuple(self.current_grid_position) in self.closing_corners[self.current_structure_level]:
+                    aprint(self.id,
+                           "TRYING TO ATTACH AT CORNER OF LOOP, COORDINATES {}".format(self.current_grid_position))
                     # need to check whether the adjacent blocks have been placed already
                     counter = 0
                     surrounded_in_y = False
                     surrounded_in_x = False
-                    if environment.check_occupancy_map(self.current_grid_position + np.array([0, -1, 0])):
+                    index = self.closing_corners[self.current_structure_level].index(tuple(self.current_grid_position))
+                    possible_boundaries = self.closing_corner_boundaries[self.current_structure_level][index]
+                    if environment.check_occupancy_map(self.current_grid_position + np.array([0, -1, 0])) and \
+                            tuple(self.current_grid_position + np.array([0, -1, 0])) in possible_boundaries:
                         counter += 1
                         surrounded_in_y = True
                     if not surrounded_in_y and environment.check_occupancy_map(
-                            self.current_grid_position + np.array([0, 1, 0])):
+                            self.current_grid_position + np.array([0, 1, 0])) and \
+                            tuple(self.current_grid_position + np.array([0, 1, 0])) in possible_boundaries:
                         counter += 1
-                    if environment.check_occupancy_map(self.current_grid_position + np.array([-1, 0, 0])):
+                    if environment.check_occupancy_map(self.current_grid_position + np.array([-1, 0, 0])) and \
+                            tuple(self.current_grid_position + np.array([-1, 0, 0])) in possible_boundaries:
                         counter += 1
                         surrounded_in_x = True
                     if not surrounded_in_x and environment.check_occupancy_map(
-                            self.current_grid_position + np.array([1, 0, 0])):
+                            self.current_grid_position + np.array([1, 0, 0])) and \
+                            tuple(self.current_grid_position + np.array([1, 0, 0])) in possible_boundaries:
                         counter += 1
                     if counter >= 2:
-                        print("CORNER ALREADY SURROUNDED BY ADJACENT BLOCKS")
+                        aprint(self.id, "CORNER ALREADY SURROUNDED BY ADJACENT BLOCKS")
                         loop_corner_attachable = True
                     else:
-                        print("CORNER NOT SURROUNDED BY ADJACENT BLOCKS YET")
+                        aprint(self.id, "CORNER NOT SURROUNDED BY ADJACENT BLOCKS YET")
                 else:
                     loop_corner_attachable = True
+                # TODO: I believe the if-statement below does not check whether something is already attached
                 if loop_corner_attachable and check_map(self.target_map, self.current_grid_position) and \
                         (environment.check_occupancy_map(self.current_grid_position + self.current_grid_direction) or
                          (self.current_row_started and (check_map(self.target_map, self.current_grid_position +
@@ -530,11 +594,16 @@ class PerimeterFollowingAgent(Agent):
                                                                       self.current_grid_direction[0], 0],
                                                                      dtype="int32"), lambda x: x == 0)))):
 
-                    if (environment.check_occupancy_map(self.current_grid_position + np.array([1, 0, 0])) and
-                        environment.check_occupancy_map(self.current_grid_position + np.array([-1, 0, 0]))) or \
-                            (environment.check_occupancy_map(self.current_grid_position + np.array([0, 1, 0])) and
-                             environment.check_occupancy_map(self.current_grid_position + np.array([0, -1, 0]))):
-                        self.current_task = Task.FINISHED
+                    if ((environment.check_occupancy_map(self.current_grid_position + np.array([1, 0, 0])) and
+                         environment.check_occupancy_map(self.current_grid_position + np.array([-1, 0, 0]))) or \
+                        (environment.check_occupancy_map(self.current_grid_position + np.array([0, 1, 0])) and
+                         environment.check_occupancy_map(self.current_grid_position + np.array([0, -1, 0])))) and \
+                            not environment.check_occupancy_map(self.current_grid_position, lambda x: x > 0):
+                        self.current_task = Task.LAND
+                        aprint(self.id, "LANDING INITIALISED IN FIND_ATTACHMENT_SITE 2 ({} is occupied: {})"
+                               .format(self.current_grid_position,
+                                       environment.check_occupancy_map(self.current_grid_position, lambda x: x > 0)))
+                        self.task_history.append(self.current_task)
                         self.current_path = None
                         self.logger.debug("CASE 1-3: Attachment site found, but block cannot be placed at {}."
                                           .format(self.current_grid_position))
@@ -543,6 +612,7 @@ class PerimeterFollowingAgent(Agent):
                         # 1. site ahead has a block (inner corner) OR
                         # 2. the current "identified" row ends (i.e. no chance of obstructing oneself)
                         self.current_task = Task.PLACE_BLOCK
+                        self.task_history.append(self.current_task)
                         self.current_row_started = False
                         self.current_path = None
                         log_string = "CASE 1-{}: Attachment site found, block can be placed at {}."
@@ -600,6 +670,7 @@ class PerimeterFollowingAgent(Agent):
                 np.place(om, om == 2, 1)
                 if np.array_equal(om, tm) and self.target_map.shape[0] > self.current_structure_level + 1:
                     self.current_task = Task.MOVE_UP_LAYER
+                    self.task_history.append(self.current_task)
                     self.current_structure_level += 1
                     self.current_path = None
                     self.next_seed = self.current_block
@@ -628,6 +699,7 @@ class PerimeterFollowingAgent(Agent):
             # a different agent has already placed the block in the meantime
             self.current_path = None
             self.current_task = Task.TRANSPORT_BLOCK
+            self.task_history.append(self.current_task)
             return
 
         next_position = self.current_path.next()
@@ -640,6 +712,17 @@ class PerimeterFollowingAgent(Agent):
 
             # block should now be placed in the environment's occupancy matrix
             if not ret:
+                if abs(self.current_block.geometry.position[2] -
+                       (Block.SIZE / 2 + self.current_structure_level * Block.SIZE)) > Block.SIZE / 2:
+                    placement_x = Block.SIZE * self.current_grid_position[0] + environment.offset_origin[0]
+                    placement_y = Block.SIZE * self.current_grid_position[1] + environment.offset_origin[1]
+                    placement_z = Block.SIZE * (self.current_grid_position[2] + 1) + self.geometry.size[2] / 2
+                    aprint(self.id, "BLOCK PLACED IN WRONG Z-LOCATION")
+                    aprint(self.id, "THINGS: {} - {}".format(self.current_block.geometry.position[2], placement_z))
+                    self.current_path.add_position([placement_x, placement_y, placement_z])
+                    # TODO: (probably) need to make sure that collision avoidance does not fuck up the pathing
+                    return
+
                 environment.place_block(self.current_grid_position, self.current_block)
                 self.geometry.attached_geometries.remove(self.current_block.geometry)
                 self.current_block.placed = True
@@ -648,7 +731,7 @@ class PerimeterFollowingAgent(Agent):
                 self.current_path = None
 
                 if self.current_component_marker != -1:
-                    print("CASE 1 AFTER PLACING")
+                    aprint(self.id, "CASE 1 AFTER PLACING")
                     tm = np.zeros_like(self.target_map[self.current_structure_level])
                     np.place(tm, self.component_target_map[self.current_structure_level] ==
                              self.current_component_marker, 1)
@@ -678,7 +761,7 @@ class PerimeterFollowingAgent(Agent):
                         if len(candidate_components) > 0:
                             # choosing one of the candidate components to continue constructing
                             self.current_component_marker = random.sample(candidate_components, 1)
-                            print("After placing block: unfinished components left, choosing {}".format(
+                            aprint(self.id, "After placing block: unfinished components left, choosing {}".format(
                                 self.current_component_marker))
                             # getting the coordinates of those positions where the other component already has blocks
                             correct_locations = np.where(self.component_target_map[
@@ -691,35 +774,43 @@ class PerimeterFollowingAgent(Agent):
                                 if b.is_seed and b.grid_position[2] == self.current_structure_level \
                                         and (b.grid_position[1], b.grid_position[0]) in occupied_locations:
                                     self.current_seed = b
-                                    print("New seed location: {}".format(self.current_seed))
+                                    aprint(self.id, "New seed location: {}".format(self.current_seed))
                                     self.current_path = None
                                     self.current_task = Task.FETCH_BLOCK
+                                    self.task_history.append(self.current_task)
                                     break
                         else:
                             if self.current_structure_level >= self.target_map.shape[0] - 1:
-                                self.current_task = Task.FINISHED
+                                self.current_task = Task.LAND
+                                self.task_history.append(self.current_task)
                             else:
                                 self.current_task = Task.MOVE_UP_LAYER
+                                self.task_history.append(self.current_task)
                                 self.current_structure_level += 1
-                                self.current_path = None
+                            self.current_path = None
                             self.current_component_marker = -1
                     else:
                         self.current_task = Task.FETCH_BLOCK
+                        self.task_history.append(self.current_task)
                 else:
-                    print("CASE 2 AFTER PLACING")
+                    aprint(self.id, "CASE 2 AFTER PLACING")
                     tm = np.copy(self.target_map[self.current_structure_level])
                     np.place(tm, tm == 2, 1)
                     om = np.copy(environment.occupancy_map[self.current_structure_level])
                     np.place(om, om == 2, 1)
                     if np.array_equal(om, tm) and self.target_map.shape[0] > self.current_structure_level + 1:
                         self.current_task = Task.MOVE_UP_LAYER
+                        self.task_history.append(self.current_task)
                         self.current_structure_level += 1
                         self.current_path = None
                     elif np.array_equal(environment.occupancy_map[self.current_structure_level], tm):
-                        self.current_task = Task.FINISHED
+                        self.current_task = Task.LAND
+                        self.task_history.append(self.current_task)
+                        self.current_path = None
                         self.logger.info("Construction finished (3).")
                     else:
                         self.current_task = Task.FETCH_BLOCK
+                        self.task_history.append(self.current_task)
         else:
             self.geometry.position = self.geometry.position + current_direction
 
@@ -785,8 +876,8 @@ class PerimeterFollowingAgent(Agent):
                     self.current_component_marker = random.sample(unique_values, 1)
                     occupied_locations = np.where(
                         self.component_target_map[self.current_structure_level] == self.current_component_marker)
-                    print(np.unique(self.component_target_map[self.current_structure_level]))
-                    print(self.current_component_marker, occupied_locations)
+                    aprint(self.id, np.unique(self.component_target_map[self.current_structure_level]))
+                    aprint(self.id, self.current_component_marker, occupied_locations)
                     occupied_locations = list(zip(occupied_locations[0], occupied_locations[1]))
                     # still using np.nonzero here because it does not matter what the supporting block belongs to
                     supported_locations = np.nonzero(self.target_map[self.current_structure_level - 1])
@@ -796,12 +887,12 @@ class PerimeterFollowingAgent(Agent):
                                           not in self.closing_corners[self.current_structure_level]]
                     coordinates = random.sample(occupied_locations, 1)
                     min_coordinates = [coordinates[0][1], coordinates[0][0], self.current_structure_level]
-                    print("MIN COORDINATES: {}".format(min_coordinates))
-                    print(self.closing_corners)
+                    aprint(self.id, "MIN COORDINATES: {}".format(min_coordinates))
+                    aprint(self.id, self.closing_corners)
 
                 min_block = None
                 if self.current_block is None:
-                    print("DECIDING ON NEW SEED BLOCK FOR NEXT LAYER")
+                    aprint(self.id, "DECIDING ON NEW SEED BLOCK FOR NEXT LAYER")
                     min_distance = float("inf")
                     for b in environment.blocks:
                         temp = self.geometry.distance_2d(b.geometry)
@@ -809,10 +900,12 @@ class PerimeterFollowingAgent(Agent):
                                 and temp < min_distance:
                             min_block = b
                             min_distance = temp
-                    print(min_block)
+                    aprint(self.id, min_block)
                     if min_block is None:
                         self.logger.info("Construction finished (2).")
-                        self.current_task = Task.FINISHED
+                        self.current_task = Task.LAND
+                        self.task_history.append(self.current_task)
+                        self.current_path = None
                         return
                 else:
                     min_block = self.current_block
@@ -859,9 +952,8 @@ class PerimeterFollowingAgent(Agent):
             self.geometry.position = next_position
             ret = self.current_path.advance()
 
-            print("self.next_seed:", self.next_seed)
-            print("self.next_seed.grid_position:", self.next_seed.grid_position)
-            print("environment.offset_origin:", environment.offset_origin)
+            aprint(self.id, "self.next_seed:", self.next_seed)
+            aprint(self.id, "self.next_seed.grid_position:", self.next_seed.grid_position)
             if self.next_seed.grid_position is None:
                 self.next_seed.grid_position = self.backup_grid_position
             destination = [Block.SIZE * self.next_seed.grid_position[0] + environment.offset_origin[0],
@@ -882,9 +974,10 @@ class PerimeterFollowingAgent(Agent):
                                     [b.grid_position[i] == self.next_seed.grid_position[i] for i in range(3)]):
                                 self.current_seed = b
                                 break
-                        print("next_seed = None bc self.seed_on_perimeter")
+                        aprint(self.id, "next_seed = None bc self.seed_on_perimeter")
                         self.next_seed = None
                         self.current_task = Task.TRANSPORT_BLOCK
+                        self.task_history.append(self.current_task)
                         return
             else:
                 # the following could also be used for the other case (where the seed has to be on the perimeter)
@@ -898,7 +991,7 @@ class PerimeterFollowingAgent(Agent):
                 # otherwise it should be seeded
                 current_component_subset = environment.occupancy_map[self.current_structure_level][
                     self.component_target_map[self.current_structure_level] == self.current_component_marker]
-                if environment.check_over_structure(self.geometry.position) \
+                if self.current_block is not None and environment.check_over_structure(self.geometry.position) \
                         and np.count_nonzero(current_component_subset) != 0:
                     # two possibilities for multi-seeded algorithm:
                     # 1. there are still other unseeded components left, then go seed those
@@ -946,6 +1039,11 @@ class PerimeterFollowingAgent(Agent):
                     else:
                         # instead place the block, preferably at the current component
                         # TODO (CONTINUE WORK HERE): finding correct component and changing task to going there
+                        if self.current_block is None:
+                            aprint(self.id, "SOMETHING'S FUCKY")
+                        # it can happen that the agent is still hovering over the structure and "observes" that
+                        # a block is being placed in the intended position -> therefore this would trigger without
+                        # the agent actually carrying a block -> an element has to be added to the if-statement
                         self.current_block.color = "green"
                         self.current_block.is_seed = False
                         self.current_path = None
@@ -958,9 +1056,10 @@ class PerimeterFollowingAgent(Agent):
                                         and all([b.grid_position[i] == c[i] for i in range(2)]):
                                     self.current_seed = b
                                     break
-                        print("next_seed = None bc block should be placed rather than used as seed")
+                        aprint(self.id, "next_seed = None bc block should be placed rather than used as seed")
                         self.next_seed = None
                         self.current_task = Task.TRANSPORT_BLOCK
+                        self.task_history.append(self.current_task)
                         return
 
             # TODO
@@ -973,7 +1072,7 @@ class PerimeterFollowingAgent(Agent):
                 # also need to check whether there is already a seed on that layer or nah
                 # -> to simplify things, can assume that agents would all choose the same seed location
                 if self.current_block is None:
-                    print("CASE 1")
+                    aprint(self.id, "CASE 1")
                     self.current_block = self.next_seed
                     self.geometry.attached_geometries.append(self.current_block.geometry)
                     transport_level_z = Block.SIZE * (self.current_structure_level + 3) + \
@@ -988,7 +1087,7 @@ class PerimeterFollowingAgent(Agent):
                     self.current_path.add_position([destination_x, destination_y, transport_level_z])
                 elif all([self.geometry.position[i] == self.current_seed.geometry.position[i] for i in range(2)]) \
                         and not all([self.current_seed.geometry.position[i] == destination[i] for i in range(2)]):
-                    print("CASE 2")
+                    aprint(self.id, "CASE 2")
                     # old seed position has been reached, now the path to the next seed's location should commence
                     # what should really happen is to use the shortest path over the existing blocks to the next
                     # seed location to reach it and at the same time ensure that the location is correct
@@ -1006,13 +1105,13 @@ class PerimeterFollowingAgent(Agent):
                 elif all([self.geometry.position[i] == self.current_seed.geometry.position[i] for i in range(2)]) \
                         and not abs(self.geometry.position[2] - self.geometry.size[2] / 2 - Block.SIZE -
                                     self.current_structure_level * Block.SIZE) < 0.0001:
-                    print("CASE 3")
+                    aprint(self.id, "CASE 3")
                     # TODO: clean up this mess with the previous seed position
                     self.current_path.add_position([self.geometry.position[0], self.geometry.position[1],
                                                     Block.SIZE * (self.current_structure_level + 1) +
                                                     self.geometry.size[2] / 2])
                 else:
-                    print("CASE 4")
+                    aprint(self.id, "CASE 4")
                     self.geometry.attached_geometries.remove(self.current_block.geometry)
                     self.current_seed = self.next_seed
                     self.current_block.placed = True
@@ -1057,7 +1156,9 @@ class PerimeterFollowingAgent(Agent):
                                 min_distance = temp
                         if min_block is None:
                             self.logger.info("Construction finished (2).")
-                            self.current_task = Task.FINISHED
+                            self.current_task = Task.LAND
+                            self.task_history.append(self.current_task)
+                            self.current_path = None
                             return
                         min_block.is_seed = True
                         # min_block.color = Block.COLORS["seed"]
@@ -1074,21 +1175,159 @@ class PerimeterFollowingAgent(Agent):
                         np.place(om, om == 2, 1)
                         if np.array_equal(om, tm) and self.target_map.shape[0] > self.current_structure_level + 1:
                             self.current_task = Task.MOVE_UP_LAYER
+                            self.task_history.append(self.current_task)
                             self.current_structure_level += 1
                             self.current_component_marker = -1
                             self.current_path = None
                         elif np.array_equal(om, tm):
-                            self.current_task = Task.FINISHED
+                            self.current_task = Task.LAND
+                            self.task_history.append(self.current_task)
+                            self.current_path = None
                             self.logger.info("Construction finished (1).")
                         else:
                             self.current_task = Task.FETCH_BLOCK
+                            self.task_history.append(self.current_task)
         else:
             self.geometry.position = self.geometry.position + current_direction
 
         # move up one level in the structure and place the seed block
 
         # continue normal operation
-        pass
+
+    def avoid_collision(self, environment: env.map.Map):
+        # get list of agents for which there is collision potential/danger
+        collision_danger_agents = []
+        for a in environment.agents:
+            if self is not a and self.collision_potential(a):
+                collision_danger_agents.append(a)
+
+        distance_less_than_others = True
+        # TODO: don't do this based on distance to seed but based on some other measure
+        for a in collision_danger_agents:
+            distance_less_than_others = distance_less_than_others and \
+                                        simple_distance(a.geometry.position, self.current_seed.geometry.position) > \
+                                        simple_distance(self.geometry.position, self.current_seed.geometry.position)
+            # aprint(self.id, "Distance to current goal: {:3f} (other agent) and {:3f} (self)".format(
+            #     simple_distance(a.geometry.position, self.current_seed.geometry.position),
+            #     simple_distance(self.geometry.position, self.current_seed.geometry.position)))
+
+        # if self carries no block and some of the others carry one, then simply evade
+        if (self.current_block is None or self.current_block.geometry not in self.geometry.following_geometries) and \
+                any([a.current_block is not None and a.current_block.geometry in a.geometry.following_geometries
+                     for a in collision_danger_agents]):
+            distance_less_than_others = False
+
+        # self does not even move towards the structure, don't evade
+        if self.current_task in [Task.LAND, Task.FETCH_BLOCK, Task.FINISHED, Task.MOVE_UP_LAYER]:
+            distance_less_than_others = True
+
+        if distance_less_than_others:
+            self.current_task = self.previous_task
+            self.task_history.append(self.current_task)
+            # if self.current_task == Task.LAND:
+            #     self.current_path = None
+            return
+        else:
+            # do nothing
+            if self.current_path is None:
+                self.current_path = Path()
+            self.current_path.add_position([self.geometry.position[0], self.geometry.position[1],
+                                            self.geometry.position[2] + self.geometry.size[2] + Block.SIZE + 5],
+                                           self.current_path.current_index)
+
+        next_position = self.current_path.next()
+        current_direction = self.current_path.direction_to_next(self.geometry.position)
+        current_direction /= sum(np.sqrt(current_direction ** 2))
+
+        # do (force field, not planned) collision avoidance
+        if self.collision_possible:
+            for a in environment.agents:
+                if self is not a and self.collision_potential(a):
+                    force_field_vector = np.array([0.0, 0.0, 0.0])
+                    force_field_vector += (self.geometry.position - a.geometry.position)
+                    force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
+                    force_field_vector = rotation_2d(force_field_vector, np.pi / 4)
+                    # force_field_vector = rotation_2d_experimental(force_field_vector, np.pi / 4)
+                    force_field_vector *= 50 / simple_distance(self.geometry.position, a.geometry.position)
+                    current_direction += 2 * force_field_vector
+
+        current_direction /= sum(np.sqrt(current_direction ** 2))
+        current_direction *= Agent.MOVEMENT_PER_STEP
+
+        if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
+            self.geometry.position = next_position
+            ret = self.current_path.advance()
+            if not ret:
+                pass
+        else:
+            self.geometry.position = self.geometry.position + current_direction
+
+    def land(self, environment: env.map.Map):
+        if not self.LAND_CALLED_FIRST_TIME:
+            self.LAND_CALLED_FIRST_TIME = True
+            if self.current_path is not None:
+                aprint(self.id, "WHAT THE FUCK IS GOING ON HERE")
+                aprint(self.id, "breakpoint")
+
+        if self.current_path is None:
+            # find some unoccupied location on the outside of the construction zone and land there
+            start_x = environment.offset_origin[0] - self.geometry.size[0]
+            end_x = start_x + self.target_map.shape[2] * Block.SIZE + self.geometry.size[0] * 1.5
+            start_y = environment.offset_origin[1] - self.geometry.size[1]
+            end_y = start_y + self.target_map.shape[1] * Block.SIZE + self.geometry.size[1] * 1.5
+            candidate_x = candidate_y = -1
+            while candidate_x < 0 or (start_x <= candidate_x <= end_x and start_y <= candidate_y <= end_y):
+                candidate_x = random.uniform(0.0, environment.environment_extent[0])
+                candidate_y = random.uniform(0.0, environment.environment_extent[1])
+
+            land_level_z = Block.SIZE * (self.current_structure_level + 2) + \
+                           self.geometry.size[2] / 2 + self.required_spacing
+            self.current_path = Path()
+            self.current_path.add_position([self.geometry.position[0], self.geometry.position[1], land_level_z])
+            self.current_path.add_position([candidate_x, candidate_y, land_level_z])
+            self.current_path.add_position([candidate_x, candidate_y, self.geometry.size[2] / 2])
+            aprint(self.id, "SETTING PATH TO LAND: {}".format(self.current_path.positions))
+
+        next_position = self.current_path.next()
+        current_direction = self.current_path.direction_to_next(self.geometry.position)
+        current_direction /= sum(np.sqrt(current_direction ** 2))
+
+        # do (force field, not planned) collision avoidance
+        if self.collision_possible:
+            for a in environment.agents:
+                if self is not a and self.collision_potential(a):
+                    force_field_vector = np.array([0.0, 0.0, 0.0])
+                    force_field_vector += (self.geometry.position - a.geometry.position)
+                    force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
+                    # force_field_vector = rotation_2d(force_field_vector, np.pi / 4)
+                    # force_field_vector = rotation_2d_experimental(force_field_vector, np.pi / 4)
+                    force_field_vector *= 50 / simple_distance(self.geometry.position, a.geometry.position)
+                    current_direction += 2 * force_field_vector
+
+        current_direction /= sum(np.sqrt(current_direction ** 2))
+        current_direction *= Agent.MOVEMENT_PER_STEP
+
+        if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
+            self.geometry.position = next_position
+            ret = self.current_path.advance()
+            if not ret:
+                if abs(self.geometry.position[2] - Block.SIZE / 2) > Block.SIZE / 2:
+                    aprint(self.id, "FINISHED WITHOUT LANDING")
+                    aprint(self.id, "PATH POSITIONS: {}\nPATH INDEX: {}".format(self.current_path.positions,
+                                                                                self.current_path.current_index))
+                    aprint(self.id, "POSITION IN QUESTION: {}".format(
+                        self.current_path.positions[self.current_path.current_index]))
+                    aprint(self.id, "LAST 10 TASKS: {}".format(self.task_history[-10:]))
+                    aprint(self.id, "HAPPENING IN AGENT: {}".format(self))
+                    aprint(self.id, "placeholder")
+                if self.current_block is not None:
+                    aprint(self.id, "LANDING WITH BLOCK STILL ATTACHED")
+                    aprint(self.id, "LAST 20 TASKS: {}".format(self.task_history[-10:]))
+                    aprint(self.id, "what")
+                self.current_task = Task.FINISHED
+                self.task_history.append(self.current_task)
+        else:
+            self.geometry.position = self.geometry.position + current_direction
 
     def split_into_components(self):
         def flood_fill(layer, i, j, marker):
@@ -1148,22 +1387,22 @@ class PerimeterFollowingAgent(Agent):
                         valid_markers[z].append(hole_marker)
                         hole_marker += 1
 
-        print("VALID MARKERS: {}".format(valid_markers))
-        print(hole_map)
+        aprint(self.id, "VALID MARKERS: {}".format(valid_markers))
+        aprint(self.id, hole_map)
 
         for z in range(len(valid_markers)):
             temp_copy = valid_markers[z].copy()
             for m in valid_markers[z]:
                 locations = np.where(hole_map == m)
-                print("FOR MARKER {} LOCATIONS ARE {}".format(m, locations))
+                aprint(self.id, "FOR MARKER {} LOCATIONS ARE {}".format(m, locations))
                 if 0 in locations[1] or 0 in locations[2] or hole_map.shape[1] - 1 in locations[1] \
                         or hole_map.shape[2] - 1 in locations[2]:
                     temp_copy.remove(m)
                     hole_map[locations] = 0
-                    print("REMOVING MARKER {}".format(m))
+                    aprint(self.id, "REMOVING MARKER {}".format(m))
             valid_markers[z][:] = temp_copy
 
-        print("VALID MARKERS AFTER: {}".format(valid_markers))
+        aprint(self.id, "VALID MARKERS AFTER: {}".format(valid_markers))
 
         # now need to find the enclosing cycles/loops for each hole
         def boundary_search(layer, z, i, j, marker, visited, c_list):
@@ -1197,66 +1436,80 @@ class PerimeterFollowingAgent(Agent):
 
         hole_corners = []
         checked_hole_corners = []
+        checked_hole_corner_boundaries = []
         hole_boundary_coords = dict()
         for z in range(hole_map.shape[0]):
             hole_corners.append([])
             checked_hole_corners.append([])
+            checked_hole_corner_boundaries.append([])
             for m_idx, m in enumerate(valid_markers[z]):
                 # find corners as coordinates that are not equal to the marker and adjacent to
                 # two of the boundary coordinates (might only want to look for outside corners though)
                 coord_tuple_list = list(zip(
-                    hole_boundaries[z][m_idx][0], hole_boundaries[z][m_idx][1], hole_boundaries[z][m_idx][2]))
+                    hole_boundaries[z][m_idx][2], hole_boundaries[z][m_idx][1], hole_boundaries[z][m_idx][0]))
                 hole_boundary_coords[m] = hole_boundaries[z][m_idx]
                 corner_coord_list = []
-                print("HOLE BOUNDARY COORDS FOR {}: {}".format(m, coord_tuple_list))
-                print("HOLE MAP AT THIS POINT:\n{}".format(hole_map))
+                corner_adjacent_boundary_list = []
+                aprint(self.id, "HOLE BOUNDARY COORDS FOR {}: {}".format(m, coord_tuple_list))
+                aprint(self.id, "HOLE MAP AT THIS POINT:\n{}".format(hole_map))
                 for y in range(hole_map.shape[1]):
                     for x in range(hole_map.shape[2]):
                         if hole_map[z, y, x] == 1:
                             counter = 0
                             surrounded_in_y = False
                             surrounded_in_x = False
-                            if y - 1 > 0 and (z, y - 1, x) in coord_tuple_list:
+                            boundary_locations = []
+                            if y - 1 > 0 and (x, y - 1, z) in coord_tuple_list:
                                 counter += 1
                                 surrounded_in_y = True
-                            if not surrounded_in_y and y + 1 < hole_map.shape[1] and (z, y + 1, x) in coord_tuple_list:
+                                boundary_locations.append((x, y - 1, z))
+                            if not surrounded_in_y and y + 1 < hole_map.shape[1] and (x, y + 1, z) in coord_tuple_list:
                                 counter += 1
-                            if x - 1 > 0 and (z, y, x - 1) in coord_tuple_list:
+                                boundary_locations.append((x, y + 1, z))
+                            if x - 1 > 0 and (x - 1, y, z) in coord_tuple_list:
                                 counter += 1
                                 surrounded_in_x = True
-                            if not surrounded_in_x and x + 1 < hole_map.shape[2] and (z, y, x + 1) in coord_tuple_list:
+                                boundary_locations.append((x - 1, y, z))
+                            if not surrounded_in_x and x + 1 < hole_map.shape[2] and (x + 1, y, z) in coord_tuple_list:
                                 counter += 1
+                                boundary_locations.append((x + 1, y, z))
                             if counter >= 2:
                                 # hole_map[z, y, x] = -m
-                                corner_coord_list.append((z, y, x))
+                                corner_coord_list.append((x, y, z))
+                                corner_adjacent_boundary_list.append(boundary_locations)
                         elif hole_map[z, y, x] == 0:
                             counter = 0
                             surrounded_in_y = False
                             surrounded_in_x = False
-                            if y - 1 > 0 and (z, y - 1, x) in coord_tuple_list:
+                            if y - 1 > 0 and (x, y - 1, z) in coord_tuple_list:
                                 counter += 1
                                 surrounded_in_y = True
-                            if not surrounded_in_y and y + 1 < hole_map.shape[1] and (z, y + 1, x) in coord_tuple_list:
+                            if not surrounded_in_y and y + 1 < hole_map.shape[1] and (x, y + 1, z) in coord_tuple_list:
                                 counter += 1
-                            if x - 1 > 0 and (z, y, x - 1) in coord_tuple_list:
+                            if x - 1 > 0 and (x - 1, y, z) in coord_tuple_list:
                                 counter += 1
                                 surrounded_in_x = True
-                            if not surrounded_in_x and x + 1 < hole_map.shape[2] and (z, y, x + 1) in coord_tuple_list:
+                            if not surrounded_in_x and x + 1 < hole_map.shape[2] and (x + 1, y, z) in coord_tuple_list:
                                 counter += 1
                             if counter >= 2:
                                 # in that case it should not matter, because the hole is not closed anyway (?)
                                 # hole_map[z, y, x] = 10
                                 pass
-                print("HOLE WITH MARKER {}, CORNER LENGTH {}".format(m, len(corner_coord_list)))
+                aprint(self.id, "HOLE WITH MARKER {}, CORNER LENGTH {}".format(m, len(corner_coord_list)))
                 if len(corner_coord_list) % 2 == 0:
                     # else there must be some "open" corner and it should not be necessary to explicitly
                     # leave a corner open -> now choose the "right and upper"-most corner
-                    sorted_by_y = sorted(corner_coord_list, key=lambda e: e[1], reverse=True)
-                    sorted_by_x = sorted(sorted_by_y, key=lambda e: e[2], reverse=True)
-                    checked_hole_corners[z].append(sorted_by_x[0])
+                    sorted_by_y = sorted(range(len(corner_coord_list)), key=lambda e: corner_coord_list[e][1],
+                                         reverse=True)
+                    sorted_by_x = sorted(sorted_by_y, key=lambda e: corner_coord_list[e][0], reverse=True)
+                    corner_coord_list = [corner_coord_list[i] for i in sorted_by_x]
+                    corner_adjacent_boundary_list = [corner_adjacent_boundary_list[i] for i in sorted_by_x]
+                    checked_hole_corners[z].append(corner_coord_list[0])
+                    checked_hole_corner_boundaries[z].append(corner_adjacent_boundary_list[0])
                 hole_corners[z].append(corner_coord_list)
 
-        return checked_hole_corners, hole_map, hole_boundary_coords
+        aprint(self.id, "CLOSING CORNERS: {}".format(checked_hole_corners))
+        return checked_hole_corners, hole_map, hole_boundary_coords, checked_hole_corner_boundaries
 
     def advance(self, environment: env.map.Map):
         # determine current task:
@@ -1267,10 +1520,10 @@ class PerimeterFollowingAgent(Agent):
         if self.current_seed is None:
             self.current_seed = environment.blocks[0]
 
-        for a in environment.agents:
-            if self is not a and self.overlaps(a):
-                print("COLLIDING!")
+        self.agent_statistics.step(environment)
 
+        if self.current_task == Task.AVOID_COLLISION:
+            self.avoid_collision(environment)
         if self.current_task == Task.FETCH_BLOCK:
             self.fetch_block(environment)
         elif self.current_task == Task.TRANSPORT_BLOCK:
@@ -1283,7 +1536,22 @@ class PerimeterFollowingAgent(Agent):
             self.place_block(environment)
         elif self.current_task == Task.MOVE_UP_LAYER:
             self.move_up_layer(environment)
+        elif self.current_task == Task.LAND:
+            # aprint(self.id, "LAND ROUTINE IS ACTUALLY CALLED IN AGENT {}".format(self))
+            self.land(environment)
 
-        for a in environment.agents:
-            if self is not a and self.overlaps(a):
-                print("COLLIDING!")
+        if self.collision_possible and self.current_task not in [Task.AVOID_COLLISION, Task.LAND, Task.FINISHED]:
+            for a in environment.agents:
+                if self is not a and self.collision_potential(a):
+                    # aprint(self.id, "INITIATING HIGH-LEVEL COLLISION AVOIDANCE")
+                    self.previous_task = self.current_task
+                    self.current_task = Task.AVOID_COLLISION
+                    self.task_history.append(self.current_task)
+                    break
+        # else:
+        #     for a in environment.agents:
+        #         if self is not a and self.collision_potential(a):
+        #             break
+        #     else:
+        #         self.current_task = self.previous_task
+        #         self.task_history.append(self.current_task)
