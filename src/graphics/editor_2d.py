@@ -41,6 +41,7 @@ class Editor2D(Tk):
         self.button_show = None
         self.button_save = None
         self.button_load = None
+        self.button_clear = None
         self.setup()
         self.redraw()
 
@@ -284,6 +285,13 @@ class Editor2D(Tk):
 
         self.button_load = Button(self, text="Load", command=load)
         self.button_load.grid(row=11, column=48, sticky=W)
+
+        def clear():
+            np.place(self.layers[self.current_layer], self.layers[self.current_layer] > 0, 0)
+            self.redraw()
+
+        self.button_clear = Button(self, text="Clear", command=clear)
+        self.button_clear.grid(row=12, column=48, sticky=W)
 
 
 if __name__ == "__main__":

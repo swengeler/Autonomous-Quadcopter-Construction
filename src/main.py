@@ -30,7 +30,7 @@ def main():
     # 1: occupied
     # 2: seed
 
-    target_map = tower_solid_5x5
+    target_map = the_loop_test_to_end_them_all
 
     palette_block = list(sns.color_palette("Blues_d", target_map.shape[0]))
     palette_seed = list(sns.color_palette("Reds_d", target_map.shape[0]))
@@ -47,7 +47,7 @@ def main():
     # offset of the described target occupancy map to the origin (only in x/y directions)
     offset_origin = (100.0, 100.0)
     environment_extent = [150.0, 200.0, 200.0]
-    environment_extent = [700.0] * 3
+    environment_extent = [500.0] * 3
 
     # creating Map object and getting the required number of block_list (of each type)
     environment = Map(target_map, offset_origin, environment_extent)
@@ -81,7 +81,7 @@ def main():
             processed_counter += 1
 
     # creating the agent_list
-    agent_count = 6
+    agent_count = 1
     agent_type = AgentType.RANDOM_WALK_AGENT
     agent_list = [create_agent(agent_type, [50, 60, 7.5], [40, 40, 15], target_map, 10.0)
                   for _ in range(0, agent_count)]

@@ -6,6 +6,7 @@ from enum import Enum
 from typing import List
 from abc import ABCMeta, abstractmethod
 from env.block import Block
+from env.util import print_map, shortest_path, neighbourhood
 from geom.shape import *
 from geom.path import Path
 from geom.util import simple_distance, rotation_2d, rotation_2d_experimental
@@ -185,7 +186,8 @@ class PerimeterFollowingAgent(Agent):
         self.structure_location_known = True
         self.collision_possible = True
         self.component_target_map = self.split_into_components()
-        self.closing_corners, self.hole_map, self.hole_boundaries, self.closing_corner_boundaries = self.find_closing_corners()
+        self.closing_corners, self.hole_map, self.hole_boundaries, self.closing_corner_boundaries, \
+        self.all_hole_boundaries = self.find_closing_corners()
         self.logger.setLevel(logging.DEBUG)
 
     def fetch_block(self, environment: env.map.Map):
@@ -550,9 +552,11 @@ class PerimeterFollowingAgent(Agent):
                 # TODO: need to prioritise closing holes, i.e. get hole closed first, then build outside of said hole
                 # otherwise it is possible that the "outer layers" can block finishing the hole
                 loop_corner_attachable = False
+                at_loop_corner = False
                 if tuple(self.current_grid_position) in self.closing_corners[self.current_structure_level]:
                     aprint(self.id,
                            "TRYING TO ATTACH AT CORNER OF LOOP, COORDINATES {}".format(self.current_grid_position))
+                    at_loop_corner = True
                     # need to check whether the adjacent blocks have been placed already
                     counter = 0
                     surrounded_in_y = False
@@ -582,8 +586,47 @@ class PerimeterFollowingAgent(Agent):
                         aprint(self.id, "CORNER NOT SURROUNDED BY ADJACENT BLOCKS YET")
                 else:
                     loop_corner_attachable = True
+
+                # TODO: also check whether current position is on shortest path to corner/part of perimeter
+                # check if holes completed and if not, whether the location is on a hole boundary
+                # hole completion can be checked seeing whether all hole boundary locations have been closed
+                hole_boundaries_completed = True
+                for x, y, z in self.all_hole_boundaries[self.current_structure_level]:
+                    if environment.check_occupancy_map(np.array([x, y, z]), lambda x: x == 0):
+                        hole_boundaries_completed = False
+                        break
+                else:
+                    aprint(self.id, "HOLE BOUNDARIES COMPLETED")
+                shortest_path_attachable = False
+                for hole in self.closing_corners[self.current_structure_level]:
+                    sp = shortest_path(self.target_map[self.current_structure_level],
+                                       (self.current_seed.grid_position[0], self.current_seed.grid_position[1]),
+                                       (hole[0], hole[1]))
+                    if (self.current_grid_position[0], self.current_grid_position[1]) in sp:
+                        shortest_path_attachable = True
+                        aprint(self.id, "SHORTEST PATH ATTACHABLE")
+                        break
+                inner_loop_attachable = False
+                if hole_boundaries_completed or shortest_path_attachable or \
+                        tuple(self.current_grid_position) in self.all_hole_boundaries[self.current_structure_level]:
+                    inner_loop_attachable = True
+
+                inner_loop_attachable = True
+
+                # check whether location is somewhere NORTH-WEST of any closing corner, i.e. the block should not be
+                # placed there before closing that loop (NW because currently all closing corners are located there)
+                allowable_region_attachable = True
+                if not at_loop_corner:
+                    for x, y, z in self.closing_corners[self.current_structure_level]:
+                        if not environment.check_occupancy_map(np.array([x, y, z])) and \
+                                x <= self.current_grid_position[0] and y <= self.current_grid_position[1]:
+                            allowable_region_attachable = False
+                            aprint(self.id, "NOT IN ALLOWABLE REGION")
+                            break
+
                 # TODO: I believe the if-statement below does not check whether something is already attached
-                if loop_corner_attachable and check_map(self.target_map, self.current_grid_position) and \
+                if loop_corner_attachable and allowable_region_attachable and \
+                        check_map(self.target_map, self.current_grid_position) and \
                         (environment.check_occupancy_map(self.current_grid_position + self.current_grid_direction) or
                          (self.current_row_started and (check_map(self.target_map, self.current_grid_position +
                                                                                    self.current_grid_direction,
@@ -1434,82 +1477,172 @@ class PerimeterFollowingAgent(Agent):
 
         # hole_map[hole_map < 0] = 1
 
+        # TODO: ACCOUNT FOR MULTIPLE COMPONENTS
+
+        a_dummy_copy = np.copy(hole_map)
         hole_corners = []
-        checked_hole_corners = []
+        closing_corners = []
         checked_hole_corner_boundaries = []
         hole_boundary_coords = dict()
         for z in range(hole_map.shape[0]):
             hole_corners.append([])
-            checked_hole_corners.append([])
+            closing_corners.append([])
             checked_hole_corner_boundaries.append([])
             for m_idx, m in enumerate(valid_markers[z]):
                 # find corners as coordinates that are not equal to the marker and adjacent to
                 # two of the boundary coordinates (might only want to look for outside corners though)
-                coord_tuple_list = list(zip(
+                boundary_coord_tuple_list = list(zip(
                     hole_boundaries[z][m_idx][2], hole_boundaries[z][m_idx][1], hole_boundaries[z][m_idx][0]))
                 hole_boundary_coords[m] = hole_boundaries[z][m_idx]
-                corner_coord_list = []
+                outer_corner_coord_list = []
+                inner_corner_coord_list = []
                 corner_adjacent_boundary_list = []
-                aprint(self.id, "HOLE BOUNDARY COORDS FOR {}: {}".format(m, coord_tuple_list))
+                aprint(self.id, "HOLE BOUNDARY COORDS FOR {}: {}".format(m, boundary_coord_tuple_list))
                 aprint(self.id, "HOLE MAP AT THIS POINT:\n{}".format(hole_map))
                 for y in range(hole_map.shape[1]):
                     for x in range(hole_map.shape[2]):
-                        if hole_map[z, y, x] == 1:
-                            counter = 0
-                            surrounded_in_y = False
-                            surrounded_in_x = False
-                            boundary_locations = []
-                            if y - 1 > 0 and (x, y - 1, z) in coord_tuple_list:
-                                counter += 1
-                                surrounded_in_y = True
-                                boundary_locations.append((x, y - 1, z))
-                            if not surrounded_in_y and y + 1 < hole_map.shape[1] and (x, y + 1, z) in coord_tuple_list:
-                                counter += 1
-                                boundary_locations.append((x, y + 1, z))
-                            if x - 1 > 0 and (x - 1, y, z) in coord_tuple_list:
-                                counter += 1
-                                surrounded_in_x = True
-                                boundary_locations.append((x - 1, y, z))
-                            if not surrounded_in_x and x + 1 < hole_map.shape[2] and (x + 1, y, z) in coord_tuple_list:
-                                counter += 1
-                                boundary_locations.append((x + 1, y, z))
-                            if counter >= 2:
-                                # hole_map[z, y, x] = -m
-                                corner_coord_list.append((x, y, z))
-                                corner_adjacent_boundary_list.append(boundary_locations)
-                        elif hole_map[z, y, x] == 0:
-                            counter = 0
-                            surrounded_in_y = False
-                            surrounded_in_x = False
-                            if y - 1 > 0 and (x, y - 1, z) in coord_tuple_list:
-                                counter += 1
-                                surrounded_in_y = True
-                            if not surrounded_in_y and y + 1 < hole_map.shape[1] and (x, y + 1, z) in coord_tuple_list:
-                                counter += 1
-                            if x - 1 > 0 and (x - 1, y, z) in coord_tuple_list:
-                                counter += 1
-                                surrounded_in_x = True
-                            if not surrounded_in_x and x + 1 < hole_map.shape[2] and (x + 1, y, z) in coord_tuple_list:
-                                counter += 1
-                            if counter >= 2:
-                                # in that case it should not matter, because the hole is not closed anyway (?)
-                                # hole_map[z, y, x] = 10
-                                pass
-                aprint(self.id, "HOLE WITH MARKER {}, CORNER LENGTH {}".format(m, len(corner_coord_list)))
-                if len(corner_coord_list) % 2 == 0:
+                        # check for each possible orientation of an outer corner whether the current block
+                        # matches that pattern, which would be of the following form:
+                        # [C] [B]
+                        # [B] [H]
+                        # or rotated by 90 degrees (where C = corner, B = boundary, H = hole)
+                        for y2 in (y - 1, y + 1):
+                            for x2 in (x - 1, x + 1):
+                                if 0 <= y2 < hole_map.shape[1] and 0 <= x2 < hole_map.shape[2] \
+                                        and hole_map[z, y, x] == 1 and hole_map[z, y2, x2] == m \
+                                        and (x, y2, z) in boundary_coord_tuple_list \
+                                        and (x2, y, z) in boundary_coord_tuple_list:
+                                    a_dummy_copy[z, y, x] = -m
+                                    outer_corner_coord_list.append((x, y, z))
+                                    corner_adjacent_boundary_list.append([(x, y2, z), (x2, y, z)])
+                        # do the same for inner corners, which have the following pattern:
+                        # [C] [H]
+                        # [H] [H]
+                        for y2 in (y - 1, y + 1):
+                            for x2 in (x - 1, x + 1):
+                                if 0 <= y2 < hole_map.shape[1] and 0 <= x2 < hole_map.shape[2] \
+                                        and hole_map[z, y, x] == 1 and hole_map[z, y2, x2] == m \
+                                        and hole_map[z, y, x2] == m and hole_map[z, y2, x] == m:
+                                    a_dummy_copy[z, y, x] = -m
+                                    inner_corner_coord_list.append((x, y, z))
+                                    # corner_adjacent_boundary_list.extend([(x, y2, z), (x2, y, z)])
+
+                        # nb = neighbourhood(hole_map[z], (x, y))
+                        # if hole_map[z, y, x] == 1 and m in nb:  # and the distance is less than the thing
+                        #     # or, if inside, 1 that has an m adjacent
+                        #     counter = 0
+                        #     surrounded_in_y = False
+                        #     surrounded_in_x = False
+                        #     boundary_locations = []
+                        #     if y - 1 > 0 and (x, y - 1, z) in boundary_coord_tuple_list:
+                        #         counter += 1
+                        #         surrounded_in_y = True
+                        #         boundary_locations.append((x, y - 1, z))
+                        #     if y + 1 < hole_map.shape[1] and (x, y + 1, z) in boundary_coord_tuple_list:
+                        #         if not surrounded_in_y:
+                        #             counter += 1
+                        #             boundary_locations.append((x, y + 1, z))
+                        #         else:
+                        #             continue
+                        #     if x - 1 > 0 and (x - 1, y, z) in boundary_coord_tuple_list:
+                        #         counter += 1
+                        #         surrounded_in_x = True
+                        #         boundary_locations.append((x - 1, y, z))
+                        #     if x + 1 < hole_map.shape[2] and (x + 1, y, z) in boundary_coord_tuple_list:
+                        #         if not surrounded_in_x:
+                        #             counter += 1
+                        #             boundary_locations.append((x + 1, y, z))
+                        #         else:
+                        #             continue
+                        #     if counter >= 2:
+                        #         a_dummy_copy[z, y, x] = -m
+                        #         if (nb == m).sum() < 3:
+                        #             outer_corner_coord_list.append((x, y, z))
+                        #             corner_adjacent_boundary_list.append(boundary_locations)
+                        #         else:
+                        #             inner_corner_coord_list.append((x, y, z))
+                        # elif hole_map[z, y, x] == 0:
+                        #     counter = 0
+                        #     surrounded_in_y = False
+                        #     surrounded_in_x = False
+                        #     if y - 1 > 0 and (x, y - 1, z) in boundary_coord_tuple_list:
+                        #         counter += 1
+                        #         surrounded_in_y = True
+                        #     if not surrounded_in_y and y + 1 < hole_map.shape[1] and (x, y + 1, z) in boundary_coord_tuple_list:
+                        #         counter += 1
+                        #     if x - 1 > 0 and (x - 1, y, z) in boundary_coord_tuple_list:
+                        #         counter += 1
+                        #         surrounded_in_x = True
+                        #     if not surrounded_in_x and x + 1 < hole_map.shape[2] and (x + 1, y, z) in boundary_coord_tuple_list:
+                        #         counter += 1
+                        #     if counter >= 2:
+                        #         # in that case it should not matter, because the hole is not closed anyway (?)
+                        #         # hole_map[z, y, x] = 10
+                        #         pass
+                # for y in range(hole_map.shape[1]):
+                #     for x in range(hole_map.shape[2]):
+                #         nb = neighbourhood(hole_map[z], (x, y))
+                #         nb_coords = [(x - 1, y - 1), (x - 1, y), (x - 1, y + 1),
+                #                      (x, y - 1), (x, y), (x, y + 1),
+                #                      (x + 1, y - 1), (x + 1, y), (x + 1, y + 1)]
+                #         if hole_map[z, y, x] == 1 \
+                #                 and len([0 for x, y in nb_coords if (x, y, z) in outer_corner_coord_list]) == 2 \
+                #                 and (nb == m).sum() >= 3:
+                #             inner_corner_coord_list.append((x, y, z))
+                #             a_dummy_copy[z, y, x] = -m
+                aprint(self.id, "HOLE WITH MARKER {}, CORNER LENGTH {}".format(m, len(outer_corner_coord_list)))
+                # corner is missing -> inside corners will also have to be counted
+                if (len(outer_corner_coord_list) + len(inner_corner_coord_list)) % 2 == 0:
                     # else there must be some "open" corner and it should not be necessary to explicitly
                     # leave a corner open -> now choose the "right and upper"-most corner
-                    sorted_by_y = sorted(range(len(corner_coord_list)), key=lambda e: corner_coord_list[e][1],
+                    sorted_by_y = sorted(range(len(outer_corner_coord_list)), key=lambda e: outer_corner_coord_list[e][1],
                                          reverse=True)
-                    sorted_by_x = sorted(sorted_by_y, key=lambda e: corner_coord_list[e][0], reverse=True)
-                    corner_coord_list = [corner_coord_list[i] for i in sorted_by_x]
+                    sorted_by_x = sorted(sorted_by_y, key=lambda e: outer_corner_coord_list[e][0], reverse=True)
+                    outer_corner_coord_list = [outer_corner_coord_list[i] for i in sorted_by_x]
                     corner_adjacent_boundary_list = [corner_adjacent_boundary_list[i] for i in sorted_by_x]
-                    checked_hole_corners[z].append(corner_coord_list[0])
+                    closing_corners[z].append(outer_corner_coord_list[0])
                     checked_hole_corner_boundaries[z].append(corner_adjacent_boundary_list[0])
-                hole_corners[z].append(corner_coord_list)
+                hole_corners[z].append(outer_corner_coord_list)
 
-        aprint(self.id, "CLOSING CORNERS: {}".format(checked_hole_corners))
-        return checked_hole_corners, hole_map, hole_boundary_coords, checked_hole_corner_boundaries
+        aprint(self.id, "HERE, LOOK HERE")
+        print_map(a_dummy_copy)
+
+        all_hole_boundaries = []
+        for z in range(hole_map.shape[0]):
+            boundary_locations = []
+            for m_idx, m in enumerate(valid_markers[z]):
+                # pass 1: get all immediately adjacent boundaries
+                # pass 2: get corners
+                # empty map with all boundaries of that hole being 1:
+                boundary_map = np.zeros_like(hole_map)
+                boundary_map[hole_boundaries[z][m_idx]] = 1
+                for y in range(boundary_map.shape[1]):
+                    for x in range(boundary_map.shape[2]):
+                        if 0 < hole_map[z, y, x] < 2:
+                            counter = 0
+                            for x_diff, y_diff in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+                                if 0 <= x_diff < boundary_map.shape[2] and 0 <= y_diff < boundary_map.shape[1] and \
+                                        boundary_map[z, y_diff, x_diff] == 1:
+                                    counter += 1
+                            if counter >= 2:
+                                boundary_map[z, y, x] = 1
+                boundary_coords = np.where(boundary_map == 1)
+                boundary_coord_tuple_list = list(zip(boundary_coords[2], boundary_coords[1], boundary_coords[0]))
+                boundary_locations.extend(boundary_coord_tuple_list)
+            all_hole_boundaries.append(boundary_locations)
+
+        print("CLOSING CORNERS: {}".format(closing_corners))
+        print("")
+
+        boundary_map = np.zeros_like(hole_map)
+        for z in range(hole_map.shape[0]):
+            for x, y, z in all_hole_boundaries[z]:
+                boundary_map[z, y, x] = 1
+
+        # sp = shortest_path(self.target_map[0], (0, 0), (closing_corners[0][0][0], closing_corners[0][0][1]))
+        # print_map(self.target_map, sp, 0)
+
+        return closing_corners, hole_map, hole_boundary_coords, checked_hole_corner_boundaries, all_hole_boundaries
 
     def advance(self, environment: env.map.Map):
         # determine current task:
