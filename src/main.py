@@ -30,7 +30,7 @@ def main():
     # 1: occupied
     # 2: seed
 
-    target_map = the_loop_test_to_end_them_all
+    target_map = multi_loop_component_test
 
     palette_block = list(sns.color_palette("Blues_d", target_map.shape[0]))
     palette_seed = list(sns.color_palette("Reds_d", target_map.shape[0]))
@@ -58,10 +58,9 @@ def main():
     for _ in range(0, block_count):
         block_list.append(create_block(BlockType.INERT))
 
-    # block positions, (for now) only x and y required
+    # seed(s) and block positions
     block_list[0].is_seed = True
     block_list[0].placed = True
-    # block_list[0].color = Block.COLORS_SEEDS[0]
     block_list[0].geometry = GeomBox(list(environment.seed_position()), [Block.SIZE] * 3, 0.0)
     block_list[0].grid_position = environment.seed_grid_position()
     block_list[0].seed_marked_edge = "down"
@@ -72,7 +71,7 @@ def main():
         candidate_y = random.uniform(0.0, environment.environment_extent[1])
         candidate_box = GeomBox([candidate_x, candidate_y, Block.SIZE / 2], [Block.SIZE] * 3, 0.0)
         if not ((environment.offset_origin[0] <= candidate_x <= environment.offset_origin[0]
-                 + Block.SIZE * environment.target_map.shape[2]) or
+                 + Block.SIZE * environment.target_map.shape[2]) and
                 (environment.offset_origin[1] <= candidate_y <= environment.offset_origin[1]
                  + Block.SIZE * environment.target_map.shape[1])) \
                 and all([not candidate_box.overlaps(p.geometry) for p in processed]):

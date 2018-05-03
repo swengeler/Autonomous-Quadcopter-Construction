@@ -107,7 +107,7 @@ class Agent:
         self.current_grid_position = None  # closest grid position if at structure
         self.current_grid_direction = None
         self.current_row_started = False
-        self.current_component_marker = -1
+        self.current_component_marker = 2
         self.backup_grid_position = None
         self.previous_task = Task.FETCH_BLOCK
 
@@ -186,8 +186,9 @@ class PerimeterFollowingAgent(Agent):
         self.structure_location_known = True
         self.collision_possible = True
         self.component_target_map = self.split_into_components()
-        self.closing_corners, self.hole_map, self.hole_boundaries, self.closing_corner_boundaries, \
-        self.all_hole_boundaries = self.find_closing_corners()
+        print("COMPONENT TARGET MAP: {}".format(self.component_target_map))
+        self.closing_corners, self.hole_map, self.hole_boundaries, self.closing_corner_boundaries = \
+            self.find_closing_corners()
         self.logger.setLevel(logging.DEBUG)
 
     def fetch_block(self, environment: env.map.Map):
@@ -428,7 +429,6 @@ class PerimeterFollowingAgent(Agent):
         seed_block = self.current_seed
 
         if self.current_component_marker != -1:
-            aprint(self.id, "FIND_ATTACHMENT_SITE TRIGGERED")
             # checking below whether the current component (as designated by self.current_component_marker) is finished
             tm = np.zeros_like(self.target_map[self.current_structure_level])
             np.place(tm, self.component_target_map[self.current_structure_level] ==
@@ -458,7 +458,7 @@ class PerimeterFollowingAgent(Agent):
 
                 if len(candidate_components) > 0:
                     # choosing one of the candidate components to continue constructing
-                    self.current_component_marker = random.sample(candidate_components, 1)
+                    self.current_component_marker = random.sample(candidate_components, 1)[0]
                     aprint(self.id,
                            "(FIND_ATTACHMENT_SITE) After placing block: unfinished components left, choosing {}".format(
                                self.current_component_marker))
@@ -547,13 +547,15 @@ class PerimeterFollowingAgent(Agent):
             self.geometry.position = next_position
             ret = self.current_path.advance()
             if not ret:
+                aprint("TRYING TO ATTACH AT COMPONENT {}".format(self.current_component_marker))
                 # corner of the current block reached, assess next action
                 # TODO: check whether this is the corner of a loop and if so whether it can be closed
                 # TODO: need to prioritise closing holes, i.e. get hole closed first, then build outside of said hole
                 # otherwise it is possible that the "outer layers" can block finishing the hole
                 loop_corner_attachable = False
                 at_loop_corner = False
-                if tuple(self.current_grid_position) in self.closing_corners[self.current_structure_level]:
+                if tuple(self.current_grid_position) \
+                        in self.closing_corners[self.current_structure_level][self.current_component_marker]:
                     aprint(self.id,
                            "TRYING TO ATTACH AT CORNER OF LOOP, COORDINATES {}".format(self.current_grid_position))
                     at_loop_corner = True
@@ -561,8 +563,11 @@ class PerimeterFollowingAgent(Agent):
                     counter = 0
                     surrounded_in_y = False
                     surrounded_in_x = False
-                    index = self.closing_corners[self.current_structure_level].index(tuple(self.current_grid_position))
-                    possible_boundaries = self.closing_corner_boundaries[self.current_structure_level][index]
+                    index = self.closing_corners[self.current_structure_level][self.current_component_marker].index(
+                        tuple(self.current_grid_position))
+                    possible_boundaries = self.closing_corner_boundaries[self.current_structure_level][
+                        self.current_component_marker][index]
+                    # TODO: change closing_corners and closing_corner_boundaries to be component-wise
                     if environment.check_occupancy_map(self.current_grid_position + np.array([0, -1, 0])) and \
                             tuple(self.current_grid_position + np.array([0, -1, 0])) in possible_boundaries:
                         counter += 1
@@ -587,44 +592,17 @@ class PerimeterFollowingAgent(Agent):
                 else:
                     loop_corner_attachable = True
 
-                # TODO: also check whether current position is on shortest path to corner/part of perimeter
-                # check if holes completed and if not, whether the location is on a hole boundary
-                # hole completion can be checked seeing whether all hole boundary locations have been closed
-                hole_boundaries_completed = True
-                for x, y, z in self.all_hole_boundaries[self.current_structure_level]:
-                    if environment.check_occupancy_map(np.array([x, y, z]), lambda x: x == 0):
-                        hole_boundaries_completed = False
-                        break
-                else:
-                    aprint(self.id, "HOLE BOUNDARIES COMPLETED")
-                shortest_path_attachable = False
-                for hole in self.closing_corners[self.current_structure_level]:
-                    sp = shortest_path(self.target_map[self.current_structure_level],
-                                       (self.current_seed.grid_position[0], self.current_seed.grid_position[1]),
-                                       (hole[0], hole[1]))
-                    if (self.current_grid_position[0], self.current_grid_position[1]) in sp:
-                        shortest_path_attachable = True
-                        aprint(self.id, "SHORTEST PATH ATTACHABLE")
-                        break
-                inner_loop_attachable = False
-                if hole_boundaries_completed or shortest_path_attachable or \
-                        tuple(self.current_grid_position) in self.all_hole_boundaries[self.current_structure_level]:
-                    inner_loop_attachable = True
-
-                inner_loop_attachable = True
-
-                # check whether location is somewhere NORTH-WEST of any closing corner, i.e. the block should not be
-                # placed there before closing that loop (NW because currently all closing corners are located there)
+                # check whether location is somewhere NORTH-EAST of any closing corner, i.e. the block should not be
+                # placed there before closing that loop (NE because currently all closing corners are located there)
                 allowable_region_attachable = True
                 if not at_loop_corner:
-                    for x, y, z in self.closing_corners[self.current_structure_level]:
+                    for x, y, z in self.closing_corners[self.current_structure_level][self.current_component_marker]:
                         if not environment.check_occupancy_map(np.array([x, y, z])) and \
                                 x <= self.current_grid_position[0] and y <= self.current_grid_position[1]:
                             allowable_region_attachable = False
-                            aprint(self.id, "NOT IN ALLOWABLE REGION")
                             break
 
-                # TODO: I believe the if-statement below does not check whether something is already attached
+                # TODO: might want to check whether behaviour should actually be different if a hole was encountered
                 if loop_corner_attachable and allowable_region_attachable and \
                         check_map(self.target_map, self.current_grid_position) and \
                         (environment.check_occupancy_map(self.current_grid_position + self.current_grid_direction) or
@@ -803,7 +781,7 @@ class PerimeterFollowingAgent(Agent):
 
                         if len(candidate_components) > 0:
                             # choosing one of the candidate components to continue constructing
-                            self.current_component_marker = random.sample(candidate_components, 1)
+                            self.current_component_marker = random.sample(candidate_components, 1)[0]
                             aprint(self.id, "After placing block: unfinished components left, choosing {}".format(
                                 self.current_component_marker))
                             # getting the coordinates of those positions where the other component already has blocks
@@ -916,7 +894,7 @@ class PerimeterFollowingAgent(Agent):
                     # pick some connected component on this layer (randomly for now) and get a seed for it
                     unique_values = np.unique(self.component_target_map[self.current_structure_level]).tolist()
                     unique_values = [x for x in unique_values if x != 0]
-                    self.current_component_marker = random.sample(unique_values, 1)
+                    self.current_component_marker = random.sample(unique_values, 1)[0]
                     occupied_locations = np.where(
                         self.component_target_map[self.current_structure_level] == self.current_component_marker)
                     aprint(self.id, np.unique(self.component_target_map[self.current_structure_level]))
@@ -926,12 +904,18 @@ class PerimeterFollowingAgent(Agent):
                     supported_locations = np.nonzero(self.target_map[self.current_structure_level - 1])
                     supported_locations = list(zip(supported_locations[0], supported_locations[1]))
                     occupied_locations = [x for x in occupied_locations if x in supported_locations]
-                    occupied_locations = [x for x in occupied_locations if (self.current_structure_level, x[0], x[1])
-                                          not in self.closing_corners[self.current_structure_level]]
+                    occupied_locations = [x for x in occupied_locations if (x[1], x[0], self.current_structure_level)
+                                          not in self.closing_corners[self.current_structure_level][
+                                              self.current_component_marker]]
                     coordinates = random.sample(occupied_locations, 1)
                     min_coordinates = [coordinates[0][1], coordinates[0][0], self.current_structure_level]
+
+                    # TODO: while this now uses the most SOUTH-WESTERN position, something else might be even better
+                    sorted_by_y = sorted(occupied_locations, key=lambda e: e[0])
+                    sorted_by_x = sorted(sorted_by_y, key=lambda e: e[1])
+                    min_coordinates = [sorted_by_x[0][1], sorted_by_x[0][0], self.current_structure_level]
+
                     aprint(self.id, "MIN COORDINATES: {}".format(min_coordinates))
-                    aprint(self.id, self.closing_corners)
 
                 min_block = None
                 if self.current_block is None:
@@ -1054,7 +1038,7 @@ class PerimeterFollowingAgent(Agent):
 
                     if len(candidate_components) > 0:
                         # choosing one of the candidate components and determine the desired coordinates
-                        self.current_component_marker = random.sample(candidate_components, 1)
+                        self.current_component_marker = random.sample(candidate_components, 1)[0]
                         occupied_locations = np.where(
                             self.component_target_map[self.current_structure_level] == self.current_component_marker)
                         occupied_locations = list(zip(occupied_locations[0], occupied_locations[1]))
@@ -1063,6 +1047,10 @@ class PerimeterFollowingAgent(Agent):
                         occupied_locations = [x for x in occupied_locations if x in supported_locations]
                         coordinates = random.sample(occupied_locations, 1)
                         min_coordinates = [coordinates[0][1], coordinates[0][0], self.current_structure_level]
+
+                        sorted_by_y = sorted(occupied_locations, key=lambda e: e[0])
+                        sorted_by_x = sorted(sorted_by_y, key=lambda e: e[1])
+                        min_coordinates = [sorted_by_x[0][1], sorted_by_x[0][0], self.current_structure_level]
 
                         # determining the path there
                         self.current_path = Path()
@@ -1179,7 +1167,7 @@ class PerimeterFollowingAgent(Agent):
 
                     if len(candidate_components) > 0:
                         # choosing one of the candidate components and determine the desired coordinates
-                        self.current_component_marker = random.sample(candidate_components, 1)
+                        self.current_component_marker = random.sample(candidate_components, 1)[0]
                         occupied_locations = np.where(
                             self.component_target_map[self.current_structure_level] == self.current_component_marker)
                         occupied_locations = list(zip(occupied_locations[0], occupied_locations[1]))
@@ -1188,6 +1176,10 @@ class PerimeterFollowingAgent(Agent):
                         occupied_locations = [x for x in occupied_locations if x in supported_locations]
                         coordinates = random.sample(occupied_locations, 1)
                         min_coordinates = [coordinates[0][1], coordinates[0][0], self.current_structure_level]
+
+                        sorted_by_y = sorted(occupied_locations, key=lambda e: e[0])
+                        sorted_by_x = sorted(sorted_by_y, key=lambda e: e[1])
+                        min_coordinates = [sorted_by_x[0][1], sorted_by_x[0][0], self.current_structure_level]
 
                         min_block = None
                         min_distance = float("inf")
@@ -1430,22 +1422,15 @@ class PerimeterFollowingAgent(Agent):
                         valid_markers[z].append(hole_marker)
                         hole_marker += 1
 
-        aprint(self.id, "VALID MARKERS: {}".format(valid_markers))
-        aprint(self.id, hole_map)
-
         for z in range(len(valid_markers)):
             temp_copy = valid_markers[z].copy()
             for m in valid_markers[z]:
                 locations = np.where(hole_map == m)
-                aprint(self.id, "FOR MARKER {} LOCATIONS ARE {}".format(m, locations))
                 if 0 in locations[1] or 0 in locations[2] or hole_map.shape[1] - 1 in locations[1] \
                         or hole_map.shape[2] - 1 in locations[2]:
                     temp_copy.remove(m)
                     hole_map[locations] = 0
-                    aprint(self.id, "REMOVING MARKER {}".format(m))
             valid_markers[z][:] = temp_copy
-
-        aprint(self.id, "VALID MARKERS AFTER: {}".format(valid_markers))
 
         # now need to find the enclosing cycles/loops for each hole
         def boundary_search(layer, z, i, j, marker, visited, c_list):
@@ -1472,22 +1457,25 @@ class PerimeterFollowingAgent(Agent):
                 locations = np.where(hole_map == m)
                 boundary_search(hole_map[z], z, locations[1][0], locations[2][0], m, None, coord_list)
                 coord_list = tuple(np.moveaxis(np.array(coord_list), -1, 0))
-                # hole_map[coord_list] = -m
                 hole_boundaries[z].append(coord_list)
-
-        # hole_map[hole_map < 0] = 1
 
         # TODO: ACCOUNT FOR MULTIPLE COMPONENTS
 
         a_dummy_copy = np.copy(hole_map)
         hole_corners = []
         closing_corners = []
-        checked_hole_corner_boundaries = []
+        closing_corner_boundaries = []
         hole_boundary_coords = dict()
         for z in range(hole_map.shape[0]):
             hole_corners.append([])
-            closing_corners.append([])
-            checked_hole_corner_boundaries.append([])
+            # TODO: implement this with more fitting data structures
+            closing_corners.append({})
+            closing_corner_boundaries.append({})
+            for cm in np.unique(self.component_target_map):
+                # for each component marker, make new entry in closing_corners dictionary
+                closing_corners[z][cm] = []
+                closing_corner_boundaries[z][cm] = []
+            # this list is used to keep track of which (closing) corners (and boundaries) belong to which components
             for m_idx, m in enumerate(valid_markers[z]):
                 # find corners as coordinates that are not equal to the marker and adjacent to
                 # two of the boundary coordinates (might only want to look for outside corners though)
@@ -1496,9 +1484,10 @@ class PerimeterFollowingAgent(Agent):
                 hole_boundary_coords[m] = hole_boundaries[z][m_idx]
                 outer_corner_coord_list = []
                 inner_corner_coord_list = []
-                corner_adjacent_boundary_list = []
-                aprint(self.id, "HOLE BOUNDARY COORDS FOR {}: {}".format(m, boundary_coord_tuple_list))
-                aprint(self.id, "HOLE MAP AT THIS POINT:\n{}".format(hole_map))
+                corner_boundary_list = []
+
+                component_marker_list_outer = []
+                component_marker_list_inner = []
                 for y in range(hole_map.shape[1]):
                     for x in range(hole_map.shape[2]):
                         # check for each possible orientation of an outer corner whether the current block
@@ -1514,7 +1503,8 @@ class PerimeterFollowingAgent(Agent):
                                         and (x2, y, z) in boundary_coord_tuple_list:
                                     a_dummy_copy[z, y, x] = -m
                                     outer_corner_coord_list.append((x, y, z))
-                                    corner_adjacent_boundary_list.append([(x, y2, z), (x2, y, z)])
+                                    corner_boundary_list.append([(x, y2, z), (x2, y, z)])
+                                    component_marker_list_outer.append(self.component_target_map[z, y, x])
                         # do the same for inner corners, which have the following pattern:
                         # [C] [H]
                         # [H] [H]
@@ -1525,83 +1515,39 @@ class PerimeterFollowingAgent(Agent):
                                         and hole_map[z, y, x2] == m and hole_map[z, y2, x] == m:
                                     a_dummy_copy[z, y, x] = -m
                                     inner_corner_coord_list.append((x, y, z))
-                                    # corner_adjacent_boundary_list.extend([(x, y2, z), (x2, y, z)])
+                                    component_marker_list_inner.append(self.component_target_map[z, y, x])
 
-                        # nb = neighbourhood(hole_map[z], (x, y))
-                        # if hole_map[z, y, x] == 1 and m in nb:  # and the distance is less than the thing
-                        #     # or, if inside, 1 that has an m adjacent
-                        #     counter = 0
-                        #     surrounded_in_y = False
-                        #     surrounded_in_x = False
-                        #     boundary_locations = []
-                        #     if y - 1 > 0 and (x, y - 1, z) in boundary_coord_tuple_list:
-                        #         counter += 1
-                        #         surrounded_in_y = True
-                        #         boundary_locations.append((x, y - 1, z))
-                        #     if y + 1 < hole_map.shape[1] and (x, y + 1, z) in boundary_coord_tuple_list:
-                        #         if not surrounded_in_y:
-                        #             counter += 1
-                        #             boundary_locations.append((x, y + 1, z))
-                        #         else:
-                        #             continue
-                        #     if x - 1 > 0 and (x - 1, y, z) in boundary_coord_tuple_list:
-                        #         counter += 1
-                        #         surrounded_in_x = True
-                        #         boundary_locations.append((x - 1, y, z))
-                        #     if x + 1 < hole_map.shape[2] and (x + 1, y, z) in boundary_coord_tuple_list:
-                        #         if not surrounded_in_x:
-                        #             counter += 1
-                        #             boundary_locations.append((x + 1, y, z))
-                        #         else:
-                        #             continue
-                        #     if counter >= 2:
-                        #         a_dummy_copy[z, y, x] = -m
-                        #         if (nb == m).sum() < 3:
-                        #             outer_corner_coord_list.append((x, y, z))
-                        #             corner_adjacent_boundary_list.append(boundary_locations)
-                        #         else:
-                        #             inner_corner_coord_list.append((x, y, z))
-                        # elif hole_map[z, y, x] == 0:
-                        #     counter = 0
-                        #     surrounded_in_y = False
-                        #     surrounded_in_x = False
-                        #     if y - 1 > 0 and (x, y - 1, z) in boundary_coord_tuple_list:
-                        #         counter += 1
-                        #         surrounded_in_y = True
-                        #     if not surrounded_in_y and y + 1 < hole_map.shape[1] and (x, y + 1, z) in boundary_coord_tuple_list:
-                        #         counter += 1
-                        #     if x - 1 > 0 and (x - 1, y, z) in boundary_coord_tuple_list:
-                        #         counter += 1
-                        #         surrounded_in_x = True
-                        #     if not surrounded_in_x and x + 1 < hole_map.shape[2] and (x + 1, y, z) in boundary_coord_tuple_list:
-                        #         counter += 1
-                        #     if counter >= 2:
-                        #         # in that case it should not matter, because the hole is not closed anyway (?)
-                        #         # hole_map[z, y, x] = 10
-                        #         pass
-                # for y in range(hole_map.shape[1]):
-                #     for x in range(hole_map.shape[2]):
-                #         nb = neighbourhood(hole_map[z], (x, y))
-                #         nb_coords = [(x - 1, y - 1), (x - 1, y), (x - 1, y + 1),
-                #                      (x, y - 1), (x, y), (x, y + 1),
-                #                      (x + 1, y - 1), (x + 1, y), (x + 1, y + 1)]
-                #         if hole_map[z, y, x] == 1 \
-                #                 and len([0 for x, y in nb_coords if (x, y, z) in outer_corner_coord_list]) == 2 \
-                #                 and (nb == m).sum() >= 3:
-                #             inner_corner_coord_list.append((x, y, z))
-                #             a_dummy_copy[z, y, x] = -m
-                aprint(self.id, "HOLE WITH MARKER {}, CORNER LENGTH {}".format(m, len(outer_corner_coord_list)))
+                # split up the corners and boundaries into the different components
+                for cm in np.unique(component_marker_list_outer):
+                    current_outer = [outer_corner_coord_list[i] for i in range(len(outer_corner_coord_list))
+                                     if component_marker_list_outer[i] == cm]
+                    current_inner = [inner_corner_coord_list[i] for i in range(len(inner_corner_coord_list))
+                                     if component_marker_list_inner[i] == cm]
+                    current_boundary = [corner_boundary_list[i] for i in range(len(corner_boundary_list))
+                                        if component_marker_list_outer[i] == cm]
+                    if (len(current_outer) + len(current_inner)) % 2 == 0:
+                        sorted_by_y = sorted(range(len(current_outer)), key=lambda e: current_outer[e][1], reverse=True)
+                        sorted_by_x = sorted(sorted_by_y, key=lambda e: current_outer[e][0], reverse=True)
+                        current_outer = [current_outer[i] for i in sorted_by_x]
+                        current_boundary = [current_boundary[i] for i in sorted_by_x]
+                        closing_corners[z][cm].append(current_outer[0])
+                        closing_corner_boundaries[z][cm].append(current_boundary[0])
+                        # TODO (possibly): not sure if this will always work might be better to still have a closing
+                        # corner; if the open corner is adjacent to another hole, I am not sure it always works
+
                 # corner is missing -> inside corners will also have to be counted
-                if (len(outer_corner_coord_list) + len(inner_corner_coord_list)) % 2 == 0:
-                    # else there must be some "open" corner and it should not be necessary to explicitly
-                    # leave a corner open -> now choose the "right and upper"-most corner
-                    sorted_by_y = sorted(range(len(outer_corner_coord_list)), key=lambda e: outer_corner_coord_list[e][1],
-                                         reverse=True)
-                    sorted_by_x = sorted(sorted_by_y, key=lambda e: outer_corner_coord_list[e][0], reverse=True)
-                    outer_corner_coord_list = [outer_corner_coord_list[i] for i in sorted_by_x]
-                    corner_adjacent_boundary_list = [corner_adjacent_boundary_list[i] for i in sorted_by_x]
-                    closing_corners[z].append(outer_corner_coord_list[0])
-                    checked_hole_corner_boundaries[z].append(corner_adjacent_boundary_list[0])
+                # if (len(outer_corner_coord_list) + len(inner_corner_coord_list)) % 2 == 0:
+                #     # else there must be some "open" corner and it should not be necessary to explicitly
+                #     # leave a corner open -> now choose the "right and upper"-most corner
+                #     sorted_by_y = sorted(range(len(outer_corner_coord_list)),
+                #                          key=lambda e: outer_corner_coord_list[e][1],
+                #                          reverse=True)
+                #     sorted_by_x = sorted(sorted_by_y, key=lambda e: outer_corner_coord_list[e][0], reverse=True)
+                #     outer_corner_coord_list = [outer_corner_coord_list[i] for i in sorted_by_x]
+                #     corner_boundary_list = [corner_boundary_list[i] for i in sorted_by_x]
+                #     closing_corners[z].append(outer_corner_coord_list[0])
+                #     closing_corner_boundaries[z].append(corner_boundary_list[0])
+
                 hole_corners[z].append(outer_corner_coord_list)
 
         aprint(self.id, "HERE, LOOK HERE")
@@ -1632,17 +1578,14 @@ class PerimeterFollowingAgent(Agent):
             all_hole_boundaries.append(boundary_locations)
 
         print("CLOSING CORNERS: {}".format(closing_corners))
-        print("")
+        print("CLOSING CORNER BOUNDARIES: {}".format(closing_corner_boundaries))
 
         boundary_map = np.zeros_like(hole_map)
         for z in range(hole_map.shape[0]):
             for x, y, z in all_hole_boundaries[z]:
                 boundary_map[z, y, x] = 1
 
-        # sp = shortest_path(self.target_map[0], (0, 0), (closing_corners[0][0][0], closing_corners[0][0][1]))
-        # print_map(self.target_map, sp, 0)
-
-        return closing_corners, hole_map, hole_boundary_coords, checked_hole_corner_boundaries, all_hole_boundaries
+        return closing_corners, hole_map, hole_boundary_coords, closing_corner_boundaries
 
     def advance(self, environment: env.map.Map):
         # determine current task:
