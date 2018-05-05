@@ -1,6 +1,10 @@
 import numpy as np
-from tkinter import *
-from tkinter.filedialog import asksaveasfilename, askopenfilename
+try:
+    from Tkinter import *
+    from Tkinter.filedialog import asksaveasfilename, askopenfilename
+except ImportError:
+    from tkinter import *
+    from tkinter.filedialog import asksaveasfilename, askopenfilename
 
 
 class Editor2D(Tk):
