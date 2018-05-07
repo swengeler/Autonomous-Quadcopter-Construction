@@ -93,16 +93,18 @@ class Map:
             val = comparator(temp)
             return val
 
-    def check_over_structure(self, position, structure_level=None):
+    def block_below(self, position, structure_level=None):
         closest_x = int((position[0] - self.offset_origin[0]) / env.block.Block.SIZE)
         closest_y = int((position[1] - self.offset_origin[1]) / env.block.Block.SIZE)
         if structure_level is None:
             for height_level in range(self.occupancy_map.shape[0]):
                 if 0 <= closest_x < self.occupancy_map.shape[2] and 0 <= closest_y < self.occupancy_map.shape[1] \
                         and self.check_occupancy_map(np.array([closest_x, closest_y, height_level])):
-                    return True
+                    return [closest_x, closest_y, height_level]
+                    # return True
         elif 0 <= closest_x < self.occupancy_map.shape[2] and 0 <= closest_y < self.occupancy_map.shape[1] \
                 and self.check_occupancy_map(np.array([closest_x, closest_y, structure_level])):
-            return True
-        return False
+            return [closest_x, closest_y, structure_level]
+            # return True
+        return None
 

@@ -61,6 +61,48 @@ def shortest_path(grid: np.ndarray, start: Tuple[int, int], goal: Tuple[int, int
     return path
 
 
+def shortest_path_3d_in_2d(lattice: np.ndarray, start: Tuple, goal: Tuple):
+    if len(start) == 3:
+        start = start[0:2]
+    if len(goal) == 3:
+        goal = goal[0:2]
+
+    # determining a grid of locations occupied below that can be used for orientation
+    grid = np.zeros_like(lattice[0])
+    for z in range(lattice.shape[0]):
+        grid[lattice[z] != 0] = 1
+    grid[start[1], start[0]] = 1
+    grid[goal[1], goal[0]] = 1
+
+    queue = collections.deque([[start]])
+    seen = {start}
+    path = None
+    while queue:
+        path = queue.popleft()
+        x, y = path[-1]
+        if x == goal[0] and y == goal[1]:
+            # determine the highest layer at which there is a block,
+            # i.e. how high the agent has to fly to avoid all collisions
+            highest_layer = 0
+            for x, y in path:
+                for z in range(lattice.shape[0] - 1, -1, -1):
+                    if lattice[z, y, x] >= 1:
+                        highest_layer = max(z, highest_layer)
+                        break
+            return path, highest_layer
+        for x2, y2 in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            if 0 <= x2 < grid.shape[1] and 0 <= y2 < grid.shape[0] and grid[y2, x2] != 0 and (x2, y2) not in seen:
+                queue.append(path + [(x2, y2)])
+                seen.add((x2, y2))
+    highest_layer = 0
+    for x, y in path:
+        for z in range(lattice.shape[0] - 1, -1, -1):
+            if lattice[z, y, x] >= 1:
+                highest_layer = max(z, highest_layer)
+                break
+    return path, highest_layer
+
+
 def shortest_path_3d(lattice: np.ndarray, start, goal):
     # Note that the way I'm doing this right now basically means the resulting
     # shortest path tries to stick as close to the structure as possible
@@ -201,36 +243,34 @@ def legal_attachment_sites(target_map: np.ndarray, occupancy_map: np.ndarray, co
                     # making it through this loop without a break means that in the x-row, y-column where the block
                     # could be placed, there is either only a block immediately adjacent or any blocks already placed
                     # are separated from the current site by a gap
-                    # adjacent_to_placed_block = False
-                    # if 0 <= y + diff < legal_sites.shape[0] and occupancy_map[y + diff, x] >= 0:
-                    #     # in y direction this diff is clear
-                    #     adjacent_to_placed_block = True
-                    #
-                    # if not adjacent_to_placed_block and 0 <= y + diff < legal_sites.shape[0]:
-                    #     # check if site is to be occupied later on -> targetmap
-                    #     pass
 
                     counter = 1
                     while 0 <= y + counter * diff < legal_sites.shape[0] \
                             and occupancy_map[y + counter * diff, x] == 0 \
-                            and target_map[y + counter * diff, x] >= 0:
+                            and target_map[y + counter * diff, x] > 0:
                         counter += 1
                     if counter > 1 and 0 <= y + counter * diff < legal_sites.shape[0] \
-                            and occupancy_map[y + counter * diff, x] >= 0 and target_map[y + counter * diff, x] >= 0:
+                            and occupancy_map[y + counter * diff, x] > 0 and target_map[y + counter * diff, x] > 0:
                         # have encountered a block already in this row
                         legal_sites[y, x] = 0
-                        continue
+                        # print("Info for x = {}, y = {} (y):\ndiff = {}\ncounter = {}\noccupancy: {}\ntarget: {}"
+                        #       .format(x, y, diff, counter, occupancy_map[y + counter * diff, x],
+                        #               target_map[y + counter * diff, x]))
+                        break
 
                     counter = 1
                     while 0 <= x + counter * diff < legal_sites.shape[1] \
                             and occupancy_map[y, x + counter * diff] == 0 \
-                            and target_map[y, x + counter * diff] >= 0:
+                            and target_map[y, x + counter * diff] > 0:
                         counter += 1
                     if counter > 1 and 0 <= x + counter * diff < legal_sites.shape[1] \
-                            and occupancy_map[y, x + counter * diff] >= 0 and target_map[y, x + counter * diff] >= 0:
+                            and occupancy_map[y, x + counter * diff] > 0 and target_map[y, x + counter * diff] > 0:
                         # have encountered a block already in this row
                         legal_sites[y, x] = 0
-                        continue
+                        # print("Info for x = {}, y = {} (x):\ndiff = {}\ncounter = {}\noccupancy: {}\ntarget: {}"
+                        #       .format(x, y, diff, counter, occupancy_map[y + counter * diff, x],
+                        #               target_map[y + counter * diff, x]))
+                        break
 
                     # if 0 <= y + 2 * diff < legal_sites.shape[0] and occupancy_map[y + 2 * diff, x] >= 1 \
                     #         and legal_sites[y + diff, x] == 1:
@@ -240,6 +280,73 @@ def legal_attachment_sites(target_map: np.ndarray, occupancy_map: np.ndarray, co
                     #         and legal_sites[y, x + diff] == 1:
                     #     legal_sites[y, x] = 0
                     #     break
+
+    return legal_sites
+
+
+def legal_attachment_sites_3d(target_map: np.ndarray, occupancy_map: np.ndarray, safety_radius=2):
+    # input is supposed to be a 3-dimensional layer
+
+    # for each layer, identify the potential attachment sites in 2D, the 3D version can only get more restrictive
+    legal_sites = np.empty_like(target_map, dtype="int64")
+    for z in range(target_map.shape[0]):
+        legal_sites[z] = legal_attachment_sites(target_map[z], occupancy_map[z])
+
+    # in addition to attaching to adjacent blocks on the next level, attachment where supported from below is also
+    # possible; however, it still has to be possible to attach other blocks (row/plane rule?)
+    # -> allowed if supported and does not violate row rule on its layer?
+
+    for z in range(1, target_map.shape[0]):
+        for y in range(target_map.shape[1]):
+            for x in range(target_map.shape[2]):
+                # not yet "registered" as legal attachment site and supported from below
+                if legal_sites[z, y, x] == 0 and occupancy_map[z, y, x] == 0 \
+                        and target_map[z, y, x] >= 1 and occupancy_map[z - 1, y, x] >= 1:
+                    legal_sites[z, y, x] = 1
+                    # check whether row rule is violated
+                    for diff in (-1, 1):
+                        counter = 1
+                        while 0 <= y + counter * diff < legal_sites.shape[1] \
+                                and occupancy_map[z, y + counter * diff, x] == 0 \
+                                and target_map[z, y + counter * diff, x] >= 0:
+                            counter += 1
+                        if counter > 1 and 0 <= y + counter * diff < legal_sites.shape[1] \
+                                and occupancy_map[z, y + counter * diff, x] >= 0 \
+                                and target_map[z, y + counter * diff, x] >= 0:
+                            # have encountered a block already in this row
+                            legal_sites[z, y, x] = 0
+                            break
+
+                        counter = 1
+                        while 0 <= x + counter * diff < legal_sites.shape[2] \
+                                and occupancy_map[z, y, x + counter * diff] == 0 \
+                                and target_map[z, y, x + counter * diff] >= 0:
+                            counter += 1
+                        if counter > 1 and 0 <= x + counter * diff < legal_sites.shape[2] \
+                                and occupancy_map[z, y, x + counter * diff] >= 0 \
+                                and target_map[z, y, x + counter * diff] >= 0:
+                            # have encountered a block already in this row
+                            legal_sites[z, y, x] = 0
+                            break
+                if legal_sites[z, y, x] > 0:
+                    # check whether quadcopter can still get to other sites, i.e. whether there is any layer below
+                    # the current one where a block has to be placed within a 2 block radius of the (x, y) position
+                    done = False
+                    for z2 in range(z):
+                        if not done:
+                            for y2 in range(y - safety_radius, y + safety_radius + 1):
+                                if not done:
+                                    for x2 in range(x - safety_radius, x + safety_radius + 1):
+                                        # check if: not the same (x, y) position, within range,
+                                        # block supposed to go there and block not yet there
+                                        if not (y2 == y and x2 == x) \
+                                                and 0 <= y2 < legal_sites.shape[1] \
+                                                and 0 <= x2 < legal_sites.shape[2] \
+                                                and target_map[z2, y2, x2] >= 1 \
+                                                and occupancy_map[z2, y2, x2] == 0:
+                                            legal_sites[z, y, x] = 0
+                                            done = True
+                                            break
 
     return legal_sites
 

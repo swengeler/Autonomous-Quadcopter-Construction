@@ -3,7 +3,8 @@ import time
 import logging
 import random
 import queue
-from agents.agent import PerimeterFollowingAgent, ShortestPathAgent, Task
+from agents.agent import PerimeterFollowingAgent, Task
+from agents.sp_agent import ShortestPathAgent, ShortestPathAgent3D
 from env.map import *
 from env.util import *
 from geom.shape import *
@@ -30,7 +31,7 @@ def main():
     # 1: occupied
     # 2: seed
 
-    target_map = simple_rectangle_15x15
+    target_map = tower_solid_5x5
 
     palette_block = list(sns.color_palette("Blues_d", target_map.shape[0]))
     palette_seed = list(sns.color_palette("Reds_d", target_map.shape[0]))
@@ -99,8 +100,8 @@ def main():
     #         processed_counter += 1
 
     # creating the agent_list
-    agent_count = 2
-    agent_type = ShortestPathAgent
+    agent_count = 10
+    agent_type = PerimeterFollowingAgent
     agent_list = [agent_type([50, 60, 7.5], [40, 40, 15], target_map, 10.0) for _ in range(0, agent_count)]
     for i in range(len(agent_list)):
         agent_list[i].id = i
