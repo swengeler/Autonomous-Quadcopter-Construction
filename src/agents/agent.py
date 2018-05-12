@@ -91,7 +91,8 @@ class Agent:
         self.target_map = target_map
         self.component_target_map = None
         self.required_spacing = required_spacing
-        self.required_distance = 80
+        self.required_distance = 100
+        self.required_vertical_distance = 0
 
         self.local_occupancy_map = None
         self.next_seed = None
@@ -152,6 +153,11 @@ class Agent:
                     < self.required_distance:
                 return True
         return False
+
+    def collision_potential_visible(self, other):
+        if not self.collision_potential(other):
+            return False
+        # check whether other agent is within view, i.e. below this agent or in view of one of the cameras
 
 
 class PerimeterFollowingAgent(Agent):
@@ -223,8 +229,8 @@ class PerimeterFollowingAgent(Agent):
         # do (force field, not planned) collision avoidance
         if self.collision_possible:
             for a in environment.agents:
-                if self is not a and self.collision_potential(a) and a.geometry.position[2] <= self.geometry.position[
-                    2]:
+                if self is not a and self.collision_potential(a) \
+                        and a.geometry.position[2] <= self.geometry.position[2] - self.required_vertical_distance:
                     force_field_vector = np.array([0.0, 0.0, 0.0])
                     force_field_vector += (self.geometry.position - a.geometry.position)
                     force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
@@ -281,8 +287,8 @@ class PerimeterFollowingAgent(Agent):
         # do (force field, not planned) collision avoidance
         if self.collision_possible:
             for a in environment.agents:
-                if self is not a and self.collision_potential(a) and a.geometry.position[2] <= self.geometry.position[
-                    2]:
+                if self is not a and self.collision_potential(a) \
+                        and a.geometry.position[2] <= self.geometry.position[2] - self.required_vertical_distance:
                     force_field_vector = np.array([0.0, 0.0, 0.0])
                     force_field_vector += (self.geometry.position - a.geometry.position)
                     force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
@@ -342,8 +348,8 @@ class PerimeterFollowingAgent(Agent):
         # do (force field, not planned) collision avoidance
         if self.collision_possible:
             for a in environment.agents:
-                if self is not a and self.collision_potential(a) and a.geometry.position[2] <= self.geometry.position[
-                    2]:
+                if self is not a and self.collision_potential(a) \
+                        and a.geometry.position[2] <= self.geometry.position[2] - self.required_vertical_distance:
                     force_field_vector = np.array([0.0, 0.0, 0.0])
                     force_field_vector += (self.geometry.position - a.geometry.position)
                     force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
@@ -536,8 +542,8 @@ class PerimeterFollowingAgent(Agent):
         # do (force field, not planned) collision avoidance
         if self.collision_possible:
             for a in environment.agents:
-                if self is not a and self.collision_potential(a) and a.geometry.position[2] <= self.geometry.position[
-                    2]:
+                if self is not a and self.collision_potential(a) \
+                        and a.geometry.position[2] <= self.geometry.position[2] - self.required_vertical_distance:
                     force_field_vector = np.array([0.0, 0.0, 0.0])
                     force_field_vector += (self.geometry.position - a.geometry.position)
                     force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
@@ -869,7 +875,6 @@ class PerimeterFollowingAgent(Agent):
     def move_up_layer(self, environment: env.map.Map):
         if self.current_path is None:
             if self.current_component_marker == -1:
-                min_free_edges = None
                 if self.seed_on_perimeter:
                     def allowed_position(y, x):
                         return 0 <= y < self.target_map[self.current_structure_level].shape[0] and \
@@ -878,7 +883,6 @@ class PerimeterFollowingAgent(Agent):
                     # determine one block to serve as seed (a position in the target map)
                     min_adjacent = 4
                     min_coordinates = [0, 0, self.current_structure_level]  # [x, y]
-                    min_free_edges = ["up", "down", "left", "right"]
                     for i in range(0, self.target_map[self.current_structure_level].shape[0]):
                         for j in range(0, self.target_map[self.current_structure_level].shape[1]):
                             if self.target_map[self.current_structure_level, i, j] == 0:
@@ -967,9 +971,6 @@ class PerimeterFollowingAgent(Agent):
                     min_block = self.current_block
 
                 min_block.is_seed = True
-                # min_block.color = Block.COLORS["seed"]
-                if self.seed_on_perimeter:
-                    min_block.seed_marked_edge = random.choice(min_free_edges)
 
                 self.next_seed = min_block
                 self.next_seed.grid_position = np.array(min_coordinates)
@@ -1273,7 +1274,8 @@ class PerimeterFollowingAgent(Agent):
         # could/should probably make detection of possible colliding agents more realistic
         collision_danger_agents = []
         for a in environment.agents:
-            if self is not a and self.collision_potential(a) and a.geometry.position[2] <= self.geometry.position[2]:
+            if self is not a and self.collision_potential(a) \
+                    and a.geometry.position[2] <= self.geometry.position[2] - self.required_vertical_distance:
                 collision_danger_agents.append(a)
 
         not_dodging = True
@@ -1282,9 +1284,20 @@ class PerimeterFollowingAgent(Agent):
                           simple_distance(a.geometry.position, self.current_seed.geometry.position) > \
                           simple_distance(self.geometry.position, self.current_seed.geometry.position)
 
+        # TODO PROBLEM: DEADLOCK WHEN TWO AGENTS DECIDE THEY SHOULD DODGE -> RANDOMNESS FOR TIEBREAKER?
+
         # self does not even move towards the structure, evade
         # if self.current_task in [Task.LAND, Task.FETCH_BLOCK, Task.FINISHED, Task.MOVE_UP_LAYER]:
         #     not_dodging = True
+
+        # stuff that could be done if heading was known:
+        # - if QC below rising -> dodge sideways
+        # - if QC below lowering -> dodge upwards as needed (slightly)
+        # - if QC below moving sideways -> dodge upwards as needed and if possible go in different sideways direction
+        # - if QC same level and moving in same direction (roughly), don't change anything, slow down a bit (?)
+        # - if QC same level and moving in opposite direction (roughly), whichever is <some condition> rises to avoid
+        # - if QC same level and rising -> sideways/lower avoidance
+        # - if QC same level and lowering -> upwards
 
         # if self carries no block and some of the others carry one, then simply evade
         if (self.current_block is None or self.current_block.geometry not in self.geometry.following_geometries) and \
@@ -1318,7 +1331,7 @@ class PerimeterFollowingAgent(Agent):
         if self.collision_possible:
             for a in environment.agents:
                 if self is not a and self.collision_potential(a) \
-                        and a.geometry.position[2] <= self.geometry.position[2]:
+                        and a.geometry.position[2] <= self.geometry.position[2] - self.required_vertical_distance:
                     force_field_vector = np.array([0.0, 0.0, 0.0])
                     force_field_vector += (self.geometry.position - a.geometry.position)
                     force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
@@ -1401,8 +1414,8 @@ class PerimeterFollowingAgent(Agent):
         # do (force field, not planned) collision avoidance
         if self.collision_possible:
             for a in environment.agents:
-                if self is not a and self.collision_potential(a) and a.geometry.position[2] <= self.geometry.position[
-                    2]:
+                if self is not a and self.collision_potential(a) \
+                        and a.geometry.position[2] <= self.geometry.position[2] - self.required_vertical_distance:
                     force_field_vector = np.array([0.0, 0.0, 0.0])
                     force_field_vector += (self.geometry.position - a.geometry.position)
                     force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
@@ -1458,7 +1471,7 @@ class PerimeterFollowingAgent(Agent):
         # do (force field, not planned) collision avoidance
         # if self.collision_possible:
         #     for a in environment.agents:
-        #         if self is not a and self.collision_potential(a) and a.geometry.position[2] <= self.geometry.position[2]:
+        #         if self is not a and self.collision_potential(a) and a.geometry.position[2] <= self.geometry.position[2] - self.required_vertical_distance:
         #             force_field_vector = np.array([0.0, 0.0, 0.0])
         #             force_field_vector += (self.geometry.position - a.geometry.position)
         #             force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
@@ -1746,8 +1759,8 @@ class PerimeterFollowingAgent(Agent):
 
         if self.collision_possible and self.current_task not in [Task.AVOID_COLLISION, Task.LAND, Task.FINISHED]:
             for a in environment.agents:
-                if self is not a and self.collision_potential(a) and a.geometry.position[2] <= self.geometry.position[
-                    2]:
+                if self is not a and self.collision_potential(a) \
+                        and a.geometry.position[2] <= self.geometry.position[2] - self.required_vertical_distance:
                     # aprint(self.id, "INITIATING HIGH-LEVEL COLLISION AVOIDANCE")
                     self.previous_task = self.current_task
                     self.current_task = Task.AVOID_COLLISION

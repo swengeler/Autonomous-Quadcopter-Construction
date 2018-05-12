@@ -24,6 +24,10 @@ class Map:
         self.blocks = []
         self.placed_blocks = []
 
+        # information about block and seed positions (only x, y coordinates)
+        self.block_positions = []
+        self.seed_positions = []
+
         # other information
         self.offset_origin = offset_origin  # might instead want to just pad the maps
         self.environment_extent = environment_extent
@@ -39,42 +43,43 @@ class Map:
                 environment_extent[2] = min_z_extent
 
     def add_agents(self, agents):
-        self.agents = agents
+        self.agents.extend(agents)
 
         # place agents according to some scheme, for now just specified positions
         # I guess it makes sense that agents, by definition, actually encapsulate their own positions, right?
 
     def add_blocks(self, blocks: List[env.block.Block]):
-        self.blocks = blocks
+        self.blocks.extend(blocks)
         if self.environment_extent is None:
             x_extent = self.offset_origin[0] + self.target_map.shape[2] * (env.block.Block.SIZE - 1)
             y_extent = self.offset_origin[1] + self.target_map.shape[1] * (env.block.Block.SIZE - 1)
             self.environment_extent = (x_extent, y_extent)
+
+        original_seed_position = self.original_seed_position()
+        for b in blocks:
+            if b.is_seed and (b.geometry.position[0], b.geometry.position[1]) not in self.seed_positions \
+                    and (b.geometry.position[0], b.geometry.position[1]) != tuple(original_seed_position[:2]):
+                self.seed_positions.append((b.geometry.position[0], b.geometry.position[1]))
+            elif not b.is_seed and (b.geometry.position[0], b.geometry.position[1]) not in self.block_positions:
+                self.block_positions.append((b.geometry.position[0], b.geometry.position[1]))
 
         # place blocks according to some scheme, for now just specified positions
 
         # might have to select one block, designate and place it as seed
         # (seed is already in correct position for this first test)
 
-    def update(self):
-        pass
-
     def required_blocks(self):
         # return either number of blocks (for starters) or some other specification of blocks,
         # e.g. this many of a certain type
-        counts = np.bincount(self.target_map.flatten())
-        indices = np.nonzero(counts)[0]
-        counts = list(zip(counts, counts[indices]))
-        # return [env.BlockGeneratorInfo(env.BlockType.INERT, 15, "white", np.count_nonzero(self.target_map))]
         return np.count_nonzero(self.target_map)
 
-    def seed_position(self):
+    def original_seed_position(self):
         y, x = np.where(self.target_map[0] == 2)
         return x[0] * env.block.Block.SIZE + self.offset_origin[0], \
                y[0] * env.block.Block.SIZE + self.offset_origin[1], \
                env.block.Block.SIZE / 2  # + env.block.Block.SIZE
 
-    def seed_grid_position(self):
+    def original_seed_grid_position(self):
         z, y, x = np.where(self.target_map == 2)
         return np.array([x[0], y[0], z[0]], dtype="int32")
 

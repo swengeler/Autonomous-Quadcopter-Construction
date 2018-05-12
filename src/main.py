@@ -31,7 +31,7 @@ def main():
     # 1: occupied
     # 2: seed
 
-    target_map = tower_solid_5x5
+    target_map = test_disjointed
 
     palette_block = list(sns.color_palette("Blues_d", target_map.shape[0]))
     palette_seed = list(sns.color_palette("Reds_d", target_map.shape[0]))
@@ -54,8 +54,12 @@ def main():
     environment = Map(target_map, offset_origin, environment_extent)
     block_count = environment.required_blocks()
 
+    # finding out how many components there are
+    dummy_agent = PerimeterFollowingAgent([0, 0, 0], [0, 0, 0], target_map)
+    component_target_map = dummy_agent.split_into_components()
+    required_seeds = np.max(component_target_map) - 2
+
     # creating the block_list and a list of initial positions
-    # TODO: blocks in fixed locations
     block_list = []
     for _ in range(0, block_count):
         block_list.append(create_block(BlockType.INERT))
@@ -66,15 +70,21 @@ def main():
     # seed(s) and block positions
     block_list[0].is_seed = True
     block_list[0].placed = True
-    block_list[0].geometry = GeomBox(list(environment.seed_position()), [Block.SIZE] * 3, 0.0)
-    block_list[0].grid_position = environment.seed_grid_position()
+    block_list[0].geometry = GeomBox(list(environment.original_seed_position()), [Block.SIZE] * 3, 0.0)
+    block_list[0].grid_position = environment.original_seed_grid_position()
     block_list[0].seed_marked_edge = "down"
     processed = [block_list[0]]
-    processed_counter = 1
-    # for b in block_list:
-    #     b.geometry.position[2] = Block.SIZE / 2
-    processed.extend(block_list)
-    chunk_list = split_into_chunks(block_list[1:], 4)
+
+    for i in range(1, required_seeds + 1):
+        block_list[i].is_seed = True
+        block_list[i].color = Block.COLORS_SEEDS[0]
+        block_list[i].geometry = GeomBox([offset_origin[0] + target_map.shape[2] * Block.SIZE / 2,
+                                          offset_origin[1] + target_map.shape[1] * Block.SIZE + 100,
+                                          Block.SIZE / 2], [Block.SIZE] * 3, 0.0)
+        processed.append(block_list[i])
+
+    # processed.extend(block_list)
+    chunk_list = split_into_chunks(block_list[(1 + required_seeds):], 4)
     for sl_idx, sl in enumerate(chunk_list):
         for b in sl:
             if sl_idx == 0:
@@ -86,6 +96,7 @@ def main():
             elif sl_idx == 3:
                 b.geometry.position = [offset_origin[0] + target_map.shape[2] * Block.SIZE + 100,
                                        offset_origin[1] + target_map.shape[1] * Block.SIZE + 100, Block.SIZE / 2]
+            processed.append(b)
     # while len(processed) != block_count:
     #     candidate_x = random.uniform(0.0, environment.environment_extent[0])
     #     candidate_y = random.uniform(0.0, environment.environment_extent[1])
@@ -100,8 +111,8 @@ def main():
     #         processed_counter += 1
 
     # creating the agent_list
-    agent_count = 10
-    agent_type = PerimeterFollowingAgent
+    agent_count = 2
+    agent_type = ShortestPathAgent3D
     agent_list = [agent_type([50, 60, 7.5], [40, 40, 15], target_map, 10.0) for _ in range(0, agent_count)]
     for i in range(len(agent_list)):
         agent_list[i].id = i
@@ -119,11 +130,9 @@ def main():
 
     # adding the block_list (whose positions are randomly initialised inside the Map object)
     environment.add_blocks(block_list)
-    # block_1 = create_block(BlockType.INERT, color="green", position=[20, 20, 22.5], rotation=np.pi/4)
-    # block_2 = create_block(BlockType.INERT, color="yellow", position=[20, 42, 7.5], rotation=np.pi/4)
-    # environment.add_blocks([block_1, block_2])
-    #
-    # print(block_1.overlaps(block_2))
+
+    print("BLOCK POSITIONS: {}".format(environment.block_positions))
+    print("SEED POSITIONS: {}".format(environment.seed_positions))
 
     # adding the agent list
     environment.add_agents(agent_list)
@@ -158,7 +167,8 @@ def main():
                             if a1 is not a2 and a1.overlaps(a2) \
                                     and not a1.current_task == Task.FINISHED and not a2.current_task == Task.FINISHED:
                                 collisions += 1
-                environment.update()
+                                print("Agent {} and {} colliding.".format(a1.id, a2.id))
+                                paused = True
             # submit_to_tkinter(update_window, environment)
             request_queue.put(Graphics2D.UPDATE_REQUEST)
             try:

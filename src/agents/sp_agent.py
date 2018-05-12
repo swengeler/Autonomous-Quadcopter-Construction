@@ -412,6 +412,9 @@ class ShortestPathAgent3D(PerimeterFollowingAgent):
             attachment_sites = [attachment_sites[i] for i in sp_indices]
             sp = shortest_paths[0][0]
             height = shortest_paths[0][1]
+            # index = random.randint(0, len(shortest_paths) - 1)
+            # sp = shortest_paths[index][0]
+            # height = shortest_paths[index][1]
             self.highest_observed_level = max(height, self.highest_observed_level,
                                               max(np.where(occupancy_map_copy >= 1)[0]))
             self.current_structure_level = self.highest_observed_level
