@@ -4,25 +4,46 @@ from geom.util import simple_distance
 
 class Path:
 
-    def __init__(self, positions=None):
+    def __init__(self, positions=None, dodging_path=False):
         self.positions = []
         if positions is not None:
             for p in positions:
                 self.add_position(p)
+        self.dodging_path = True
         self.current_index = 0
+        self.inserted_paths = {}
+        self.number_inserted_positions = 0
+        self.inserted_indices = []
+        self.inserted_sequentially = []
 
     def add_position(self, position, index=None):
         if index is None:
             self.positions.append(np.array(position))
+            self.inserted_sequentially.append(True)
         else:
             self.positions.insert(index, np.array(position))
+            self.inserted_sequentially.insert(index, False)
 
     def advance(self):
+        if self.current_index in self.inserted_paths:
+            advanced = self.inserted_paths[self.current_index].advance()
+            if advanced:
+                return True
+            del self.inserted_paths[self.current_index]
         if len(self.positions) == self.current_index + 1:
             return False
         else:
             self.current_index += 1
             return True
+
+    def insert_path(self, path, index_key=None):
+        if index_key is None:
+            self.inserted_paths[self.current_index] = path
+        else:
+            self.inserted_paths[index_key] = path
+
+    def remove_path(self, index_key):
+        del self.inserted_paths[index_key]
 
     def retreat(self):
         if self.current_index == 0:
@@ -44,6 +65,9 @@ class Path:
 
     def next(self):
         """Return the next (best) point on the path."""
+        if self.current_index in self.inserted_paths:
+            # instead take the next from that path
+            return self.inserted_paths[self.current_index].next()
         return self.positions[self.current_index]
 
     def direction_to_closest(self, position):

@@ -326,6 +326,8 @@ class ShortestPathAgent(PerimeterFollowingAgent):
             self.avoid_collision(environment)
         if self.current_task == Task.FETCH_BLOCK:
             self.fetch_block(environment)
+        elif self.current_task == Task.PICK_UP_BLOCK:
+            self.pick_up_block(environment)
         elif self.current_task == Task.TRANSPORT_BLOCK:
             self.transport_block(environment)
         elif self.current_task == Task.FIND_ATTACHMENT_SITE:
@@ -599,6 +601,8 @@ class ShortestPathAgent3D(PerimeterFollowingAgent):
             self.avoid_collision(environment)
         if self.current_task == Task.FETCH_BLOCK:
             self.fetch_block(environment)
+        elif self.current_task == Task.PICK_UP_BLOCK:
+            self.pick_up_block(environment)
         elif self.current_task == Task.TRANSPORT_BLOCK:
             self.transport_block(environment)
         elif self.current_task == Task.FIND_ATTACHMENT_SITE:

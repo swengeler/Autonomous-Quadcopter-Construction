@@ -25,8 +25,8 @@ class Map:
         self.placed_blocks = []
 
         # information about block and seed positions (only x, y coordinates)
-        self.block_positions = []
-        self.seed_positions = []
+        self.block_stashes = {}
+        self.seed_stashes = {}
 
         # other information
         self.offset_origin = offset_origin  # might instead want to just pad the maps
@@ -57,11 +57,15 @@ class Map:
 
         original_seed_position = self.original_seed_position()
         for b in blocks:
-            if b.is_seed and (b.geometry.position[0], b.geometry.position[1]) not in self.seed_positions \
+            if b.is_seed and (b.geometry.position[0], b.geometry.position[1]) not in list(self.seed_stashes.keys()) \
                     and (b.geometry.position[0], b.geometry.position[1]) != tuple(original_seed_position[:2]):
-                self.seed_positions.append((b.geometry.position[0], b.geometry.position[1]))
-            elif not b.is_seed and (b.geometry.position[0], b.geometry.position[1]) not in self.block_positions:
-                self.block_positions.append((b.geometry.position[0], b.geometry.position[1]))
+                self.seed_stashes[(b.geometry.position[0], b.geometry.position[1])] = [b]
+            elif b.is_seed and (b.geometry.position[0], b.geometry.position[1]) != tuple(original_seed_position[:2]):
+                self.seed_stashes[(b.geometry.position[0], b.geometry.position[1])].append(b)
+            elif not b.is_seed and (b.geometry.position[0], b.geometry.position[1]) not in list(self.block_stashes.keys()):
+                self.block_stashes[(b.geometry.position[0], b.geometry.position[1])] = [b]
+            elif not b.is_seed:
+                self.block_stashes[(b.geometry.position[0], b.geometry.position[1])].append(b)
 
         # place blocks according to some scheme, for now just specified positions
 
@@ -88,6 +92,8 @@ class Map:
         self.placed_blocks.append(block)
 
     def check_occupancy_map(self, position, comparator=lambda x: x != 0):
+        if not isinstance(position, np.ndarray):
+            position = np.array(position)
         if any(position < 0):
             return comparator(0)
         try:
@@ -98,18 +104,28 @@ class Map:
             val = comparator(temp)
             return val
 
-    def block_below(self, position, structure_level=None):
+    def block_below(self, position, structure_level=None, radius=0.0):
         closest_x = int((position[0] - self.offset_origin[0]) / env.block.Block.SIZE)
         closest_y = int((position[1] - self.offset_origin[1]) / env.block.Block.SIZE)
         if structure_level is None:
             for height_level in range(self.occupancy_map.shape[0]):
                 if 0 <= closest_x < self.occupancy_map.shape[2] and 0 <= closest_y < self.occupancy_map.shape[1] \
                         and self.check_occupancy_map(np.array([closest_x, closest_y, height_level])):
-                    return [closest_x, closest_y, height_level]
-                    # return True
+                    temp = [closest_x, closest_y, height_level]
+                    for b in self.placed_blocks:
+                        if all(b.grid_position[i] == temp[i] for i in range(3)):
+                            return b
         elif 0 <= closest_x < self.occupancy_map.shape[2] and 0 <= closest_y < self.occupancy_map.shape[1] \
                 and self.check_occupancy_map(np.array([closest_x, closest_y, structure_level])):
-            return [closest_x, closest_y, structure_level]
-            # return True
+            temp = [closest_x, closest_y, structure_level]
+            for b in self.placed_blocks:
+                if all(b.grid_position[i] == temp[i] for i in range(3)):
+                    return b
+        return None
+
+    def block_at_position(self, position, grid=True):
+        for b in self.placed_blocks:
+            if grid and all(b.grid_position[i] == position[i] for i in range(3)):
+                return b
         return None
 

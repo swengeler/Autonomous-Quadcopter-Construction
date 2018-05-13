@@ -31,7 +31,7 @@ def main():
     # 1: occupied
     # 2: seed
 
-    target_map = test_disjointed
+    target_map = loop_component_test
 
     palette_block = list(sns.color_palette("Blues_d", target_map.shape[0]))
     palette_seed = list(sns.color_palette("Reds_d", target_map.shape[0]))
@@ -48,7 +48,7 @@ def main():
     # offset of the described target occupancy map to the origin (only in x/y directions)
     offset_origin = (100.0, 100.0)
     environment_extent = [150.0, 200.0, 200.0]
-    environment_extent = [500.0] * 3
+    environment_extent = [400.0] * 3
 
     # creating Map object and getting the required number of block_list (of each type)
     environment = Map(target_map, offset_origin, environment_extent)
@@ -111,8 +111,8 @@ def main():
     #         processed_counter += 1
 
     # creating the agent_list
-    agent_count = 2
-    agent_type = ShortestPathAgent3D
+    agent_count = 4
+    agent_type = PerimeterFollowingAgent
     agent_list = [agent_type([50, 60, 7.5], [40, 40, 15], target_map, 10.0) for _ in range(0, agent_count)]
     for i in range(len(agent_list)):
         agent_list[i].id = i
@@ -131,8 +131,8 @@ def main():
     # adding the block_list (whose positions are randomly initialised inside the Map object)
     environment.add_blocks(block_list)
 
-    print("BLOCK POSITIONS: {}".format(environment.block_positions))
-    print("SEED POSITIONS: {}".format(environment.seed_positions))
+    # print("BLOCK POSITIONS: {}".format(environment.block_stashes))
+    # print("SEED POSITIONS: {}".format(environment.seed_stashes))
 
     # adding the agent list
     environment.add_agents(agent_list)
@@ -145,6 +145,7 @@ def main():
     # running the main loop of the simulation
     steps = 0
     collisions = 0
+    finished_successfully = False
     try:
         while True:
             if not paused:
@@ -160,6 +161,7 @@ def main():
                         average_stats[k] = m
                     for k in list(average_stats.keys()):
                         print("{}: {}".format(k, average_stats[k]))
+                    finished_successfully = True
                     raise KeyboardInterrupt
                 if len(agent_list) > 1:
                     for a1 in agent_list:
@@ -168,7 +170,9 @@ def main():
                                     and not a1.current_task == Task.FINISHED and not a2.current_task == Task.FINISHED:
                                 collisions += 1
                                 print("Agent {} and {} colliding.".format(a1.id, a2.id))
-                                paused = True
+                                # paused = True
+                # print("CURRENT MAP:")
+                # print_map(environment.occupancy_map)
             # submit_to_tkinter(update_window, environment)
             request_queue.put(Graphics2D.UPDATE_REQUEST)
             try:
@@ -190,7 +194,18 @@ def main():
     except KeyboardInterrupt:
         # submit_to_tkinter(stop_tk_thread)
         request_queue.put(Graphics2D.SHUTDOWN_REQUEST)
-        logger.info("Simulation interrupted.")
+        if not finished_successfully:
+            logger.info("Simulation interrupted.")
+            print("Interrupted construction in {} steps ({} colliding).".format(steps, collisions / 2))
+            print("Average statistics for agents:")
+            average_stats = {}
+            for k in list(agent_list[0].agent_statistics.task_counter.keys()):
+                m = np.mean([a.agent_statistics.task_counter[k] for a in agent_list])
+                average_stats[k] = m
+            for k in list(average_stats.keys()):
+                print("{}: {}".format(k, average_stats[k]))
+        else:
+            logger.info("Simulation finished successfully.")
 
 
 if __name__ == "__main__":
