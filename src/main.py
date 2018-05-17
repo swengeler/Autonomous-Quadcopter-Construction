@@ -1,15 +1,15 @@
-import numpy as np
 import time
-import logging
 import random
 import queue
-from agents.agent import PerimeterFollowingAgent, Task
-from agents.sp_agent import ShortestPathAgent, ShortestPathAgent3D
+from agents.agent import Task
+from agents.local_knowledge.ps_agent import PerimeterFollowingAgentLocal
+from agents.local_knowledge.sp_agent import ShortestPathAgentLocal
 from env.map import *
 from env.util import *
 from geom.shape import *
 from graphics.graphics_2d import Graphics2D
 from structures import *
+from emergency_structures import emergency_structures
 
 random.seed(202)
 
@@ -31,7 +31,8 @@ def main():
     # 1: occupied
     # 2: seed
 
-    target_map = loop_component_test
+    target_map = emergency_structures["tower_bigger_stilts_10x10x10"]
+    target_map = emergency_structures["loop_structure_10x10x10"]
 
     palette_block = list(sns.color_palette("Blues_d", target_map.shape[0]))
     palette_seed = list(sns.color_palette("Reds_d", target_map.shape[0]))
@@ -48,14 +49,14 @@ def main():
     # offset of the described target occupancy map to the origin (only in x/y directions)
     offset_origin = (100.0, 100.0)
     environment_extent = [150.0, 200.0, 200.0]
-    environment_extent = [400.0] * 3
+    environment_extent = [350.0] * 3
 
     # creating Map object and getting the required number of block_list (of each type)
     environment = Map(target_map, offset_origin, environment_extent)
     block_count = environment.required_blocks()
 
     # finding out how many components there are
-    dummy_agent = PerimeterFollowingAgent([0, 0, 0], [0, 0, 0], target_map)
+    dummy_agent = PerimeterFollowingAgentLocal([0, 0, 0], [0, 0, 0], target_map)
     component_target_map = dummy_agent.split_into_components()
     required_seeds = np.max(component_target_map) - 2
 
@@ -97,22 +98,10 @@ def main():
                 b.geometry.position = [offset_origin[0] + target_map.shape[2] * Block.SIZE + 100,
                                        offset_origin[1] + target_map.shape[1] * Block.SIZE + 100, Block.SIZE / 2]
             processed.append(b)
-    # while len(processed) != block_count:
-    #     candidate_x = random.uniform(0.0, environment.environment_extent[0])
-    #     candidate_y = random.uniform(0.0, environment.environment_extent[1])
-    #     candidate_box = GeomBox([candidate_x, candidate_y, Block.SIZE / 2], [Block.SIZE] * 3, 0.0)
-    #     if not ((environment.offset_origin[0] <= candidate_x <= environment.offset_origin[0]
-    #              + Block.SIZE * environment.target_map.shape[2]) and
-    #             (environment.offset_origin[1] <= candidate_y <= environment.offset_origin[1]
-    #              + Block.SIZE * environment.target_map.shape[1])) \
-    #             and all([not candidate_box.overlaps(p.geometry) for p in processed]):
-    #         block_list[processed_counter].geometry.set_to_match(candidate_box)
-    #         processed.append(block_list[processed_counter])
-    #         processed_counter += 1
 
     # creating the agent_list
-    agent_count = 4
-    agent_type = PerimeterFollowingAgent
+    agent_count = 8
+    agent_type = ShortestPathAgentLocal
     agent_list = [agent_type([50, 60, 7.5], [40, 40, 15], target_map, 10.0) for _ in range(0, agent_count)]
     for i in range(len(agent_list)):
         agent_list[i].id = i
@@ -146,6 +135,7 @@ def main():
     steps = 0
     collisions = 0
     finished_successfully = False
+    results = {}
     try:
         while True:
             if not paused:
@@ -154,15 +144,31 @@ def main():
                 steps += 1
                 if all([a.current_task == Task.FINISHED for a in agent_list]):
                     print("Finished construction in {} steps ({} colliding).".format(steps, collisions / 2))
-                    print("Average statistics for agents:")
                     average_stats = {}
+                    min_stats = {}
+                    max_stats = {}
                     for k in list(agent_list[0].agent_statistics.task_counter.keys()):
-                        m = np.mean([a.agent_statistics.task_counter[k] for a in agent_list])
-                        average_stats[k] = m
+                        task_counters = [a.agent_statistics.task_counter[k] for a in agent_list]
+                        average_stats[k.name] = float(np.mean(task_counters))
+                        min_stats[k.name] = int(np.min(task_counters))
+                        max_stats[k.name] = int(np.max(task_counters))
+                    print("\nAverage statistics for agents:")
                     for k in list(average_stats.keys()):
                         print("{}: {}".format(k, average_stats[k]))
+                    print("\nMin statistics for agents:")
+                    for k in list(min_stats.keys()):
+                        print("{}: {}".format(k, min_stats[k]))
+                    print("\nMax statistics for agents:")
+                    for k in list(max_stats.keys()):
+                        print("{}: {}".format(k, max_stats[k]))
                     finished_successfully = True
-                    raise KeyboardInterrupt
+                    results["step_count"] = steps
+                    results["collisions"] = collisions
+                    results["average"] = average_stats
+                    results["min"] = min_stats
+                    results["max"] = max_stats
+                    results["finished_successfully"] = finished_successfully
+                    break
                 if len(agent_list) > 1:
                     for a1 in agent_list:
                         for a2 in agent_list:
@@ -197,13 +203,29 @@ def main():
         if not finished_successfully:
             logger.info("Simulation interrupted.")
             print("Interrupted construction in {} steps ({} colliding).".format(steps, collisions / 2))
-            print("Average statistics for agents:")
             average_stats = {}
+            min_stats = {}
+            max_stats = {}
             for k in list(agent_list[0].agent_statistics.task_counter.keys()):
-                m = np.mean([a.agent_statistics.task_counter[k] for a in agent_list])
-                average_stats[k] = m
+                task_counters = [a.agent_statistics.task_counter[k] for a in agent_list]
+                average_stats[k.name] = float(np.mean(task_counters))
+                min_stats[k.name] = int(np.min(task_counters))
+                max_stats[k.name] = int(np.max(task_counters))
+            print("\nAverage statistics for agents:")
             for k in list(average_stats.keys()):
                 print("{}: {}".format(k, average_stats[k]))
+            print("\nMin statistics for agents:")
+            for k in list(min_stats.keys()):
+                print("{}: {}".format(k, min_stats[k]))
+            print("\nMax statistics for agents:")
+            for k in list(max_stats.keys()):
+                print("{}: {}".format(k, max_stats[k]))
+            results["step_count"] = steps
+            results["collisions"] = collisions
+            results["average"] = average_stats
+            results["min"] = min_stats
+            results["max"] = max_stats
+            results["finished_successfully"] = finished_successfully
         else:
             logger.info("Simulation finished successfully.")
 

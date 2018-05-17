@@ -1,8 +1,11 @@
 import numpy as np
 import collections
+import logging
 from enum import Enum
 from typing import List, Tuple
 from env.block import *
+
+logger = logging.getLogger(__name__)
 
 
 class Occupancy(Enum):
@@ -55,7 +58,8 @@ def shortest_path(grid: np.ndarray, start: Tuple[int, int], goal: Tuple[int, int
         if x == goal[0] and y == goal[1]:
             return path
         for x2, y2 in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
-            if 0 <= x2 < grid.shape[1] and 0 <= y2 < grid.shape[0] and grid[y2, x2] != 0 and (x2, y2) not in seen:
+            if 0 <= x2 < grid.shape[1] and 0 <= y2 < grid.shape[0] \
+                    and (grid[y2, x2] != 0 or (x2, y2) == goal) and (x2, y2) not in seen:
                 queue.append(path + [(x2, y2)])
                 seen.add((x2, y2))
     return path
@@ -204,9 +208,135 @@ def print_map(environment: np.ndarray, path=None, layer=None, custom_symbols=Non
             print_map_layer(environment[z], custom_symbols=custom_symbols)
 
 
-def legal_attachment_sites(target_map: np.ndarray, occupancy_map: np.ndarray, component_marker=None):
+def legal_attachment_sites(target_map: np.ndarray, occupancy_map: np.ndarray, component_marker=None, local_info=False):
+    if local_info:
+        return legal_attachment_sites_revisited(target_map, occupancy_map, component_marker)
+
     # input is supposed to be a 2-dimensional layer
     # setting all values larger than 1 (seeds) to 1
+    if component_marker is not None:
+        occupancy_map = np.copy(occupancy_map)
+        np.place(occupancy_map, target_map != component_marker, 0)
+        target_map = np.copy(target_map)
+        np.place(target_map, target_map != component_marker, 0)
+
+    # identifying all sites that are adjacent to the structure built so far
+    legal_sites = np.zeros_like(target_map)
+    for y in range(legal_sites.shape[0]):
+        for x in range(legal_sites.shape[1]):
+            # can only be legal if a block is actually supposed to be placed there and has not been placed yet
+            if target_map[y, x] >= 1 and occupancy_map[y, x] == 0:
+                # needs to be adjacent to existing part of structure, but only to 2 or fewer blocks
+                counter = 0
+                for y2 in (y - 1, y + 1):
+                    if 0 <= y2 < legal_sites.shape[0] and occupancy_map[y2, x] >= 1:
+                        counter += 1
+                for x2 in (x - 1, x + 1):
+                    if 0 <= x2 < legal_sites.shape[1] and occupancy_map[y, x2] >= 1:
+                        counter += 1
+                if 1 <= counter < 3:
+                    legal_sites[y, x] = 1
+
+    # given that information is only local, the only legal sites are corners, i.e. adjacent to two other blocks,
+    # or positions only adjacent to one block but
+
+    # maybe it's enough to exclude corners around holes until we know that they are surrounded by blocks
+
+    # drastic option: similar to perimeter search, exclude anything NORTH-WEST of corners
+
+    # also identify those sites that still need to be unoccupied for the attachment site to be legal
+
+    # identifying those sites where the row rule would be violated
+    for y in range(legal_sites.shape[0]):
+        for x in range(legal_sites.shape[1]):
+            # only matters for those sites which have already been identified as potential attachment sites
+            if legal_sites[y, x] == 1:
+                # check whether the following pattern exists around that block (or in rotated form):
+                # [B] [E] ... [A]
+                # where (B = block already placed), (E = other potential attachment site), (A = current site)
+                # and where at "..." there are only E's
+                # TODO: to make sure that local information is enough for this to work, would probably be better
+                # to only allow placement at the end of rows (similar to perimeter search)
+                # THIS SHOULD ONLY HOLD FOR THE LOCAL INFO VERSION THOUGH
+                # CAN UNIQUE-BLOCK INFO BE UTILISED HERE? NOT SURE, DOUBT IT
+                # ANOTHER INTERESTING OPTION WOULD BE TO ALLOW POSSIBLE FALSE ATTACHMENT AND FIX IT
+
+                # might need to return positions of interest instead, where you have to go "scouting"
+                # and finding out which sites may be legal, but first have to update your information
+                for diff in (-1, 1):
+                    # making it through this loop without a break means that in the x-row, y-column where the block
+                    # could be placed, there is either only a block immediately adjacent or any blocks already placed
+                    # are separated from the current site by an intended gap
+
+                    counter = 1
+                    while 0 <= y + counter * diff < legal_sites.shape[0] \
+                            and occupancy_map[y + counter * diff, x] == 0 \
+                            and target_map[y + counter * diff, x] > 0:
+                        counter += 1
+                    if counter > 1 and 0 <= y + counter * diff < legal_sites.shape[0] \
+                            and occupancy_map[y + counter * diff, x] > 0 and target_map[y + counter * diff, x] > 0:
+                        # have encountered a block already in this row
+                        legal_sites[y, x] = 0
+                        break
+
+                    counter = 1
+                    while 0 <= x + counter * diff < legal_sites.shape[1] \
+                            and occupancy_map[y, x + counter * diff] == 0 \
+                            and target_map[y, x + counter * diff] > 0:
+                        counter += 1
+                    if counter > 1 and 0 <= x + counter * diff < legal_sites.shape[1] \
+                            and occupancy_map[y, x + counter * diff] > 0 and target_map[y, x + counter * diff] > 0:
+                        # have encountered a block already in this row
+                        legal_sites[y, x] = 0
+                        break
+
+                # information needed for local information case:
+                # - rows/columns where it is important for them to be empty (rather range of coordinates)
+                # - if
+                # BIG PROBLEM:  if there is nothing in a row/column until the edge of the construction area
+                #               then that would mean that the agent would have to explore that entire stretch
+                #               of empty space to confirm that placement is OK
+                # SOLUTIONS?!:
+                # - only consider those rows/columns which are alongside the already existing structure
+                #   -> probably not gonna work (think of long-sided loop structure)
+                # - could try to identify key sites in the structure (periodically) to make sure that attachments
+                #   are legal even if only local information is used
+                # - impose some kind of order on occupying attachment sites that means that only legal sites will exist
+                #   -> also order sites by number of adjacent blocks -> always go for two
+
+    # assume that hole_map is also given as the current layer
+    # anything larger than 1 on the hole map is an actual hole
+    # remove all corners (only outer?) where the two adjacent things have not been placed yet
+    """
+    if hole_map is not None and hole_boundaries is not None:
+        temp = []
+        # print("hole_boundaries:\n{}".format(hole_boundaries))
+        for key in hole_boundaries:
+            for corner in hole_boundaries[key]:
+                for boundary in corner:
+                    temp.append((boundary[0], boundary[1]))
+        hole_boundaries = temp
+
+        # might have to reverse the order of these two loops (or do even more stuff?)
+        for y in range(legal_sites.shape[0]):
+            for x in range(legal_sites.shape[1]):
+                # if (x, y) is a corner (regardless of closing?) don't allow attachment to it
+                if legal_sites[y, x] != 0:
+                    for y2 in (y - 1, y + 1):
+                        for x2 in (x - 1, x + 1):
+                            if 0 <= y2 < hole_map.shape[0] and 0 <= x2 < hole_map.shape[1] \
+                                    and hole_map[y, x] == 1 and hole_map[y2, x2] > 1 \
+                                    and not (occupancy_map[y2, x] != 0 and occupancy_map[y, x2] != 0):
+                                legal_sites[y, x] = 0
+    """
+
+    return legal_sites
+
+
+def legal_attachment_sites_revisited(target_map: np.ndarray,
+                                     occupancy_map: np.ndarray,
+                                     component_marker=None,
+                                     row_information=False):
     if component_marker is not None:
         occupancy_map = np.copy(occupancy_map)
         np.place(occupancy_map, target_map != component_marker, 0)
@@ -239,10 +369,15 @@ def legal_attachment_sites(target_map: np.ndarray, occupancy_map: np.ndarray, co
                 # [B] [E] ... [A]
                 # where (B = block already placed), (E = other potential attachment site), (A = current site)
                 # and where at "..." there are only E's
+                # TODO: to make sure that local information is enough for this to work, would probably be better
+                # to only allow placement at the end of rows (similar to perimeter search)
+
+                # might need to return positions of interest instead, where you have to go "scouting"
+                # and finding out which sites may be legal, but first have to update your information
                 for diff in (-1, 1):
                     # making it through this loop without a break means that in the x-row, y-column where the block
                     # could be placed, there is either only a block immediately adjacent or any blocks already placed
-                    # are separated from the current site by a gap
+                    # are separated from the current site by an intended gap
 
                     counter = 1
                     while 0 <= y + counter * diff < legal_sites.shape[0] \
@@ -253,9 +388,6 @@ def legal_attachment_sites(target_map: np.ndarray, occupancy_map: np.ndarray, co
                             and occupancy_map[y + counter * diff, x] > 0 and target_map[y + counter * diff, x] > 0:
                         # have encountered a block already in this row
                         legal_sites[y, x] = 0
-                        # print("Info for x = {}, y = {} (y):\ndiff = {}\ncounter = {}\noccupancy: {}\ntarget: {}"
-                        #       .format(x, y, diff, counter, occupancy_map[y + counter * diff, x],
-                        #               target_map[y + counter * diff, x]))
                         break
 
                     counter = 1
@@ -267,21 +399,154 @@ def legal_attachment_sites(target_map: np.ndarray, occupancy_map: np.ndarray, co
                             and occupancy_map[y, x + counter * diff] > 0 and target_map[y, x + counter * diff] > 0:
                         # have encountered a block already in this row
                         legal_sites[y, x] = 0
-                        # print("Info for x = {}, y = {} (x):\ndiff = {}\ncounter = {}\noccupancy: {}\ntarget: {}"
-                        #       .format(x, y, diff, counter, occupancy_map[y + counter * diff, x],
-                        #               target_map[y + counter * diff, x]))
                         break
 
-                    # if 0 <= y + 2 * diff < legal_sites.shape[0] and occupancy_map[y + 2 * diff, x] >= 1 \
-                    #         and legal_sites[y + diff, x] == 1:
-                    #     legal_sites[y, x] = 0
-                    #     break
-                    # if 0 <= x + 2 * diff < legal_sites.shape[1] and occupancy_map[y, x + 2 * diff] >= 1 \
-                    #         and legal_sites[y, x + diff] == 1:
-                    #     legal_sites[y, x] = 0
-                    #     break
+    # now attachment sites need to be sorted into corner/single-block protrusion (trivial attachment) and sites
+    # that are in a row/column must be grouped into one such row/column to check
+    # an alternative might be that for each row/column only the most CCW site would be a legal attachment site?
+    # -> let's try this one first because it's easier
+    # -> also choose southwestern-most (?)
 
-    return legal_sites
+    # determine corner sites (two adjacent blocks already placed) and protruding sites (width 1 parts of structure)
+    corner_sites = []
+    protruding_sites = []
+    for y in range(legal_sites.shape[0]):
+        for x in range(legal_sites.shape[1]):
+            if legal_sites[y, x] != 0:
+                corner_counter = 0
+                protruding_counter = 0
+                on_map_counter = 0
+                for diff in (-1, 1):
+                    y2 = y + diff
+                    if 0 <= y2 < legal_sites.shape[0]:
+                        on_map_counter += 1
+                        if occupancy_map[y2, x] != 0:
+                            corner_counter += 1
+                        if target_map[y2, x] != 0:
+                            protruding_counter += 1
+                    x2 = x + diff
+                    if 0 <= x2 < legal_sites.shape[1]:
+                        on_map_counter += 1
+                        if occupancy_map[y, x2] != 0:
+                            corner_counter += 1
+                        if target_map[y, x2] != 0:
+                            protruding_counter += 1
+                if corner_counter == 2:
+                    corner_sites.append((x, y))
+                if (on_map_counter == 2 and protruding_counter == 1) \
+                        or (on_map_counter == 3 and protruding_counter <= 2) \
+                        or (on_map_counter == 4 and protruding_counter <= 2):
+                    protruding_sites.append((x, y))
+
+    # determine the most CCW site in each row of attachment sites
+    most_ccw_row_sites = []
+    row_information = []
+    for y in range(legal_sites.shape[0]):
+        for x in range(legal_sites.shape[1]):
+            tpl = (x, y)
+            if legal_sites[y, x] != 0 and tpl not in corner_sites \
+                    and tpl not in protruding_sites and tpl not in most_ccw_row_sites:
+                # find all sites in row/column (which might double corner sites at least)
+                # there shouldn't be any sites adjacent to both a row and a column because that's what corners are
+                # also need to note which orientation the row/column has, which should be easy to determine
+                # since all these sites should only be adjacent to one already occupied site
+                # note that the directions refer to the position of the adjacent site to the potential attachment site
+                adjacent_side = None
+                counter = 0
+                if 0 <= y - 1 < legal_sites.shape[0] and occupancy_map[y - 1, x] != 0:
+                    adjacent_side = "SOUTH"
+                    counter += 1
+                if 0 <= y + 1 < legal_sites.shape[0] and occupancy_map[y + 1, x] != 0:
+                    adjacent_side = "NORTH"
+                    counter += 1
+                if 0 <= x - 1 < legal_sites.shape[1] and occupancy_map[y, x - 1] != 0:
+                    adjacent_side = "WEST"
+                    counter += 1
+                if 0 <= x + 1 < legal_sites.shape[1] and occupancy_map[y, x + 1] != 0:
+                    adjacent_side = "EAST"
+                    counter += 1
+                if adjacent_side is None:
+                    logger.warning("Too few adjacent sites for potential row/column attachment site at {}.".format(tpl))
+                    continue
+                if counter > 1:
+                    logger.warning("Too many adjacent sites for potential row/column attachment site at {}.".format(tpl))
+                    continue
+
+                # this could also just be done in a single direction, but it would be best to set the other
+                # positions in the same row/column to 0, so that they don't count in the ongoing loop anymore
+                if adjacent_side == "SOUTH" or adjacent_side == "NORTH":
+                    # it's a row, therefore look left and right for other blocks
+                    row_sites = [tpl]
+                    # LEFT
+                    x2 = x - 1
+                    while x2 >= 0 and legal_sites[y, x2] != 0:
+                        row_sites.insert(0, (x2, y))
+                        x2 -= 1
+                    # RIGHT
+                    x2 = x + 1
+                    while x2 < legal_sites.shape[1] and legal_sites[y, x2] != 0:
+                        row_sites.append((x2, y))
+                        x2 += 1
+
+                    # check whether there are any corner sites in this row and if so make all sites illegal
+                    reduced_row_sites = [rs for rs in row_sites if rs not in corner_sites]
+                    if len(row_sites) != len(reduced_row_sites):
+                        # there is some corner site in the list
+                        for x2, y2 in reduced_row_sites:
+                            legal_sites[y2, x2] = 0
+                    else:
+                        # find the CCW most site (which is either the first or the last)
+                        if adjacent_side == "SOUTH":
+                            most_ccw_site = row_sites[0]
+                        else:
+                            most_ccw_site = row_sites[-1]
+                        if not row_information:
+                            while most_ccw_site in row_sites:
+                                row_sites.remove(most_ccw_site)
+                            for x2, y2 in row_sites:
+                                legal_sites[y2, x2] = 0
+                            most_ccw_row_sites.append(most_ccw_site)
+                        else:
+                            # if the entire column is supposed to be returned, add all sites in the correct order
+                            # to traverse so that correctness of the structure is guaranteed
+                            most_ccw_row_sites.append(row_sites if adjacent_side == "NORTH" else row_sites.reverse())
+                elif adjacent_side == "WEST" or adjacent_side == "EAST":
+                    # it's a column, therefore look up and down for other blocks
+                    column_sites = [tpl]
+                    # DOWN
+                    y2 = y - 1
+                    while y2 >= 0 and legal_sites[y2, x] != 0:
+                        column_sites.insert(0, (x, y2))
+                        y2 -= 1
+                    # UP
+                    y2 = y + 1
+                    while y2 < legal_sites.shape[0] and legal_sites[y2, x] != 0:
+                        column_sites.append((x, y2))
+                        y2 += 1
+
+                    # check whether there are any corner sites in this column and if so make all sites illegal
+                    reduced_column_sites = [cs for cs in column_sites if cs not in corner_sites]
+                    if len(column_sites) != len(reduced_column_sites):
+                        for x2, y2 in reduced_column_sites:
+                            legal_sites[y2, x2] = 0
+                    else:
+                        if adjacent_side == "EAST":
+                            most_ccw_site = column_sites[0]
+                        else:
+                            most_ccw_site = column_sites[-1]
+                        if not row_information:
+                            while most_ccw_site in column_sites:
+                                column_sites.remove(most_ccw_site)
+                            for x2, y2 in column_sites:
+                                legal_sites[y2, x2] = 0
+                            most_ccw_row_sites.append(most_ccw_site)
+                        else:
+                            # if the entire column is supposed to be returned, add all sites in the correct order
+                            # to traverse so that correctness of the structure is guaranteed
+                            most_ccw_row_sites.append(column_sites if adjacent_side == "WEST"
+                                                      else column_sites.reverse())
+
+    return legal_sites, corner_sites, protruding_sites, most_ccw_row_sites
 
 
 def legal_attachment_sites_3d(target_map: np.ndarray, occupancy_map: np.ndarray, safety_radius=2):

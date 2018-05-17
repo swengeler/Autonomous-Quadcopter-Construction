@@ -42,6 +42,9 @@ class Map:
             if environment_extent[2] < min_z_extent:
                 environment_extent[2] = min_z_extent
 
+        # global information available?
+        self.global_information = False
+
     def add_agents(self, agents):
         self.agents.extend(agents)
 
@@ -90,6 +93,9 @@ class Map:
     def place_block(self, grid_position, block):
         self.occupancy_map[tuple(reversed(grid_position))] = 2 if block.is_seed else 1
         self.placed_blocks.append(block)
+        if self.global_information:
+            for a in self.agents:
+                a.local_occupancy_map[tuple(reversed(grid_position))] = 1
 
     def check_occupancy_map(self, position, comparator=lambda x: x != 0):
         if not isinstance(position, np.ndarray):
