@@ -3,6 +3,7 @@ import seaborn as sns
 import logging
 import env.block
 from typing import List, Tuple
+from env.util import cw_angle_and_distance
 
 
 class Map:
@@ -134,4 +135,21 @@ class Map:
             if grid and all(b.grid_position[i] == position[i] for i in range(3)):
                 return b
         return None
+
+    def ccw_block_stash_locations(self):
+        stash_positions = list(self.block_stashes.keys())
+        ordered_stash_positions = sorted(stash_positions, key=lambda x: cw_angle_and_distance(
+            x, (self.offset_origin[0] + env.block.Block.SIZE * int(self.target_map.shape[2] / 2),
+                self.offset_origin[1] + env.block.Block.SIZE * int(self.target_map.shape[1] / 2)),
+            stash_positions[0]))
+        return ordered_stash_positions[::-1]
+
+    def ccw_seed_stash_locations(self):
+        stash_positions = list(self.seed_stashes.keys())
+        ordered_stash_positions = sorted(stash_positions, key=lambda x: cw_angle_and_distance(
+            x, (self.offset_origin[0] + env.block.Block.SIZE * int(self.target_map.shape[2] / 2),
+                self.offset_origin[1] + env.block.Block.SIZE * int(self.target_map.shape[1] / 2)),
+            stash_positions[0]))
+        return ordered_stash_positions[::-1]
+
 

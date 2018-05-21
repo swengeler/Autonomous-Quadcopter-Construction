@@ -21,6 +21,7 @@ class ShortestPathAgentLocal(PerimeterFollowingAgentLocal):
         self.current_shortest_path = None
         self.current_sp_index = 0
         self.illegal_sites = []
+        self.current_attachment_info = None
 
     # need to change the following:
     # - find_attachment_site
@@ -187,6 +188,10 @@ class ShortestPathAgentLocal(PerimeterFollowingAgentLocal):
         if self.current_path is None or self.current_shortest_path is None:
             self.update_local_occupancy_map(environment)
 
+            if self.check_component_finished(self.local_occupancy_map, self.current_component_marker):
+                self.find_next_component(environment)
+                return
+
             # TODO: if coming back with same state of map (?),
             # get all legal attachment sites for the current component given the current occupancy matrix
             attachment_sites, corner_sites, protruding_sites, most_ccw_sites = \
@@ -194,128 +199,151 @@ class ShortestPathAgentLocal(PerimeterFollowingAgentLocal):
                                        self.local_occupancy_map[self.current_structure_level],
                                        component_marker=self.current_component_marker, local_info=True)
 
-            aprint(self.id, "DETERMINING ATTACHMENT SITES:")
+            aprint(self.id, "DETERMINING ATTACHMENT SITES ON LEVEL {} WITH MARKER {}:"
+                   .format(self.current_structure_level, self.current_component_marker))
             print_map(attachment_sites)
             aprint(self.id, "CURRENT MAP")
-            print_map(self.local_occupancy_map)
+            print_map(self.local_occupancy_map[self.current_structure_level])
+            aprint(self.id, "CURRENT COMPONENT MAP")
+            print_map(self.component_target_map[self.current_structure_level])
             aprint(self.id, "corner_sites = {}, protruding_sites = {}, most_ccw_sites = {}"
                    .format(corner_sites, protruding_sites, most_ccw_sites))
 
             # copy occupancy matrix to safely insert attachment sites
             occupancy_map_copy = np.copy(self.local_occupancy_map[self.current_structure_level])
 
-            # convert to coordinates
-            attachment_sites = np.where(attachment_sites == 1)
-            attachment_sites = list(zip(attachment_sites[1], attachment_sites[0]))
+            backup = []
+            for site in corner_sites:
+                at_loop_corner, loop_corner_attachable = self.check_loop_corner(
+                    environment, np.array([site[0], site[1], self.current_structure_level]))
+                allowable_region_attachable = True
+                if not at_loop_corner:
+                    closing_corners = self.closing_corners[self.current_structure_level][self.current_component_marker]
+                    for i in range(len(closing_corners)):
+                        x, y, z = closing_corners[i]
+                        orientation = self.closing_corner_orientations[self.current_structure_level][
+                            self.current_component_marker][i]
+                        if not environment.check_occupancy_map(np.array([x, y, z])):
+                            if orientation == "NW":
+                                if x >= site[0] and y <= site[1]:
+                                    allowable_region_attachable = False
+                                    break
+                            elif orientation == "NE":
+                                if x <= site[0] and y <= site[1]:
+                                    allowable_region_attachable = False
+                                    break
+                            elif orientation == "SW":
+                                if x >= site[0] and y >= site[1]:
+                                    allowable_region_attachable = False
+                                    break
+                            elif orientation == "SE":
+                                if x <= site[0] and y >= site[1]:
+                                    allowable_region_attachable = False
+                                    break
+                if loop_corner_attachable and allowable_region_attachable:
+                    backup.append(site)
+                else:
+                    aprint(self.id, "CORNER SITE {} REMOVED BECAUSE lca = {}, ara = {}"
+                           .format(site, loop_corner_attachable, allowable_region_attachable))
+            corner_sites = backup
 
-            # use the previously defined rules for not closing loops to determine which sites are valid
-            # TODO: change the procedure here to something better/more efficient (e.g. "regions of interest")
-            # backup = []
-            # for site in attachment_sites:
-            #     if (site[0], site[1], self.current_structure_level) in self.illegal_sites:
-            #         aprint(self.id, "SITE {} REMOVED BECAUSE IN ILLEGAL SITES".format(site))
-            #         continue
-            #     at_loop_corner, loop_corner_attachable = self.check_loop_corner(
-            #         environment, np.array([site[0], site[1], self.current_structure_level]))
-            #     allowable_region_attachable = True
-            #     if not at_loop_corner:
-            #         for x, y, z in self.closing_corners[self.current_structure_level][self.current_component_marker]:
-            #             if not environment.check_occupancy_map(np.array([x, y, z])) and \
-            #                     x <= self.current_grid_position[0] and y <= self.current_grid_position[1]:
-            #                 allowable_region_attachable = False
-            #                 break
-            #     if loop_corner_attachable and allowable_region_attachable:
-            #         backup.append(site)
-            #     else:
-            #         aprint(self.id, "SITE {} REMOVED BECAUSE lca = {}, ara = {}"
-            #                .format(site, loop_corner_attachable, allowable_region_attachable))
-            # attachment_sites = backup
+            backup = []
+            for site in protruding_sites:
+                at_loop_corner, loop_corner_attachable = self.check_loop_corner(
+                    environment, np.array([site[0], site[1], self.current_structure_level]))
+                allowable_region_attachable = True
+                if not at_loop_corner:
+                    closing_corners = self.closing_corners[self.current_structure_level][self.current_component_marker]
+                    for i in range(len(closing_corners)):
+                        x, y, z = closing_corners[i]
+                        orientation = self.closing_corner_orientations[self.current_structure_level][
+                            self.current_component_marker][i]
+                        if not environment.check_occupancy_map(np.array([x, y, z])):
+                            if orientation == "NW":
+                                if x >= site[0] and y <= site[1]:
+                                    allowable_region_attachable = False
+                                    break
+                            elif orientation == "NE":
+                                if x <= site[0] and y <= site[1]:
+                                    allowable_region_attachable = False
+                                    break
+                            elif orientation == "SW":
+                                if x >= site[0] and y >= site[1]:
+                                    allowable_region_attachable = False
+                                    break
+                            elif orientation == "SE":
+                                if x <= site[0] and y >= site[1]:
+                                    allowable_region_attachable = False
+                                    break
+                # NOTE: actually not sure if the allowable region even plays into this because by their very nature
+                # these sites could pretty much only be corners themselves and not obstruct anything (?)
+                if loop_corner_attachable and allowable_region_attachable:
+                    backup.append(site)
+                else:
+                    aprint(self.id, "PROTRUDING SITE {} REMOVED BECAUSE lca = {}, ara = {}"
+                           .format(site, loop_corner_attachable, allowable_region_attachable))
+            protruding_sites = backup
+
+            backup = []
+            for site, direction, expected_length in most_ccw_sites:
+                at_loop_corner, loop_corner_attachable = self.check_loop_corner(
+                    environment, np.array([site[0], site[1], self.current_structure_level]))
+                allowable_region_attachable = True
+                if not at_loop_corner:
+                    closing_corners = self.closing_corners[self.current_structure_level][self.current_component_marker]
+                    for i in range(len(closing_corners)):
+                        x, y, z = closing_corners[i]
+                        orientation = self.closing_corner_orientations[self.current_structure_level][
+                            self.current_component_marker][i]
+                        if not environment.check_occupancy_map(np.array([x, y, z])):
+                            if orientation == "NW":
+                                if x >= site[0] and y <= site[1]:
+                                    allowable_region_attachable = False
+                                    break
+                            elif orientation == "NE":
+                                if x <= site[0] and y <= site[1]:
+                                    allowable_region_attachable = False
+                                    break
+                            elif orientation == "SW":
+                                if x >= site[0] and y >= site[1]:
+                                    allowable_region_attachable = False
+                                    break
+                            elif orientation == "SE":
+                                if x <= site[0] and y >= site[1]:
+                                    allowable_region_attachable = False
+                                    break
+                # in this case, might have to block attachment if row reaches into either of these
+                # regions, but I'm not sure that this can happen
+                if loop_corner_attachable and allowable_region_attachable:
+                    backup.append((site, direction, expected_length))
+                else:
+                    aprint(self.id, "CCW SITE {} REMOVED BECAUSE lca = {}, ara = {}"
+                           .format(site, loop_corner_attachable, allowable_region_attachable))
+            most_ccw_sites = backup
+
+            # find the closest corner or protruding site
+            # if there are none then take the closest most CCW site
+            most_ccw_sites_used = False
+            if len(corner_sites) != 0:
+                attachment_sites = corner_sites
+                aprint(self.id, "USING CORNER SITES")
+            elif len(protruding_sites) != 0:
+                attachment_sites = protruding_sites
+                aprint(self.id, "USING PROTRUDING SITES")
+            else:
+                most_ccw_sites_used = True
+                attachment_sites = []
+                for site, _, _ in most_ccw_sites:
+                    attachment_sites.append(site)
+                aprint(self.id, "USING END-OF-ROW SITES")
 
             if len(attachment_sites) == 0:
                 aprint(self.id, "NO LEGAL ATTACHMENT SITES AT LEVEL {} WITH MARKER {}"
                        .format(self.current_structure_level, self.current_component_marker))
                 aprint(self.id, "LOCAL MAP:\n{}".format(self.local_occupancy_map))
 
-            backup = []
-            for site in corner_sites:
-                # if (site[0], site[1], self.current_structure_level) in self.illegal_sites:
-                #     aprint(self.id, "SITE {} REMOVED BECAUSE IN ILLEGAL SITES".format(site))
-                #     continue
-                at_loop_corner, loop_corner_attachable = self.check_loop_corner(
-                    environment, np.array([site[0], site[1], self.current_structure_level]))
-                allowable_region_attachable = True
-                if not at_loop_corner:
-                    for x, y, z in self.closing_corners[self.current_structure_level][self.current_component_marker]:
-                        if not environment.check_occupancy_map(np.array([x, y, z])) and \
-                                x <= self.current_grid_position[0] and y <= self.current_grid_position[1]:
-                            allowable_region_attachable = False
-                            break
-                if loop_corner_attachable and allowable_region_attachable:
-                    backup.append(site)
-                else:
-                    aprint(self.id, "SITE {} REMOVED BECAUSE lca = {}, ara = {}"
-                           .format(site, loop_corner_attachable, allowable_region_attachable))
-            corner_sites = backup
-
-            backup = []
-            for site in protruding_sites:
-                # if (site[0], site[1], self.current_structure_level) in self.illegal_sites:
-                #     aprint(self.id, "SITE {} REMOVED BECAUSE IN ILLEGAL SITES".format(site))
-                #     continue
-                at_loop_corner, loop_corner_attachable = self.check_loop_corner(
-                    environment, np.array([site[0], site[1], self.current_structure_level]))
-                allowable_region_attachable = True
-                if not at_loop_corner:
-                    for x, y, z in self.closing_corners[self.current_structure_level][self.current_component_marker]:
-                        if not environment.check_occupancy_map(np.array([x, y, z])) and \
-                                x <= self.current_grid_position[0] and y <= self.current_grid_position[1]:
-                            allowable_region_attachable = False
-                            break
-                if loop_corner_attachable:  # and allowable_region_attachable:
-                    backup.append(site)
-                else:
-                    aprint(self.id, "SITE {} REMOVED BECAUSE lca = {}, ara = {}"
-                           .format(site, loop_corner_attachable, allowable_region_attachable))
-            protruding_sites = backup
-
-            backup = []
-            for site in most_ccw_sites:
-                # if (site[0], site[1], self.current_structure_level) in self.illegal_sites:
-                #     aprint(self.id, "SITE {} REMOVED BECAUSE IN ILLEGAL SITES".format(site))
-                #     continue
-                at_loop_corner, loop_corner_attachable = self.check_loop_corner(
-                    environment, np.array([site[0], site[1], self.current_structure_level]))
-                allowable_region_attachable = True
-                if not at_loop_corner:
-                    for x, y, z in self.closing_corners[self.current_structure_level][self.current_component_marker]:
-                        if not environment.check_occupancy_map(np.array([x, y, z])) and \
-                                x <= self.current_grid_position[0] and y <= self.current_grid_position[1]:
-                            allowable_region_attachable = False
-                            break
-                if loop_corner_attachable:  # and allowable_region_attachable:
-                    backup.append(site)
-                else:
-                    aprint(self.id, "SITE {} REMOVED BECAUSE lca = {}, ara = {}"
-                           .format(site, loop_corner_attachable, allowable_region_attachable))
-            most_ccw_sites = backup
-
-            # need to do the same for row/column sequences in CCW sites as well
-
-            # find the closest corner or protruding site
-            # if there are none then take the closest most CCW site
-            # all of this while respecting the hole rules, but FOR NOW without
-            if len(corner_sites) != 0:
-                attachment_sites = corner_sites
-            elif len(protruding_sites) != 0:
-                attachment_sites = protruding_sites
-            else:
-                attachment_sites = most_ccw_sites
-            # if len(most_ccw_sites) != 0:
-            #     attachment_sites = most_ccw_sites
-            # elif len(protruding_sites) != 0:
-            #     attachment_sites = protruding_sites
-            # elif len(corner_sites) != 0:
-            #     attachment_sites = corner_sites
+            # for now just take the shortest distance to CCW sites as well, to improve efficiency could include
+            # the expected time to find an attachment sites, i.e. the expected length of the row
 
             # find the closest one
             shortest_paths = []
@@ -334,36 +362,21 @@ class ShortestPathAgentLocal(PerimeterFollowingAgentLocal):
                     if 0 <= x2 < occupancy_map_copy.shape[1] and occupancy_map_copy[y, x2] != 0:
                         counter += 1
                 number_adjacent_blocks.append(counter)
-            # ordered_by_length = sorted(range(len(shortest_paths)), key=lambda i: len(shortest_paths[i]))
-            # shortest_paths = [shortest_paths[i] for i in ordered_by_length]
-            # number_adjacent_blocks = [number_adjacent_blocks[i] for i in ordered_by_length]
-            # ordered_by_adj = sorted(range(len(shortest_paths)), key=lambda i: number_adjacent_blocks[i])
-            # shortest_paths = [shortest_paths[i] for i in ordered_by_adj]
-            shortest_paths = sorted(shortest_paths, key=lambda x: len(x))
+            if most_ccw_sites_used:
+                sorted_indices = sorted(range(len(attachment_sites)),
+                                        key=lambda i: len(shortest_paths[i]) + most_ccw_sites[i][2])
+            else:
+                sorted_indices = sorted(range(len(attachment_sites)), key=lambda i: len(shortest_paths[i]))
+            attachment_sites = [attachment_sites[i] for i in sorted_indices]
+            shortest_paths = [shortest_paths[i] for i in sorted_indices]
             sp = shortest_paths[0]
 
-            """
-            if len(shortest_paths) == 0:
-                self.current_task = Task.FIND_NEXT_COMPONENT
-                self.task_history.append(self.current_task)
-                self.current_path = None
-                for layer in range(self.current_structure_level + 1):
-                    self.local_occupancy_map[layer][self.target_map[layer] != 0] = 1
-                return
-            """
-            """
-            # find the SOUTH-WESTERN most attachment site
-            sorted_by_y = sorted(range(len(attachment_sites)), key=lambda i: attachment_sites[i][1])
-            sorted_by_x = sorted(sorted_by_y, key=lambda i: attachment_sites[i][0])
-            attachment_sites = [attachment_sites[i] for i in sorted_by_x]
-
-            # use that attachment site
-            sp = shortest_path(occupancy_map_copy, (self.current_grid_position[0], self.current_grid_position[1]),
-                               (attachment_sites[0][0], attachment_sites[0][1]))
-
-            aprint(self.id, "Attachment sites: {}".format(attachment_sites))
-            aprint(self.id, "Chose shortest path: {}".format(sp))
-            """
+            # if the CCW sites are used, then store the additional required information
+            # also need to make sure to reset this to None because it will be used for checks
+            self.current_attachment_info = None
+            if most_ccw_sites_used:
+                most_ccw_sites = [most_ccw_sites[i] for i in sorted_indices]
+                self.current_attachment_info = most_ccw_sites[0]
 
             # construct the path to that site (might want to consider doing this step-wise instead)
             self.current_grid_position = np.array([sp[0][0], sp[0][1], self.current_structure_level])
@@ -397,35 +410,98 @@ class ShortestPathAgentLocal(PerimeterFollowingAgentLocal):
                     self.task_history.append(self.current_task)
                     self.current_grid_position = block_below.grid_position
                     self.current_path = None
-                    # TODO: might have to move to the seed first (although localisation should be possible as above)
-                    # seed_grid_location = self.component_seed_location(
-                    #     self.component_target_map[block_below.grid_position[2], block_below.grid_position[1],
-                    #                               block_below.grid_position[0]], self.current_structure_level + 1)
-                    # self.current_seed = environment.block_at_position(seed_grid_location)
-                    # self.current_task = Task.TRANSPORT_BLOCK
+
+                    return
 
                 # have reached next point on shortest path to attachment site
                 if self.current_shortest_path is None:
                     aprint(self.id, "shortest path None (previous path None: {})".format(
                         self.path_before_collision_avoidance_none))
-                current_spc = self.current_shortest_path[self.current_sp_index]
-                aprint(self.id, "REACHED {} ON SHORTEST PATH ({})".format(current_spc, self.current_shortest_path))
-                self.current_grid_position = np.array([current_spc[0], current_spc[1], self.current_structure_level])
-                aprint(self.id, "GRID POSITION: {}".format(self.current_grid_position))
+                if self.current_attachment_info is not None and self.current_sp_index >= len(self.current_shortest_path):
+                    self.current_grid_position = self.current_grid_position + self.current_grid_direction
+                else:
+                    current_spc = self.current_shortest_path[self.current_sp_index]
+                    self.current_grid_position = np.array([current_spc[0], current_spc[1], self.current_structure_level])
+                    aprint(self.id, "REACHED {} ON SHORTEST PATH ({})".format(current_spc, self.current_shortest_path))
                 self.update_local_occupancy_map(environment)
-                if self.current_sp_index == len(self.current_shortest_path) - 1:
-                    # have reached intended attachment site and should assess whether block can be placed or not
-                    if not environment.check_occupancy_map(self.current_grid_position):
-                        # if yes, just place it
-                        self.current_task = Task.PLACE_BLOCK
-                        self.task_history.append(self.current_task)
-                        self.current_path = None
-                        self.current_shortest_path = None
-                        aprint(self.id, "GOING TO PLACE BLOCK")
+                aprint(self.id, "GRID POSITION: {}".format(self.current_grid_position))
+                if self.current_sp_index >= len(self.current_shortest_path) - 1:
+                    aprint(self.id, "TEST")
+                    if self.current_attachment_info is None:
+                        aprint(self.id, "TEST 1")
+                        # if the attachment site was determined definitively (corner or protruding), have reached
+                        # intended attachment site and should assess whether block can be placed or not
+                        if not environment.check_occupancy_map(self.current_grid_position):
+                            # if yes, just place it
+                            self.current_task = Task.PLACE_BLOCK
+                            self.task_history.append(self.current_task)
+                            self.current_path = None
+                            self.current_shortest_path = None
+                            aprint(self.id, "GOING TO PLACE BLOCK AT CORNER OR PROTRUDING SITE")
+                        else:
+                            # if no, need to find new attachment site (might just be able to restart this method)
+                            self.current_path = None
+                            self.current_shortest_path = None
+                            aprint(self.id, "SITE ALREADY OCCUPIED, SEARCH FOR NEW ONE")
                     else:
-                        # if no, need to find new attachment site (might just be able to restart this method)
-                        self.current_path = None
-                        aprint(self.id, "SITE ALREADY OCCUPIED, SEARCH FOR NEW ONE")
+                        aprint(self.id, "TEST 2")
+                        # otherwise, if at starting position for the row/column/perimeter search, need to check
+                        # whether attachment is already possible and if not, plan next path movement
+                        # note that due to the code above, the local map should already be updated, making it
+                        # possible to decide whether we are at an outer corner globally
+                        self.current_sp_index += 1
+                        self.current_grid_direction = self.current_attachment_info[1]
+                        if environment.check_occupancy_map(self.current_grid_position):
+                            aprint(self.id, "TEST 3")
+                            # if there is a block at the position, it means that we are still at the end of the
+                            # shortest path and all the sites should have been filled already, meaning that the
+                            # local occupancy matrix for that row/column can be filled out as well
+                            # while within map bounds:
+                            #     check whether next site in row/column (according to direction) is still
+                            #     "connected" in the target map and if so fill it, else break
+                            position = self.current_grid_position.copy() + self.current_grid_direction
+                            # site actually also needs to be connected
+                            # could either do this according to local occupancy map or (if that results in problems)
+                            # with checking component completeness, could "physically" explore this row to be sure
+                            # that it is finished/to update the local occupancy map up until the next intended gap
+                            while 0 <= position[0] < self.target_map.shape[2] \
+                                    and 0 <= position[1] < self.target_map.shape[1] \
+                                    and check_map(self.target_map, position) \
+                                    and check_map(self.local_occupancy_map, position):
+                                self.local_occupancy_map[position[2], position[1], position[0]] = 1
+                                position = position + self.current_grid_direction
+                            # afterwards, continue search for an attachment site
+                            self.current_path = None
+                            self.current_shortest_path = None
+                        else:
+                            aprint(self.id, "TEST 4")
+                            # check whether attachment possible right now
+                            position_ahead_occupied = environment.check_occupancy_map(
+                                self.current_grid_position + self.current_grid_direction)
+                            position_ahead_to_be_empty = check_map(
+                                self.target_map, self.current_grid_position + self.current_grid_direction,
+                                lambda x: x == 0)
+                            position_around_corner_empty = environment.check_occupancy_map(
+                                self.current_grid_position + self.current_grid_direction +
+                                np.array([-self.current_grid_direction[1], self.current_grid_direction[0], 0],
+                                         dtype="int32"),
+                                lambda x: x == 0)
+
+                            if position_ahead_occupied or position_around_corner_empty or position_ahead_to_be_empty:
+                                # attachment possible
+                                self.current_task = Task.PLACE_BLOCK
+                                self.task_history.append(self.current_task)
+                                self.current_path = None
+                                self.current_shortest_path = None
+                                self.current_attachment_info = None
+                                aprint(self.id, "GOING TO PLACE BLOCK AT END OF ROW")
+                            else:
+                                # cannot place block yet, move on to next location
+                                next_grid_position = self.current_grid_position + self.current_grid_direction
+                                next_position = [environment.offset_origin[0] + Block.SIZE * next_grid_position[0],
+                                                 environment.offset_origin[0] + Block.SIZE * next_grid_position[1],
+                                                 self.geometry.position[2]]
+                                self.current_path.add_position(next_position)
                 else:
                     # still have to go on, therefore update the current path
                     self.current_sp_index += 1
@@ -707,279 +783,8 @@ class ShortestPathAgentLocal(PerimeterFollowingAgentLocal):
             self.survey_component(environment)
         elif self.current_task == Task.RETURN_BLOCK:
             self.return_block(environment)
-        elif self.current_task == Task.PLACE_BLOCK:
-            self.place_block(environment)
-        elif self.current_task == Task.LAND:
-            self.land(environment)
-
-        if self.collision_possible and self.current_task not in [Task.AVOID_COLLISION, Task.LAND, Task.FINISHED]:
-            for a in environment.agents:
-                if self is not a and self.collision_potential(a):
-                    self.previous_task = self.current_task
-                    self.current_task = Task.AVOID_COLLISION
-                    self.task_history.append(self.current_task)
-                    break
-
-
-class ShortestPathAgent3D(PerimeterFollowingAgentLocal):
-
-    # FOR NOW THIS AGENT WILL BE "OMNISCIENT"/THE BLOCKS WILL BE UNIQUE
-    # THEREFORE A NEW transport_block METHOD IS IMPLEMENTED
-
-    def __init__(self,
-                 position: List[float],
-                 size: List[float],
-                 target_map: np.ndarray,
-                 required_spacing: float = 5.0):
-        super(ShortestPathAgent3D, self).__init__(position, size, target_map, required_spacing)
-        self.highest_observed_level = 0
-
-    # need to change the following:
-    # - find_attachment_site
-    # - might need change to placement?
-    # - doesn't need move_up_layer, move_to_perimeter
-    #   - move_up_layer can be found in move_up_layer, find_attachment_site and place_block (more reason to change it)
-
-    def find_attachment_site(self, environment: env.map.Map):
-        # component information can be relevant for this algorithm for seeding new layers, but there are other options:
-        # - blocks are assumed to be unique, thereby basically making every block a sort of seed
-        # - when going to a layer higher up and no block has been placed in that component, make it a seed
-        # - covering of previous level seed is not allowed
-
-        # first block placed in component can be seed for that component (if the layer below has been completed?)
-
-        # algorithm outline:
-        # - transport_block should know the current seed, which has to be some component seed
-        # - once arriving (and updating knowledge about the environment?), where block can be attached (in 3D)
-        # - follow shortest path (or potentially other path) to that attachment site
-        # - if occupied, do same thing again to next best attachment site
-        # - place block
-
-        # find an attachment site by finding the closest allowed/legal attachment site and following the path
-        # over the blocks there (this is done for "realism", because the blocks are needed for orientation; it
-        # could be worth considering just taking the shortest direct flight path, orientation oneself using a
-        # grid on the construction site floor)
-        if self.current_path is None:
-            # get all legal attachment sites for the current component given the current occupancy matrix
-            attachment_sites = legal_attachment_sites_3d(self.target_map, environment.occupancy_map, safety_radius=1)
-
-            # copy occupancy matrix to safely insert attachment sites
-            occupancy_map_copy = np.copy(environment.occupancy_map)
-
-            # print_map(attachment_sites)
-
-            # convert to coordinates
-            attachment_sites = np.where(attachment_sites == 1)
-            attachment_sites = list(zip(attachment_sites[2], attachment_sites[1], attachment_sites[0]))
-
-            # aprint(self.id, "ATTACHMENT SITES: {}".format(attachment_sites))
-
-            # find the closest one
-            shortest_paths = []
-            for x, y, z in attachment_sites:
-                sp_and_height = shortest_path_3d_in_2d(occupancy_map_copy, (self.current_grid_position[0],
-                                                                            self.current_grid_position[1]), (x, y, z))
-                shortest_paths.append(sp_and_height)
-            sp_indices = sorted(range(len(shortest_paths)),
-                                key=lambda x: len(shortest_paths[x][0]) + shortest_paths[x][1])
-            # TODO: need to take additional vertical distance into account for picking best destination
-            shortest_paths = [shortest_paths[i] for i in sp_indices]
-            attachment_sites = [attachment_sites[i] for i in sp_indices]
-            sp = shortest_paths[0][0]
-            height = shortest_paths[0][1]
-            # index = random.randint(0, len(shortest_paths) - 1)
-            # sp = shortest_paths[index][0]
-            # height = shortest_paths[index][1]
-            self.highest_observed_level = max(height, self.highest_observed_level,
-                                              max(np.where(occupancy_map_copy >= 1)[0]))
-            self.current_structure_level = self.highest_observed_level
-
-            # aprint(self.id, "SELECTED PATH: {} (AT HEIGHT {})".format(sp, height))
-
-            self.current_grid_position = np.array(
-                [attachment_sites[0][0], attachment_sites[0][1], attachment_sites[0][2]])
-            self.current_path = Path()
-            for x, y in sp:
-                current_coordinate = [environment.offset_origin[0] + Block.SIZE * x,
-                                      environment.offset_origin[0] + Block.SIZE * y,
-                                      self.geometry.size[2] + Block.SIZE * (height + 3) + 2 * self.required_spacing]
-                self.current_path.add_position(current_coordinate)
-
-        next_position = self.current_path.next()
-        current_direction = self.current_path.direction_to_next(self.geometry.position)
-        current_direction /= sum(np.sqrt(current_direction ** 2))
-
-        # do (force field, not planned) collision avoidance
-        if self.collision_possible:
-            for a in environment.agents:
-                if self is not a and self.collision_potential(a):
-                    force_field_vector = np.array([0.0, 0.0, 0.0])
-                    force_field_vector += (self.geometry.position - a.geometry.position)
-                    force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
-                    # force_field_vector = rotation_2d(force_field_vector, np.pi / 4)
-                    # force_field_vector = rotation_2d_experimental(force_field_vector, np.pi / 4)
-                    force_field_vector *= 50 / simple_distance(self.geometry.position, a.geometry.position)
-                    current_direction += 2 * force_field_vector
-
-        current_direction /= sum(np.sqrt(current_direction ** 2))
-        current_direction *= Agent.MOVEMENT_PER_STEP
-
-        if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
-            self.geometry.position = next_position
-            ret = self.current_path.advance()
-            if not ret:
-                # since the path is planned completely at the beginning, this signals arriving at the site itself
-                self.current_task = Task.PLACE_BLOCK
-                self.task_history.append(self.current_task)
-                self.current_path = None
-
-                # need to check whether the location has already been occupied
-                if environment.check_occupancy_map(np.array(self.current_grid_position)):
-                    self.current_path = None
-        else:
-            self.geometry.position = self.geometry.position + current_direction
-
-    def transport_block(self, environment: env.map.Map):
-        # this new transport_block method approaches the structure, taking the seed position as a reference
-        # and once it is over the structure and recognises the block beneath (and has thus achieved localisation),
-        # it also goes for finding an attachment site
-
-        # since the highest current structure level is unknown, this method simply flies high enough? this could be
-        # based on the highest level this agent has placed a block at -> then one would still have to watch out for
-        # the colliding with "unexpected" blocks, and possibly move around or higher
-
-        if self.current_path is None:
-            # gain height, fly to seed location and then start search for attachment site
-            self.current_path = Path()
-            transport_level_z = Block.SIZE * (self.highest_observed_level + 3) + \
-                                (self.geometry.size[2] / 2 + self.required_spacing) * 2
-            seed_location = self.current_seed.geometry.position
-            self.current_path.add_position([self.geometry.position[0], self.geometry.position[1], transport_level_z])
-            self.current_path.add_position([seed_location[0], seed_location[1], transport_level_z])
-
-        next_position = self.current_path.next()
-        current_direction = self.current_path.direction_to_next(self.geometry.position)
-        current_direction /= sum(np.sqrt(current_direction ** 2))
-
-        # do (force field, not planned) collision avoidance
-        if self.collision_possible:
-            for a in environment.agents:
-                if self is not a and self.collision_potential(a):
-                    force_field_vector = np.array([0.0, 0.0, 0.0])
-                    force_field_vector += (self.geometry.position - a.geometry.position)
-                    force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
-                    # force_field_vector = rotation_2d(force_field_vector, np.pi / 4)
-                    # force_field_vector = rotation_2d_experimental(force_field_vector, np.pi / 4)
-                    force_field_vector *= 50 / simple_distance(self.geometry.position, a.geometry.position)
-                    current_direction += 2 * force_field_vector
-
-        current_direction /= sum(np.sqrt(current_direction ** 2))
-        current_direction *= Agent.MOVEMENT_PER_STEP
-
-        if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
-            self.geometry.position = next_position
-            ret = self.current_path.advance()
-
-            # if the final point on the path has been reached, search for attachment site should start
-            if not ret:
-                self.current_grid_position = np.array(self.current_seed.grid_position)
-                self.current_path = None
-                self.current_task = Task.FIND_ATTACHMENT_SITE
-                self.task_history.append(self.current_task)
-        else:
-            self.geometry.position = self.geometry.position + current_direction
-
-        # if over structure (i.e. localisation possible), start looking for attachment site
-        # block_below = environment.block_below(self.geometry.position)
-        # if block_below is not None:
-        #     self.current_grid_position = np.array(block_below)
-        #     self.current_path = None
-        #     self.current_task = Task.FIND_ATTACHMENT_SITE
-        #     self.task_history.append(self.current_task)
-
-    def place_block(self, environment: env.map.Map):
-        # fly to determined attachment site, lower quadcopter and place block,
-        # then switch task back to fetching blocks
-
-        if self.current_path is None:
-            # init_z = Block.SIZE * (self.current_structure_level + 2) + self.required_spacing + self.geometry.size[2] / 2
-            placement_x = Block.SIZE * self.current_grid_position[0] + environment.offset_origin[0]
-            placement_y = Block.SIZE * self.current_grid_position[1] + environment.offset_origin[1]
-            placement_z = Block.SIZE * (self.current_grid_position[2] + 1) + self.geometry.size[2] / 2
-            self.current_path = Path()
-            # self.current_path.add_position([placement_x, placement_y, init_z])
-            self.current_path.add_position([placement_x, placement_y, placement_z])
-
-        if environment.check_occupancy_map(self.current_grid_position):
-            # a different agent has already placed the block in the meantime
-            self.current_path = None
-            self.current_task = Task.FIND_ATTACHMENT_SITE
-            self.task_history.append(self.current_task)
-            return
-
-        # check again whether attachment is allowed
-        attachment_sites = legal_attachment_sites_3d(self.target_map, environment.occupancy_map, safety_radius=1)
-        if attachment_sites[self.current_grid_position[2],
-                            self.current_grid_position[1],
-                            self.current_grid_position[0]] == 0:
-            self.current_path = None
-            self.current_task = Task.FIND_ATTACHMENT_SITE
-            self.task_history.append(self.current_task)
-            return
-
-        next_position = self.current_path.next()
-        current_direction = self.current_path.direction_to_next(self.geometry.position)
-        current_direction /= sum(np.sqrt(current_direction ** 2))
-        current_direction *= Agent.MOVEMENT_PER_STEP
-        if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
-            self.geometry.position = next_position
-            ret = self.current_path.advance()
-
-            # block should now be placed in the environment's occupancy matrix
-            if not ret:
-                environment.place_block(self.current_grid_position, self.current_block)
-                self.geometry.attached_geometries.remove(self.current_block.geometry)
-                self.current_block.placed = True
-                self.current_block.grid_position = self.current_grid_position
-                self.current_block = None
-                self.current_path = None
-
-                tm = np.copy(self.target_map)
-                np.place(tm, tm >= 1, 1)
-                om = np.copy(environment.occupancy_map)
-                np.place(om, om >= 1, 1)
-                if np.array_equal(tm, om):
-                    self.current_task = Task.LAND
-                    self.task_history.append(self.current_task)
-                    self.current_path = None
-                    self.logger.info("Construction finished (YAY).")
-                else:
-                    self.current_path = None
-                    self.current_task = Task.FETCH_BLOCK
-                    self.task_history.append(self.current_task)
-        else:
-            self.geometry.position = self.geometry.position + current_direction
-
-    def advance(self, environment: env.map.Map):
-        if self.current_seed is None:
-            self.current_seed = environment.blocks[0]
-        if self.current_task == Task.MOVE_TO_PERIMETER:
-            self.current_task = Task.FIND_ATTACHMENT_SITE
-        elif self.current_task == Task.MOVE_UP_LAYER:
-            pass
-
-        self.agent_statistics.step(environment)
-
-        if self.current_task == Task.AVOID_COLLISION:
-            self.avoid_collision(environment)
-        if self.current_task == Task.FETCH_BLOCK:
-            self.fetch_block(environment)
-        elif self.current_task == Task.PICK_UP_BLOCK:
-            self.pick_up_block(environment)
-        elif self.current_task == Task.TRANSPORT_BLOCK:
-            self.transport_block(environment)
-        elif self.current_task == Task.FIND_ATTACHMENT_SITE:
-            self.find_attachment_site(environment)
+        elif self.current_task == Task.CHECK_STASHES:
+            self.check_stashes(environment)
         elif self.current_task == Task.PLACE_BLOCK:
             self.place_block(environment)
         elif self.current_task == Task.LAND:

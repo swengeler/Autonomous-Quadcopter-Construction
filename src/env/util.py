@@ -1,6 +1,7 @@
 import numpy as np
 import collections
 import logging
+import math
 from enum import Enum
 from typing import List, Tuple
 from env.block import *
@@ -210,7 +211,7 @@ def print_map(environment: np.ndarray, path=None, layer=None, custom_symbols=Non
 
 def legal_attachment_sites(target_map: np.ndarray, occupancy_map: np.ndarray, component_marker=None, local_info=False):
     if local_info:
-        return legal_attachment_sites_revisited(target_map, occupancy_map, component_marker)
+        return legal_attachment_sites_revisited(target_map, occupancy_map, component_marker, True)
 
     # input is supposed to be a 2-dimensional layer
     # setting all values larger than 1 (seeds) to 1
@@ -431,16 +432,47 @@ def legal_attachment_sites_revisited(target_map: np.ndarray,
                             corner_counter += 1
                         if target_map[y, x2] != 0:
                             protruding_counter += 1
+
+                # should really be checking whether two OPPOSING adjacent blocks are free or not (also diagonally)
+                opposite_free_counter = 0
+                for c1, c2 in [((-1, -1), (1, 1)), ((-1, 1), (1, -1)), ((0, -1), (0, 1)), ((-1, 0), (1, 0))]:
+                    x1 = x + c1[0]
+                    y1 = y + c1[1]
+                    x2 = x + c2[0]
+                    y2 = y + c2[1]
+                    counter = 0
+                    if x1 < 0 or x1 >= legal_sites.shape[1] \
+                            or y1 < 0 or y1 >= legal_sites.shape[0] \
+                            or target_map[y1, x1] == 0:
+                        counter += 1
+                    if counter > 0 and (x2 < 0 or x2 >= legal_sites.shape[1]
+                                        or y2 < 0 or y2 >= legal_sites.shape[0]
+                                        or target_map[y2, x2] == 0):
+                        counter += 1
+                    if counter == 2:
+                        opposite_free_counter += 1
+
                 if corner_counter == 2:
                     corner_sites.append((x, y))
-                if (on_map_counter == 2 and protruding_counter == 1) \
-                        or (on_map_counter == 3 and protruding_counter <= 2) \
-                        or (on_map_counter == 4 and protruding_counter <= 2):
+                if corner_counter <= 2 and opposite_free_counter >= 2:
+                    # opposite_free_counter might have to be 2 or more checks might be necessary
                     protruding_sites.append((x, y))
+
+                # diagonal_counter = 0
+                # for x2, y2 in ((x - 1, y - 1), (x - 1, y + 1), (x + 1, y - 1), (x + 1, y + 1)):
+                #     if 0 <= y2 < legal_sites.shape[0] and 0 <= x2 < legal_sites.shape[1] \
+                #             and target_map[y2, x2] != 0:
+                #         diagonal_counter += 1
+                # if protruding_counter <= 2:
+                #     if on_map_counter == 3 or on_map_counter == 4:
+                #         protruding_sites.append((x, y))
+                #     elif on_map_counter == 2:
+                #         # also need to check diagonally
+                #         if diagonal_counter == 0:
+                #             protruding_sites.append((x, y))
 
     # determine the most CCW site in each row of attachment sites
     most_ccw_row_sites = []
-    row_information = []
     for y in range(legal_sites.shape[0]):
         for x in range(legal_sites.shape[1]):
             tpl = (x, y)
@@ -469,7 +501,8 @@ def legal_attachment_sites_revisited(target_map: np.ndarray,
                     logger.warning("Too few adjacent sites for potential row/column attachment site at {}.".format(tpl))
                     continue
                 if counter > 1:
-                    logger.warning("Too many adjacent sites for potential row/column attachment site at {}.".format(tpl))
+                    logger.warning(
+                        "Too many adjacent sites for potential row/column attachment site at {}.".format(tpl))
                     continue
 
                 # this could also just be done in a single direction, but it would be best to set the other
@@ -494,13 +527,14 @@ def legal_attachment_sites_revisited(target_map: np.ndarray,
                         # there is some corner site in the list
                         for x2, y2 in reduced_row_sites:
                             legal_sites[y2, x2] = 0
+                        print("REMOVED ROW SITES {}".format(reduced_row_sites))
                     else:
                         # find the CCW most site (which is either the first or the last)
-                        if adjacent_side == "SOUTH":
-                            most_ccw_site = row_sites[0]
-                        else:
-                            most_ccw_site = row_sites[-1]
                         if not row_information:
+                            if adjacent_side == "SOUTH":
+                                most_ccw_site = row_sites[0]
+                            else:
+                                most_ccw_site = row_sites[-1]
                             while most_ccw_site in row_sites:
                                 row_sites.remove(most_ccw_site)
                             for x2, y2 in row_sites:
@@ -509,7 +543,14 @@ def legal_attachment_sites_revisited(target_map: np.ndarray,
                         else:
                             # if the entire column is supposed to be returned, add all sites in the correct order
                             # to traverse so that correctness of the structure is guaranteed
-                            most_ccw_row_sites.append(row_sites if adjacent_side == "NORTH" else row_sites.reverse())
+                            # format: (first site, direction, expected row length)
+                            if adjacent_side == "SOUTH":
+                                site_info = (row_sites[-1], np.array([-1, 0, 0]), len(row_sites))
+                            else:
+                                site_info = (row_sites[0], np.array([1, 0, 0]), len(row_sites))
+                            # most_ccw_row_sites.append(row_sites if adjacent_side == "NORTH" else row_sites.reverse())
+                            if all(site_info[0] != ccw_site[0] for ccw_site in most_ccw_row_sites):
+                                most_ccw_row_sites.append(site_info)
                 elif adjacent_side == "WEST" or adjacent_side == "EAST":
                     # it's a column, therefore look up and down for other blocks
                     column_sites = [tpl]
@@ -529,12 +570,13 @@ def legal_attachment_sites_revisited(target_map: np.ndarray,
                     if len(column_sites) != len(reduced_column_sites):
                         for x2, y2 in reduced_column_sites:
                             legal_sites[y2, x2] = 0
+                        print("REMOVED COLUMN SITES {}".format(reduced_column_sites))
                     else:
-                        if adjacent_side == "EAST":
-                            most_ccw_site = column_sites[0]
-                        else:
-                            most_ccw_site = column_sites[-1]
                         if not row_information:
+                            if adjacent_side == "EAST":
+                                most_ccw_site = column_sites[0]
+                            else:
+                                most_ccw_site = column_sites[-1]
                             while most_ccw_site in column_sites:
                                 column_sites.remove(most_ccw_site)
                             for x2, y2 in column_sites:
@@ -543,9 +585,32 @@ def legal_attachment_sites_revisited(target_map: np.ndarray,
                         else:
                             # if the entire column is supposed to be returned, add all sites in the correct order
                             # to traverse so that correctness of the structure is guaranteed
-                            most_ccw_row_sites.append(column_sites if adjacent_side == "WEST"
-                                                      else column_sites.reverse())
+                            # most_ccw_row_sites.append(column_sites if adjacent_side == "WEST"
+                            #                           else column_sites.reverse())
+                            if adjacent_side == "EAST":
+                                site_info = (column_sites[-1], np.array([0, -1, 0]), len(column_sites))
+                            else:
+                                site_info = (column_sites[0], np.array([0, 1, 0]), len(column_sites))
+                            if all(site_info[0] != ccw_site[0] for ccw_site in most_ccw_row_sites):
+                                most_ccw_row_sites.append(site_info)
 
+    # important note on the row/column information: it also is not entirely reliable the way it is handled now
+    # since the agent thinks that the row/column ends somewhere it does not end at all
+    # one way to amend this would be to use the target map as an indicator of how many sites to count
+    # in either case, the agent should follow the row/column direction until there is a site which is in an inner corner
+    # (i.e. the location ahead is occupied) or the end of a row/an outer corner (according to the local occupancy map)
+    # -> for the latter, it is important that the local occupancy map is updated with the site ahead and to the left of
+    #    the agent, so that it is actually guaranteed that this is an outer corner globally as well
+    # -> the easiest way to do this thing would therefore probably be to just give the starting point and the direction
+    # if there is a block encountered ahead in this row, the entire rest of the row should be considered occupied
+
+    # possible format for information?
+    current_attachment_info = {"site": [0, 0, 0], "direction": [0, 0, 0]}
+
+    # the last question then is: how can corner/loop attachment sites be discriminated?
+    # -> if there are any sites in the row/column that are in that region?
+    # -> maybe those sites should simply be removed
+    # -> maybe only if the first site is in that region
     return legal_sites, corner_sites, protruding_sites, most_ccw_row_sites
 
 
@@ -633,3 +698,19 @@ def neighbourhood(arr: np.ndarray, position, flatten=False):
     else:
         result = arr[y_lower:y_upper, x_lower:x_upper]
         return result.flatten() if flatten else result
+
+
+def cw_angle_and_distance(point, origin=(0, 0), ref_vec=(0, 1)):
+    """Taken from https://stackoverflow.com/a/41856340"""
+    vector = [point[0] - origin[0], point[1] - origin[1]]
+    len_vector = math.hypot(vector[0], vector[1])
+    if len_vector == 0:
+        return -math.pi, 0
+    normalized = [vector[0]/len_vector, vector[1]/len_vector]
+    dot_prod  = normalized[0] * ref_vec[0] + normalized[1] * ref_vec[1]     # x1*x2 + y1*y2
+    diff_prod = ref_vec[1] * normalized[0] - ref_vec[0] * normalized[1]     # x1*y2 - y1*x2
+    angle = math.atan2(diff_prod, dot_prod)
+    if angle < 0:
+        return 2*math.pi+angle, len_vector
+    return angle, len_vector
+

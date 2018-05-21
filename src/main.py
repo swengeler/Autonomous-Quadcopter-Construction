@@ -33,6 +33,13 @@ def main():
 
     target_map = emergency_structures["tower_bigger_stilts_10x10x10"]
     target_map = emergency_structures["loop_structure_10x10x10"]
+    target_map = tower_stilts_bigger
+    # target_map = multi_layer_holes
+    target_map = loop_component_test    # for component seed loop weirdness
+
+    # for testing properly finished structure stuff, the following map using 8
+    # agents will result in ending construction with unfinished stashes:
+    # target_map = emergency_structures["loop_structure_10x10x10"]
 
     palette_block = list(sns.color_palette("Blues_d", target_map.shape[0]))
     palette_seed = list(sns.color_palette("Reds_d", target_map.shape[0]))
@@ -49,7 +56,7 @@ def main():
     # offset of the described target occupancy map to the origin (only in x/y directions)
     offset_origin = (100.0, 100.0)
     environment_extent = [150.0, 200.0, 200.0]
-    environment_extent = [350.0] * 3
+    environment_extent = [450.0] * 3
 
     # creating Map object and getting the required number of block_list (of each type)
     environment = Map(target_map, offset_origin, environment_extent)
@@ -100,8 +107,8 @@ def main():
             processed.append(b)
 
     # creating the agent_list
-    agent_count = 8
-    agent_type = ShortestPathAgentLocal
+    agent_count = 1
+    agent_type = PerimeterFollowingAgentLocal
     agent_list = [agent_type([50, 60, 7.5], [40, 40, 15], target_map, 10.0) for _ in range(0, agent_count)]
     for i in range(len(agent_list)):
         agent_list[i].id = i
@@ -125,6 +132,16 @@ def main():
 
     # adding the agent list
     environment.add_agents(agent_list)
+
+    print("CLOSING CORNERS: {}".format(agent_list[0].closing_corners))
+    print("COMPONENT MAP:\n{}".format(agent_list[0].component_target_map))
+
+    idx = 0
+    # print("FOR AGENT 0 AT POSITION {}:".format(agent_list[idx].geometry.position))
+    # agent_list[idx].check_stashes(environment)
+    # print("COMPONENT MAP: {}".format(agent_list[idx].component_target_map))
+    # print("COMPONENT MAP: {}".format(agent_list[idx].multi_layer_component_target_map))
+    # return
 
     # starting the tkinter GUI
     # threading.Thread(target=tk_main_loop, args=(environment.environment_extent[0])).start()
@@ -168,6 +185,10 @@ def main():
                     results["min"] = min_stats
                     results["max"] = max_stats
                     results["finished_successfully"] = finished_successfully
+                    print("\nFinal resulting map:")
+                    print_map(environment.occupancy_map)
+                    print("\nBlock stashes: {}".format(environment.block_stashes))
+                    print("\nSeed stashes: {}".format(environment.seed_stashes))
                     break
                 if len(agent_list) > 1:
                     for a1 in agent_list:
@@ -175,7 +196,8 @@ def main():
                             if a1 is not a2 and a1.overlaps(a2) \
                                     and not a1.current_task == Task.FINISHED and not a2.current_task == Task.FINISHED:
                                 collisions += 1
-                                print("Agent {} and {} colliding.".format(a1.id, a2.id))
+                                print("Agent {} ({}) and {} ({}) colliding.".format(a1.id, a1.current_task,
+                                                                                    a2.id, a2.current_task))
                                 # paused = True
                 # print("CURRENT MAP:")
                 # print_map(environment.occupancy_map)
@@ -226,6 +248,10 @@ def main():
             results["min"] = min_stats
             results["max"] = max_stats
             results["finished_successfully"] = finished_successfully
+            print("\nFinal resulting map:")
+            print_map(environment.occupancy_map)
+            print("\nBlock stashes: {}".format(environment.block_stashes))
+            print("\nSeed stashes: {}".format(environment.seed_stashes))
         else:
             logger.info("Simulation finished successfully.")
 
