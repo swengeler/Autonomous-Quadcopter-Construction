@@ -1,6 +1,8 @@
 import numpy as np
 import logging
 import env.map
+import random
+from collections import deque as dq
 from enum import Enum
 from abc import ABCMeta, abstractmethod
 from env.block import Block
@@ -50,7 +52,7 @@ class AgentStatistics:
 
     def step(self, environment: env.map.Map):
         if self.previous_task != self.agent.current_task:
-            aprint(self.agent.id, "Changed task to {}".format(self.agent.current_task))
+            # aprint(self.agent.id, "Changed task to {}".format(self.agent.current_task))
             self.previous_task = self.agent.current_task
         self.task_counter[self.agent.current_task] = self.task_counter[self.agent.current_task] + 1
 
@@ -98,10 +100,11 @@ class Agent:
                                                                 size[2] + Block.SIZE + required_spacing * 2], 0.0)
         self.geometry.following_geometries.append(self.collision_avoidance_geometry)
         self.geometry.following_geometries.append(self.collision_avoidance_geometry_with_block)
+        self.initial_position = None
         self.target_map = target_map
         self.component_target_map = None
         self.required_spacing = required_spacing
-        self.required_distance = 100
+        self.required_distance = 80
         self.required_vertical_distance = -50
         self.known_empty_stashes = []
 
@@ -113,6 +116,7 @@ class Agent:
         self.current_trajectory = None
         self.current_task = Task.FETCH_BLOCK
         self.current_path = None
+        self.current_static_location = self.geometry.position
         self.current_structure_level = 0
         self.current_grid_position = None  # closest grid position if at structure
         self.current_grid_direction = None
@@ -128,10 +132,16 @@ class Agent:
         self.current_collision_avoidance_counter = 0
         self.current_stash_path = None
         self.current_stash_path_index = 0
+
         self.backup_grid_position = None
         self.previous_task = Task.FETCH_BLOCK
         self.transporting_to_seed_site = False
         self.path_before_collision_avoidance_none = False
+        self.position_queue = dq(maxlen=20)
+        self.collision_queue = dq(maxlen=100)
+        self.collision_count = 0
+        self.collision_average = 0
+        self.step_count = 0
 
         self.collision_using_geometries = False
         self.task_history = []
@@ -155,29 +165,126 @@ class Agent:
     def overlaps(self, other):
         return self.geometry.overlaps(other.geometry)
 
-    def move(self, environment: env.map.Map):
-        next_position = self.current_path.next()
-        current_direction = self.current_path.direction_to_next(self.geometry.position)
+    def move(self, environment: env.map.Map, react_only=False):
+        # TODO: implement reaction only movement, trying to stay in one spot if possible, instead of following path
+
+        if not react_only:
+            next_position = self.current_path.next()
+            current_direction = self.current_path.direction_to_next(self.geometry.position)
+            original_direction = self.current_path.direction_to_next(self.geometry.position)
+        else:
+            next_position = self.current_static_location
+            current_direction = next_position - self.geometry.position
+            original_direction = next_position - self.geometry.position
         current_direction /= sum(np.sqrt(current_direction ** 2))
 
         # do (force field, not planned) collision avoidance
+        movement_multiplier = 1.0
+        stop_moving = False
+        candidates = []
+        # TODO: scale force vector by angle compared to direction of movement
+        # if angle is small, then the influence of the force vector should also be smaller because
+        # the movement itself will already contribute to the collision avoidance
+        # otherwise, the force vector has to do most of the work (e.g. also stop the agent movement forwards
+        # and should therefore be scaled up)
         if self.collision_possible:
             for a in environment.agents:
-                if self is not a and self.collision_potential(a) \
-                        and a.geometry.position[2] <= self.geometry.position[2] - self.required_vertical_distance:
+                if self is not a and self.collision_potential(a) and self.collision_potential_visible(a):
+                    candidates.append(a)
+                    """
+                    position_difference = a.geometry.position - self.geometry.position
+                    position_signed_angle = np.arctan2(position_difference[1], position_difference[0]) - \
+                                            np.arctan2(original_direction[1], original_direction[0])
+                    # if abs(self.geometry.position[2] - a.geometry.position[2]) < 20.0 \
+                    #         and abs(position_signed_angle) < np.pi / 2:
+                    if abs(position_signed_angle) < np.pi / 2:
+                        # if the other QC is at roughly the same height and in front of us, initiate force-field
+                        # collision avoidance (at least check whether it should be performed)
+                        if a.current_path is not None:
+                            other_direction = a.current_path.next() - np.array(a.geometry.position)
+                            direction_signed_angle = np.arctan2(other_direction[1], other_direction[0]) - \
+                                                     np.arctan2(original_direction[1], original_direction[0])
+                            if abs(direction_signed_angle) >= np.pi / 2:
+                                # other agent is heading (roughly) towards us, should do force field avoidance
+                                # should consider making this area bigger
+                                force_field_vector = np.array([0.0, 0.0, 0.0])
+                                force_field_vector += (self.geometry.position - a.geometry.position)
+                                force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
+                                force_field_vector *= 50 / simple_distance(self.geometry.position, a.geometry.position)
+                                current_direction += 2 * force_field_vector
+                            else:
+                                # wait until other agent has moved on
+                                stop_moving = True
+                    """
+
+                    position_difference = a.geometry.position - self.geometry.position
+                    position_signed_angle = np.arctan2(position_difference[1], position_difference[0]) - \
+                                            np.arctan2(original_direction[1], original_direction[0])
+
                     force_field_vector = np.array([0.0, 0.0, 0.0])
                     force_field_vector += (self.geometry.position - a.geometry.position)
                     force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
-                    # force_field_vector = rotation_2d(force_field_vector, np.pi / 4)
-                    # force_field_vector = rotation_2d_experimental(force_field_vector, np.pi / 4)
-                    force_field_vector *= 50 / simple_distance(self.geometry.position, a.geometry.position)
-                    current_direction += 2 * force_field_vector
+                    # force_field_vector = rotation_2d(force_field_vector, random.random() * np.pi / 8)
+                    if not react_only:
+                        force_field_vector *= 100 / simple_distance(self.geometry.position, a.geometry.position)
+                    else:
+                        force_field_vector *= 200 / simple_distance(self.geometry.position, a.geometry.position)
+                    # force_field_vector[:2] *= np.rad2deg(abs(position_signed_angle)) / simple_distance(self.geometry.position, a.geometry.position)
+                    # force_field_vector[0] = force_field_vector[0] * pow(1.5, position_signed_angle) * 100 / simple_distance(self.geometry.position, a.geometry.position)
+                    # force_field_vector[1] = force_field_vector[1] * pow(1.5, position_signed_angle) * 100 / simple_distance(self.geometry.position, a.geometry.position)
+                    # force_field_vector[2] = force_field_vector[2] * 100 / simple_distance(self.geometry.position, a.geometry.position)
+
+                    # force_field_vector[0] = force_field_vector[0] * 25 / np.sqrt(abs(np.rad2deg(position_signed_angle)))
+                    # force_field_vector[1] = force_field_vector[1] * 25 / np.sqrt(abs(np.rad2deg(position_signed_angle)))
+                    # force_field_vector[2] = force_field_vector[2] * 100 / simple_distance(self.geometry.position, a.geometry.position)
+
+                    current_direction += force_field_vector
+
+                    """
+                    if a.current_path is not None:
+                        other_direction = a.current_path.next() - np.array(a.geometry.position)
+                        dot_product = other_direction[0] * original_direction[0] + \
+                                      other_direction[1] * original_direction[1]
+                        length_product = np.sqrt(other_direction[0] ** 2 + other_direction[1] ** 2) * \
+                                         np.sqrt(original_direction[0] ** 2 + original_direction[1] ** 2)
+                        angle = 0
+                        if length_product != 0:
+                            angle = np.arccos(dot_product / length_product)
+
+                        # if angle >= np.pi / 4 or (other_direction[0] == 0 and other_direction[1] == 0):
+                        if a.geometry.position[2] <= self.geometry.position[2]:
+                            force_field_vector = np.array([0.0, 0.0, 0.0])
+                            force_field_vector += (self.geometry.position - a.geometry.position)
+                            force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
+                            # force_field_vector = rotation_2d(force_field_vector, np.pi / 4)
+                            # force_field_vector = rotation_2d_experimental(force_field_vector, np.pi / 4)
+                            force_field_vector *= 50 / simple_distance(self.geometry.position, a.geometry.position)
+                            current_direction += 2 * force_field_vector
+                    """
+            # if len(candidates) != 0:
+            #     min_distance = float("inf")
+            #     min_agent = None
+            #     for ca in candidates:
+            #         temp = simple_distance(self.geometry.position, ca.geometry.position)
+            #         if temp < min_distance:
+            #             min_distance = temp
+            #             min_agent = ca
+            #
+            #     force_field_vector = np.array([0.0, 0.0, 0.0])
+            #     force_field_vector += (self.geometry.position - min_agent.geometry.position)
+            #     force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
+            #     force_field_vector = rotation_2d(force_field_vector, random.random() * np.pi / 8)
+            #     force_field_vector *= 100 / simple_distance(self.geometry.position, min_agent.geometry.position)
+            #     current_direction += force_field_vector
 
         current_direction /= sum(np.sqrt(current_direction ** 2))
-        current_direction *= Agent.MOVEMENT_PER_STEP
+        current_direction *= Agent.MOVEMENT_PER_STEP * movement_multiplier
 
         if any(np.isnan(current_direction)):
             current_direction = np.array([0, 0, 0])
+
+        if stop_moving:
+            return False, False
 
         return next_position, current_direction
 
@@ -210,9 +317,68 @@ class Agent:
         return False
 
     def collision_potential_visible(self, other):
-        if not self.collision_potential(other):
-            return False
         # check whether other agent is within view, i.e. below this agent or in view of one of the cameras
+        # get list of agents for which there is collision potential/danger
+        self_corner_points = self.geometry.corner_points_2d()
+        self_x = [p[0] for p in self_corner_points]
+        self_y = [p[1] for p in self_corner_points]
+        self_min_x = min(self_x)
+        self_max_x = min(self_x)
+        self_min_y = min(self_y)
+        self_max_y = min(self_y)
+        if self is not other:
+            # the following checks whether the other quadcopter is below ourselves (in which case the assumption
+            # is that, due to downward-facing cameras, it is visible) or if it is above use but visible, which
+            # is fairly unrealistic but hopefully good enough
+            # this check assumes that the quadcopters don't rotate (which may not be desirable)
+            other_corner_points = other.geometry.corner_points_2d()
+            other_x = [p[0] for p in other_corner_points]
+            other_y = [p[1] for p in other_corner_points]
+            other_min_x = min(other_x)
+            other_max_x = min(other_x)
+            other_min_y = min(other_y)
+            other_max_y = min(other_y)
+            if other.geometry.position[2] <= self.geometry.position[2] \
+                    or (other_min_x >= self_max_x and other_min_y >= self_max_y) \
+                    or (other_min_x >= self_max_x and other_max_y <= self_min_y) \
+                    or (other_max_x <= self_min_x and other_min_y >= self_max_y) \
+                    or (other_max_x <= self_min_x and other_max_y <= self_min_y):
+                return True
+        return False
+
+    def direction_agent_count(self, environment: env.map.Map, directions=None, angle=np.pi / 4, max_distance=500):
+        # should this method only return the positions of "reasonably" visible agents or should it do more
+        # and e.g. just give directions (angles) and distances?
+
+        # maybe a good place to start would be to check for each direction whether agents are within x distance
+        if directions is None:
+            directions = np.array([(1, 0), (-1, 0), (0, 1), (0, -1)])
+        agents_counts = [0] * len(directions)
+        for a in environment.agents:
+            if a is not self and self.collision_potential_visible(a) \
+                    and a.geometry.position[2] <= self.geometry.position[2] + 50 \
+                    and simple_distance(self.geometry.position[:2], a.geometry.position[:2]) < max_distance \
+                    and environment.offset_origin[0] - a.geometry.size[0] <= a.geometry.position[0] <= \
+                    Block.SIZE * self.target_map.shape[2] + environment.offset_origin[0] + a.geometry.size[0] \
+                    and environment.offset_origin[1] - a.geometry.size[1] <= a.geometry.position[1] <= \
+                    Block.SIZE * self.target_map.shape[1] + environment.offset_origin[1] + a.geometry.size[1]:
+                # should probably also check whether agent is (likely to be) over structure/grid at all
+                for d_idx, d in enumerate(directions):
+                    difference = a.geometry.position[:2] - self.geometry.position[:2]
+                    dot_product = d[0] * difference[0] + d[1] * difference[1]
+                    point_on_line = self.geometry.position[:2] + dot_product * d[:2]
+                    # if simple_distance(point_on_line, a.geometry.position[:2]) < 40:
+                    # in that case the agent is close enough to be counted as possibly interfering
+                    # agents_counts[d_idx] = agents_counts[d_idx] + 1
+                    # probably better to do this with angles instead
+                    position_difference = a.geometry.position - self.geometry.position
+                    position_signed_angle = np.arctan2(position_difference[1], position_difference[0]) - \
+                                            np.arctan2(d[1], d[0])
+                    # aprint(self.id, "Direction {} signed angle to agent {}: {}".format(d[:2], a.id, np.rad2deg(position_signed_angle)))
+                    if abs(position_signed_angle) < angle:
+                        agents_counts[d_idx] = agents_counts[d_idx] + 1
+
+        return tuple(agents_counts)
 
     def update_local_occupancy_map(self, environment: env.map.Map):
         # update knowledge of the map
@@ -374,11 +540,21 @@ class Agent:
             occupied_locations = [x for x in occupied_locations if (x[1], x[0], level)
                                   not in self.closing_corners[level][self.current_component_marker]]
 
-        # TODO: while this now uses the most SOUTH-WESTERN position, something else might be even better
-        sorted_by_y = sorted(occupied_locations, key=lambda e: e[0])
-        sorted_by_x = sorted(sorted_by_y, key=lambda e: e[1])
+        center_point = np.array([max([l[0] for l in occupied_locations]), max([l[1] for l in occupied_locations])]) / 2
+        min_distance = float("inf")
+        min_location = None
+        for l in occupied_locations:
+            temp = simple_distance(center_point, l)
+            if temp < min_distance:
+                min_distance = temp
+                min_location = l
+        seed_location = [min_location[1], min_location[0], level]
 
-        seed_location = [sorted_by_x[0][1], sorted_by_x[0][0], level]
+        # TODO: while this now uses the most SOUTH-WESTERN position, something else might be even better
+        # sorted_by_y = sorted(occupied_locations, key=lambda e: e[0])
+        # sorted_by_x = sorted(sorted_by_y, key=lambda e: e[1])
+        #
+        # seed_location = [sorted_by_x[0][1], sorted_by_x[0][0], level]
         return seed_location
 
     def check_loop_corner(self, environment: env.map.Map, position=None):

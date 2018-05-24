@@ -35,7 +35,16 @@ def main():
     target_map = emergency_structures["loop_structure_10x10x10"]
     target_map = tower_stilts_bigger
     # target_map = multi_layer_holes
-    target_map = loop_component_test    # for component seed loop weirdness
+    target_map = loop_component_test  # for component seed loop weirdness
+    target_map = hole_insanity  # good example for how detrimental holes can be to perimeter search performance
+    target_map = simple_rectangle_10x10  # for testing new collision avoidance (for now)
+    target_map = block_10x10x10
+
+    target_map = big_loop
+
+    # target_map = np.zeros((20, 20, 20), dtype="int64")
+    # np.place(target_map, target_map == 0, 1)
+    # target_map[0, 0, 0] = 2
 
     # for testing properly finished structure stuff, the following map using 8
     # agents will result in ending construction with unfinished stashes:
@@ -54,9 +63,10 @@ def main():
     Block.COLORS_SEEDS = hex_palette_seed
 
     # offset of the described target occupancy map to the origin (only in x/y directions)
-    offset_origin = (100.0, 100.0)
+    offset = 100
+    offset_origin = (offset, offset)
     environment_extent = [150.0, 200.0, 200.0]
-    environment_extent = [450.0] * 3
+    environment_extent = [700.0] * 3
 
     # creating Map object and getting the required number of block_list (of each type)
     environment = Map(target_map, offset_origin, environment_extent)
@@ -87,7 +97,7 @@ def main():
         block_list[i].is_seed = True
         block_list[i].color = Block.COLORS_SEEDS[0]
         block_list[i].geometry = GeomBox([offset_origin[0] + target_map.shape[2] * Block.SIZE / 2,
-                                          offset_origin[1] + target_map.shape[1] * Block.SIZE + 100,
+                                          offset_origin[1] + target_map.shape[1] * Block.SIZE + offset,
                                           Block.SIZE / 2], [Block.SIZE] * 3, 0.0)
         processed.append(block_list[i])
 
@@ -98,17 +108,17 @@ def main():
             if sl_idx == 0:
                 b.geometry.position[2] = Block.SIZE / 2
             elif sl_idx == 1:
-                b.geometry.position = [offset_origin[0] + target_map.shape[2] * Block.SIZE + 100, 0.0, Block.SIZE / 2]
+                b.geometry.position = [offset_origin[0] + target_map.shape[2] * Block.SIZE + offset, 0.0, Block.SIZE / 2]
             elif sl_idx == 2:
-                b.geometry.position = [0.0, offset_origin[1] + target_map.shape[1] * Block.SIZE + 100, Block.SIZE / 2]
+                b.geometry.position = [0.0, offset_origin[1] + target_map.shape[1] * Block.SIZE + offset, Block.SIZE / 2]
             elif sl_idx == 3:
-                b.geometry.position = [offset_origin[0] + target_map.shape[2] * Block.SIZE + 100,
-                                       offset_origin[1] + target_map.shape[1] * Block.SIZE + 100, Block.SIZE / 2]
+                b.geometry.position = [offset_origin[0] + target_map.shape[2] * Block.SIZE + offset,
+                                       offset_origin[1] + target_map.shape[1] * Block.SIZE + offset, Block.SIZE / 2]
             processed.append(b)
 
     # creating the agent_list
-    agent_count = 1
-    agent_type = PerimeterFollowingAgentLocal
+    agent_count = 10
+    agent_type = ShortestPathAgentLocal
     agent_list = [agent_type([50, 60, 7.5], [40, 40, 15], target_map, 10.0) for _ in range(0, agent_count)]
     for i in range(len(agent_list)):
         agent_list[i].id = i
@@ -118,11 +128,18 @@ def main():
         candidate_x = random.uniform(0.0, environment.environment_extent[0])
         candidate_y = random.uniform(0.0, environment.environment_extent[1])
         candidate_box = GeomBox([candidate_x, candidate_y, agent_list[processed_counter].geometry.size[2] / 2],
-                                agent_list[processed_counter].geometry.size, 0.0)
+                                agent_list[processed_counter].geometry.size * 4, 0.0)
         if all([not candidate_box.overlaps(p.geometry) for p in processed]):
-            agent_list[processed_counter].geometry.set_to_match(candidate_box)
-            processed.append(agent_list[processed_counter])
-            processed_counter += 1
+            if candidate_box.position[0] - candidate_box.size[0] > \
+                    Block.SIZE * target_map.shape[2] + environment.offset_origin[0] \
+                    or candidate_box.position[0] + candidate_box.size[0] < environment.offset_origin[0] \
+                    or candidate_box.position[1] - candidate_box.size[1] > \
+                    Block.SIZE * target_map.shape[1] + environment.offset_origin[1] \
+                    or candidate_box.position[1] + candidate_box.size[1] < environment.offset_origin[1]:
+                agent_list[processed_counter].geometry.set_to_match(candidate_box)
+                agent_list[processed_counter].geometry.size = agent_list[processed_counter].geometry.size / 4
+                processed.append(agent_list[processed_counter])
+                processed_counter += 1
 
     # adding the block_list (whose positions are randomly initialised inside the Map object)
     environment.add_blocks(block_list)
@@ -153,6 +170,7 @@ def main():
     collisions = 0
     finished_successfully = False
     results = {}
+    collision_pairs = []
     try:
         while True:
             if not paused:
@@ -160,7 +178,8 @@ def main():
                     a.advance(environment)
                 steps += 1
                 if all([a.current_task == Task.FINISHED for a in agent_list]):
-                    print("Finished construction in {} steps ({} colliding).".format(steps, collisions / 2))
+                    print("Finished construction with {} agents in {} steps ({} colliding)."
+                          .format(agent_count, steps, collisions / 2))
                     average_stats = {}
                     min_stats = {}
                     max_stats = {}
@@ -187,8 +206,7 @@ def main():
                     results["finished_successfully"] = finished_successfully
                     print("\nFinal resulting map:")
                     print_map(environment.occupancy_map)
-                    print("\nBlock stashes: {}".format(environment.block_stashes))
-                    print("\nSeed stashes: {}".format(environment.seed_stashes))
+                    print("\nCollision data:\n{}".format(collision_pairs))
                     break
                 if len(agent_list) > 1:
                     for a1 in agent_list:
@@ -198,6 +216,7 @@ def main():
                                 collisions += 1
                                 print("Agent {} ({}) and {} ({}) colliding.".format(a1.id, a1.current_task,
                                                                                     a2.id, a2.current_task))
+                                collision_pairs.append((a1.current_task, a2.current_task))
                                 # paused = True
                 # print("CURRENT MAP:")
                 # print_map(environment.occupancy_map)
@@ -224,7 +243,8 @@ def main():
         request_queue.put(Graphics2D.SHUTDOWN_REQUEST)
         if not finished_successfully:
             logger.info("Simulation interrupted.")
-            print("Interrupted construction in {} steps ({} colliding).".format(steps, collisions / 2))
+            print("Interrupted construction with {} agents in {} steps ({} colliding)."
+                  .format(agent_count, steps, collisions / 2))
             average_stats = {}
             min_stats = {}
             max_stats = {}
@@ -250,8 +270,7 @@ def main():
             results["finished_successfully"] = finished_successfully
             print("\nFinal resulting map:")
             print_map(environment.occupancy_map)
-            print("\nBlock stashes: {}".format(environment.block_stashes))
-            print("\nSeed stashes: {}".format(environment.seed_stashes))
+            print("\nCollision data:\n{}".format(collision_pairs))
         else:
             logger.info("Simulation finished successfully.")
 

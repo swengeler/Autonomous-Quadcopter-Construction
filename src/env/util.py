@@ -1,3 +1,5 @@
+import random
+
 import numpy as np
 import collections
 import logging
@@ -47,6 +49,36 @@ def create_block_list(block_generator_info):
         for _ in range(0, bgi.count):
             blocks.append(create_block(bgi.type, size=bgi.size, color=bgi.color))
     return blocks
+
+
+def shortest_direction_to_perimeter(grid: np.ndarray, start_position):
+    directions = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+    start_position = np.array(start_position)
+    min_distance = max(grid.shape) * 10
+    min_distance = 0
+    min_direction = None
+    for d in directions:
+        current_position = start_position.copy()
+        current_distance = 0
+        while 0 <= current_position[0] < grid.shape[1] and 0 <= current_position[1] < grid.shape[0]:
+            current_position += d
+            current_distance += 1
+        if current_distance > min_distance:
+            min_distance = current_distance
+            min_direction = d
+        elif current_distance == min_distance:
+            min_direction = random.sample([min_direction, d], 1)[0]
+    return np.array([min_direction[0], min_direction[1], 0])
+
+
+def shortest_grid_path(grid):
+    if isinstance(grid, np.ndarray):
+        if len(grid.shape) == 2:
+            pass
+        elif len(grid.shape) == 3:
+            pass
+    else:
+        pass
 
 
 def shortest_path(grid: np.ndarray, start: Tuple[int, int], goal: Tuple[int, int]):

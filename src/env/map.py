@@ -152,4 +152,19 @@ class Map:
             stash_positions[0]))
         return ordered_stash_positions[::-1]
 
+    def check_over_construction_area(self, position):
+        return self.offset_origin[0] <= position[0] < self.offset_origin[0] \
+               + env.block.Block.SIZE * self.target_map.shape[2] \
+               and self.offset_origin[0] <= position[0] < self.offset_origin[0] \
+               + env.block.Block.SIZE * self.target_map.shape[2]
+
+    def distance_to_construction_area(self, position):
+        if self.check_over_construction_area(position):
+            return 0
+        # otherwise, find the distance to the closest side
+        width = env.block.Block.SIZE * self.target_map.shape[2]
+        height = env.block.Block.SIZE * self.target_map.shape[1]
+        dx = max(abs(position[0] - self.offset_origin[0] + width / 2) - width / 2, 0)
+        dy = max(abs(position[0] - self.offset_origin[1] + height / 2) - height / 2, 0)
+        return np.sqrt(dx ** 2 + dy ** 2)
 
