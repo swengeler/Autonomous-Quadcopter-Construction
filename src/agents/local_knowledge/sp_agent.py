@@ -2,15 +2,15 @@ import numpy as np
 import random
 import env.map
 from agents.agent import Agent, Task, check_map
-from agents.local_knowledge.ps_agent import PerimeterFollowingAgentLocal
+from agents.local_knowledge.lk_agent import LocalKnowledgeAgent
 from env.block import Block
-from env.util import shortest_path, shortest_path_3d_in_2d, legal_attachment_sites, legal_attachment_sites_3d
+from env.util import shortest_path, legal_attachment_sites
 from geom.shape import *
 from geom.path import Path
 from geom.util import simple_distance
 
 
-class ShortestPathAgentLocal(PerimeterFollowingAgentLocal):
+class ShortestPathAgentLocal(LocalKnowledgeAgent):
 
     def __init__(self,
                  position: List[float],
@@ -23,10 +23,6 @@ class ShortestPathAgentLocal(PerimeterFollowingAgentLocal):
         self.current_sp_index = 0
         self.illegal_sites = []
         self.current_attachment_info = None
-
-    # need to change the following:
-    # - find_attachment_site
-    # - might be something else that might not work then?
 
     def find_attachment_site(self, environment: env.map.Map):
         # self.aprint("Calling find_attachment_site (path is None: {})".format(self.current_path is None))

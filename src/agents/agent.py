@@ -137,6 +137,9 @@ class Agent:
         self.current_stash_path_index = 0
         self.current_waiting_height = 0
 
+        self.waiting_on_perimeter_enabled = False
+        self.dropping_out_enabled = False
+
         self.backup_grid_position = None
         self.previous_task = Task.FETCH_BLOCK
         self.transporting_to_seed_site = False
@@ -485,13 +488,11 @@ class Agent:
         if level is None:
             level = self.current_structure_level
         candidate_components = []
-        self.aprint("CHECKING UNFINISHED MARKERS, COMPONENT TARGET MAP:\n{}".format(self.component_target_map[level]))
         for marker in np.unique(self.component_target_map[level]):
             if marker != 0:  # != self.current_component_marker:
                 subset_indices = np.where(
                     self.component_target_map[level] == marker)
                 candidate_values = compared_map[level][subset_indices]
-                self.aprint("CANDIDATE VALUES FOR MARKER {}:\n{}".format(marker, candidate_values))
                 # the following check means that on the occupancy map, this component still has all
                 # positions unoccupied, i.e. no seed has been placed -> this makes it a candidate
                 # for placing the currently transported seed there
@@ -839,9 +840,6 @@ class Agent:
                 # should already only include components in hole boundaries which are actually AROUND the hole
                 # i.e. the hole does not enclose that component
 
-        self.aprint("HOLE MAP BEFORE BETWEEN-COMPONENT-REMOVAL:\n{}".format(hole_map))
-        self.aprint("HOLES TO BE REVIEWED: {}".format(removable_holes))
-        # why that stupid name? because this might be a case of
         # a) the hole having to be removed because it is between components
         # b) the hole encircling a component, but still being a valid hole
         #    -> in this case it's important not to select a closing corner from any enclosed component
@@ -853,7 +851,6 @@ class Agent:
         # actually, if the component is in a hole between components, this does not hold, therefore the above has
         # to be true for all components except for one (which is the enclosing component)
 
-        # TODO: this should be OK now, but if problems occur they might originate here
         enclosed_components = {}
         # for every hole that is adjacent to two (or more) components:
         for z, m in removable_holes:
@@ -893,43 +890,8 @@ class Agent:
                 self.aprint("ADJACENT COMPONENTS ENCLOSED BY HOLE {}:\n{}".format(m, local_enclosed_components))
                 enclosed_components[(z, m)] = local_enclosed_components
 
-        # for z, m in removable_holes:
-        #     adjacent_components = removable_holes[(z, m)]
-        #     component_enclosed = []
-        #     for ac in adjacent_components:
-        #         ac_coords = np.where(self.component_target_map[z] == ac)
-        #         ac_coords = tuple(zip(ac_coords[1], ac_coords[0]))
-        #         broken = False
-        #         for x, y in ac_coords:
-        #             if not broken:
-        #                 for x2, y2 in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
-        #                     if 0 <= x2 < self.component_target_map.shape[2] \
-        #                             and 0 <= y2 < self.component_target_map.shape[1]:
-        #                         if self.component_target_map[z, y2, x2] not in (0, ac) \
-        #                                 or (hole_map[z, y2, x2] > 1 and hole_map[z, y2, x2] != m):
-        #                             component_enclosed.append(False)
-        #                             broken = True
-        #                             print("COMPONENT {} BROKEN BECAUSE DIFFERENT COMPONENT ({})"
-        #                                   .format(ac, self.component_target_map[z, y2, x2]))
-        #                             print("ENCOUNTERED HOLE {} AS OPPOSED TO {}".format(hole_map[z, y2, x2], m))
-        #                             break
-        #                     else:
-        #                         component_enclosed.append(False)
-        #                         broken = True
-        #                         print("COMPONENT {} BROKEN BECAUSE OUT OF MAP".format(ac))
-        #                         break
-        #         if not broken:
-        #             component_enclosed.append(True)
-        #             enclosed_components.append(ac)
-        #     if np.count_nonzero(component_enclosed) == len(component_enclosed) - 1:
-        #         print("REMOVING HOLE {}".format((z, m)))
-        #         index = valid_markers[z].index(m)
-        #         np.place(hole_map[z], hole_map[z] == m, 0)
-        #         del valid_markers[z][index]
-        #         del hole_boundaries[z][index]
-
-        self.aprint("COMPONENT MAP:\n{}".format(self.component_target_map))
-        self.aprint("ENCLOSED COMPONENTS: {}".format(enclosed_components))
+        # self.aprint("COMPONENT MAP:\n{}".format(self.component_target_map))
+        # self.aprint("ENCLOSED COMPONENTS: {}".format(enclosed_components))
 
         for z, m in enclosed_components:
             index = valid_markers[z].index(m)
@@ -1036,7 +998,7 @@ class Agent:
                     else:
                         adjacent_seed_location = self.component_seed_location(cm, include_closing_corners=True)
 
-                    self.aprint("\nSEED LOCATION FOR HOLE {} IN COMPONENT {}: {}".format(m, cm, adjacent_seed_location))
+                    # self.aprint("\nSEED LOCATION FOR HOLE {} IN COMPONENT {}: {}".format(m, cm, adjacent_seed_location))
 
                     # determine the location of the hole with respect to the seed (NW, NE, SW, SE)
                     # does this depend on the min/max? I think it can, but doesnt have to
@@ -1059,12 +1021,13 @@ class Agent:
                         temp = shortest_path(
                             self.target_map[corner[2]], tuple(adjacent_seed_location[:2]), tuple(corner[:2]))
                         current_sp_lengths.append(len(temp))
-                    self.aprint("SHORTEST PATH LENGTHS FOR HOLE {} IN COMPONENT {}:\n{}".format(m, cm, current_sp_lengths))
+                    # self.aprint("SHORTEST PATH LENGTHS FOR HOLE {} IN COMPONENT {}:\n{}"
+                    #             .format(m, cm, current_sp_lengths))
                     ordered_idx = sorted(range(len(current_sp_lengths)), key=lambda i: current_sp_lengths[i])
                     ordered_outer = [current_outer[i] for i in ordered_idx]
                     ordered_boundary = [current_boundary[i] for i in ordered_idx]
-                    self.aprint("ORDERED POSSIBLE CORNERS:\n{}\n{}"
-                          .format([current_sp_lengths[i] for i in ordered_idx], ordered_outer))
+                    # self.aprint("ORDERED POSSIBLE CORNERS:\n{}\n{}"
+                    #             .format([current_sp_lengths[i] for i in ordered_idx], ordered_outer))
 
                     # other possibility: choose the corner that excludes the smallest area?
 
@@ -1183,8 +1146,8 @@ class Agent:
             for x, y, z in all_hole_boundaries[z]:
                 boundary_map[z, y, x] = 1
 
-        self.aprint("\nCLOSING CORNERS:\n{}".format(closing_corners))
-        self.aprint("CLOSING CORNER ORIENTATIONS:\n{}".format(closing_corner_orientations))
+        # self.aprint("\nCLOSING CORNERS:\n{}".format(closing_corners))
+        # self.aprint("CLOSING CORNER ORIENTATIONS:\n{}".format(closing_corner_orientations))
 
         return closing_corners, hole_map, hole_boundary_coords, closing_corner_boundaries, closing_corner_orientations
 

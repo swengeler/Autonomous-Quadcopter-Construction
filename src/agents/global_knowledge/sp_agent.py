@@ -2,7 +2,7 @@ import numpy as np
 import random
 import env.map
 from agents.agent import Agent, Task, check_map
-from agents.global_knowledge.ps_agent import PerimeterFollowingAgentGlobal
+from agents.global_knowledge.gk_agent import GlobalKnowledgeAgent
 from env.block import Block
 from env.util import shortest_path, shortest_path_3d_in_2d, legal_attachment_sites, legal_attachment_sites_3d
 from geom.shape import *
@@ -10,7 +10,7 @@ from geom.path import Path
 from geom.util import simple_distance
 
 
-class ShortestPathAgentGlobal(PerimeterFollowingAgentGlobal):
+class ShortestPathAgentGlobal(GlobalKnowledgeAgent):
 
     def __init__(self,
                  position: List[float],
@@ -94,14 +94,17 @@ class ShortestPathAgentGlobal(PerimeterFollowingAgentGlobal):
                                                         self.current_grid_position[1]), (x, y))
                 occupancy_map_copy[y, x] = 0
                 shortest_paths.append(sp)
-            order = sorted(range(len(shortest_paths)), key=lambda i: len(shortest_paths[i]))
-            shortest_paths = [shortest_paths[i] for i in order]
-            attachment_sites = [attachment_sites[i] for i in order]
 
             # this should be used later:
-            # directions = [np.array([s[0] - self.current_grid_position[0], s[1] - self.current_grid_position[1]])
-            #               for s in attachment_sites]
-            # counts = self.direction_agent_count(environment, directions=directions, angle=np.pi / 2)
+            directions = [np.array([x - self.current_grid_position[0], y - self.current_grid_position[1]])
+                          for x, y in attachment_sites]
+            counts = self.direction_agent_count(environment, directions=directions, angle=np.pi / 2)
+
+            # order = sorted(range(len(shortest_paths)), key=lambda i: len(shortest_paths[i]))
+            order = sorted(range(len(shortest_paths)), key=lambda i: (counts[i], len(shortest_paths[i])))
+
+            shortest_paths = [shortest_paths[i] for i in order]
+            attachment_sites = [attachment_sites[i] for i in order]
 
             # the initial direction of this shortest path would maybe be good to decide based on if this is used...
             new_sp = [(self.current_grid_position[0], attachment_sites[0][1]),

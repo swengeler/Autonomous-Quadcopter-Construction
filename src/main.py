@@ -45,7 +45,7 @@ def main():
 
     target_map = component_balance_test
 
-    target_map = the_loop_test_to_end_them_all
+    target_map = block_13x13x3
     # target_map = big_loop
     # target_map = scale_map(target_map, 2, (1, 2))
 
@@ -130,8 +130,8 @@ def main():
             processed.append(b)
 
     # creating the agent_list
-    agent_count = 2
-    agent_type = ShortestPathAgentLocal
+    agent_count = 4
+    agent_type = ShortestPathAgentGlobal
     agent_list = [agent_type([50, 60, 7.5], [40, 40, 15], target_map, 10.0) for _ in range(0, agent_count)]
     for i in range(len(agent_list)):
         agent_list[i].id = i

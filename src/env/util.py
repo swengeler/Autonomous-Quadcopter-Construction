@@ -393,12 +393,6 @@ def legal_attachment_sites_revisited(target_map: np.ndarray,
                 if 1 <= counter < 3:
                     legal_sites[y, x] = 1
 
-    print_map(target_map)
-    print_map(occupancy_map)
-
-    print("NO WROEWRJESWÜORENMOÜF")
-    print_map(legal_sites)
-
     # identifying those sites where the row rule would be violated
     for y in range(legal_sites.shape[0]):
         for x in range(legal_sites.shape[1]):
@@ -445,9 +439,6 @@ def legal_attachment_sites_revisited(target_map: np.ndarray,
     # an alternative might be that for each row/column only the most CCW site would be a legal attachment site?
     # -> let's try this one first because it's easier
     # -> also choose southwestern-most (?)
-
-    print("FUCK FUCK FUCK")
-    print_map(legal_sites)
 
     # determine corner sites (two adjacent blocks already placed) and protruding sites (width 1 parts of structure)
     corner_sites = []

@@ -212,8 +212,14 @@ def main():
     # - list of agent types (thus the following is for each type)
     # - collision avoidance on or off
     # - local information vs global information
-    # - seed localisation vs unique block localisation
     # - list of number of agents to run everything with
+    # - waiting on perimeter enabled (+parameter?)
+    # - dropping out enabled (+parameter?)
+    # - taking more central components first (yay, nay)
+    # - trying to attach at components:
+    #   - first seeding, then attaching
+    #   - with fewer agents
+    #   - currently smaller (percentage-wise) components
 
     target_maps = emergency_structures
     agent_counts = [1, 2, 4, 8]
