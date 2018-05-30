@@ -4,12 +4,15 @@ import queue
 from agents.agent import Task
 from agents.local_knowledge.ps_agent import PerimeterFollowingAgentLocal
 from agents.local_knowledge.sp_agent import ShortestPathAgentLocal
+from agents.global_knowledge.ps_agent import PerimeterFollowingAgentGlobal
+from agents.global_knowledge.sp_agent import ShortestPathAgentGlobal
 from env.map import *
 from env.util import *
 from geom.shape import *
 from graphics.graphics_2d import Graphics2D
 from structures import *
 from emergency_structures import emergency_structures
+from experiments import scale_map
 
 random.seed(202)
 
@@ -23,7 +26,7 @@ def main():
     logger = logging.getLogger(__name__)
 
     # setting global parameters
-    interval = 0.1
+    interval = 0.05
     paused = False
 
     # creating the target map
@@ -40,11 +43,15 @@ def main():
     target_map = simple_rectangle_10x10  # for testing new collision avoidance (for now)
     target_map = block_10x10x10
 
-    target_map = big_loop
+    target_map = component_balance_test
 
-    # target_map = np.zeros((20, 20, 20), dtype="int64")
+    target_map = the_loop_test_to_end_them_all
+    # target_map = big_loop
+    # target_map = scale_map(target_map, 2, (1, 2))
+
+    # target_map = np.zeros((1, 29, 29), dtype="int64")
     # np.place(target_map, target_map == 0, 1)
-    # target_map[0, 0, 0] = 2
+    # target_map[0, 15, 15] = 2
 
     # for testing properly finished structure stuff, the following map using 8
     # agents will result in ending construction with unfinished stashes:
@@ -63,10 +70,15 @@ def main():
     Block.COLORS_SEEDS = hex_palette_seed
 
     # offset of the described target occupancy map to the origin (only in x/y directions)
-    offset = 100
-    offset_origin = (offset, offset)
+    offset_structure = 300
+    offset_stashes = 100
+    offset_origin = (offset_structure, offset_structure)
     environment_extent = [150.0, 200.0, 200.0]
-    environment_extent = [700.0] * 3
+    environment_extent = [offset_structure * 2 + target_map.shape[2] * Block.SIZE,
+                          offset_structure * 2 + target_map.shape[1] * Block.SIZE,
+                          offset_structure * 2 + target_map.shape[1] * Block.SIZE]
+
+    # environment_extent = [1000] * 3
 
     # creating Map object and getting the required number of block_list (of each type)
     environment = Map(target_map, offset_origin, environment_extent)
@@ -91,13 +103,14 @@ def main():
     block_list[0].geometry = GeomBox(list(environment.original_seed_position()), [Block.SIZE] * 3, 0.0)
     block_list[0].grid_position = environment.original_seed_grid_position()
     block_list[0].seed_marked_edge = "down"
+    environment.place_block(block_list[0].grid_position, block_list[0])
     processed = [block_list[0]]
 
     for i in range(1, required_seeds + 1):
         block_list[i].is_seed = True
         block_list[i].color = Block.COLORS_SEEDS[0]
         block_list[i].geometry = GeomBox([offset_origin[0] + target_map.shape[2] * Block.SIZE / 2,
-                                          offset_origin[1] + target_map.shape[1] * Block.SIZE + offset,
+                                          offset_origin[1] + target_map.shape[1] * Block.SIZE + offset_stashes,
                                           Block.SIZE / 2], [Block.SIZE] * 3, 0.0)
         processed.append(block_list[i])
 
@@ -106,22 +119,23 @@ def main():
     for sl_idx, sl in enumerate(chunk_list):
         for b in sl:
             if sl_idx == 0:
-                b.geometry.position[2] = Block.SIZE / 2
+                b.geometry.position = [offset_structure - offset_stashes, offset_structure - offset_stashes, Block.SIZE / 2]
             elif sl_idx == 1:
-                b.geometry.position = [offset_origin[0] + target_map.shape[2] * Block.SIZE + offset, 0.0, Block.SIZE / 2]
+                b.geometry.position = [offset_origin[0] + target_map.shape[2] * Block.SIZE + offset_stashes, offset_structure - offset_stashes, Block.SIZE / 2]
             elif sl_idx == 2:
-                b.geometry.position = [0.0, offset_origin[1] + target_map.shape[1] * Block.SIZE + offset, Block.SIZE / 2]
+                b.geometry.position = [offset_structure - offset_stashes, offset_origin[1] + target_map.shape[1] * Block.SIZE + offset_stashes, Block.SIZE / 2]
             elif sl_idx == 3:
-                b.geometry.position = [offset_origin[0] + target_map.shape[2] * Block.SIZE + offset,
-                                       offset_origin[1] + target_map.shape[1] * Block.SIZE + offset, Block.SIZE / 2]
+                b.geometry.position = [offset_origin[0] + target_map.shape[2] * Block.SIZE + offset_stashes,
+                                       offset_origin[1] + target_map.shape[1] * Block.SIZE + offset_stashes, Block.SIZE / 2]
             processed.append(b)
 
     # creating the agent_list
-    agent_count = 10
+    agent_count = 2
     agent_type = ShortestPathAgentLocal
     agent_list = [agent_type([50, 60, 7.5], [40, 40, 15], target_map, 10.0) for _ in range(0, agent_count)]
     for i in range(len(agent_list)):
         agent_list[i].id = i
+        # agent_list[i].printing_enabled = False
 
     processed_counter = 0
     while len(processed) != block_count + agent_count:
@@ -150,8 +164,8 @@ def main():
     # adding the agent list
     environment.add_agents(agent_list)
 
-    print("CLOSING CORNERS: {}".format(agent_list[0].closing_corners))
-    print("COMPONENT MAP:\n{}".format(agent_list[0].component_target_map))
+    # print("CLOSING CORNERS: {}".format(agent_list[0].closing_corners))
+    # print("COMPONENT MAP:\n{}".format(agent_list[0].component_target_map))
 
     idx = 0
     # print("FOR AGENT 0 AT POSITION {}:".format(agent_list[idx].geometry.position))
@@ -169,6 +183,7 @@ def main():
     steps = 0
     collisions = 0
     finished_successfully = False
+    structure_complete = False
     results = {}
     collision_pairs = []
     try:
@@ -177,6 +192,8 @@ def main():
                 for a in agent_list:
                     a.advance(environment)
                 steps += 1
+                if steps % 1000 == 0:
+                    print("Simulation steps: {}".format(steps))
                 if all([a.current_task == Task.FINISHED for a in agent_list]):
                     print("Finished construction with {} agents in {} steps ({} colliding)."
                           .format(agent_count, steps, collisions / 2))
@@ -208,6 +225,9 @@ def main():
                     print_map(environment.occupancy_map)
                     print("\nCollision data:\n{}".format(collision_pairs))
                     break
+                elif not structure_complete and agent_list[0].check_structure_finished(environment.occupancy_map):
+                    print("Structure complete with {} agent(s) after {} steps.".format(agent_count, steps))
+                    structure_complete = True
                 if len(agent_list) > 1:
                     for a1 in agent_list:
                         for a2 in agent_list:

@@ -1,7 +1,7 @@
 import numpy as np
 import random
 import env.map
-from agents.agent import Task, Agent, aprint, check_map
+from agents.agent import Task, Agent, check_map
 from env.block import Block
 from env.util import print_map, shortest_direction_to_perimeter
 from geom.shape import *
@@ -15,8 +15,10 @@ class PerimeterFollowingAgentLocal(Agent):
                  position: List[float],
                  size: List[float],
                  target_map: np.ndarray,
-                 required_spacing: float = 5.0):
-        super(PerimeterFollowingAgentLocal, self).__init__(position, size, target_map, required_spacing)
+                 required_spacing: float = 5.0,
+                 printing_enabled=True):
+        super(PerimeterFollowingAgentLocal, self).__init__(
+            position, size, target_map, required_spacing, printing_enabled)
 
     def check_stashes(self, environment: env.map.Map):
         if self.current_path is None:
@@ -30,7 +32,7 @@ class PerimeterFollowingAgentLocal(Agent):
                 if temp < min_distance:
                     min_distance = temp
                     min_stash_position = p
-            aprint(self.id, "ORDERED STASH POSITIONS: {}".format(ordered_stash_positions))
+            self.aprint("ORDERED STASH POSITIONS: {}".format(ordered_stash_positions))
             index = ordered_stash_positions.index(min_stash_position)
             self.current_stash_path = ordered_stash_positions[index:]
             self.current_stash_path.extend(ordered_stash_positions[:index])
@@ -43,9 +45,10 @@ class PerimeterFollowingAgentLocal(Agent):
             check_level_z = self.geometry.position[2]
             self.current_path = Path()
             self.current_path.add_position([min_stash_position[0], min_stash_position[1], check_level_z])
+            # TODO: potentially make this work with "approximate goals"?
 
         next_position, current_direction = self.move(environment)
-        if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
+        if simple_distance(self.geometry.position, next_position) <= Agent.MOVEMENT_PER_STEP:
             self.geometry.position = next_position
             ret = self.current_path.advance()
 
@@ -56,9 +59,9 @@ class PerimeterFollowingAgentLocal(Agent):
                 stashes = environment.seed_stashes if self.current_block_type_seed else environment.block_stashes
                 current_stash = stashes[stash_position]
 
-                aprint(self.id, "REACHED STASH {} (OWN POSITION {})"
-                       .format(current_stash, stash_position))
-                aprint(self.id, "STASHES: {}".format(stashes))
+                self.aprint("REACHED STASH {} (OWN POSITION {})"
+                            .format(current_stash, stash_position))
+                self.aprint("STASHES: {}".format(stashes))
 
                 min_block = None
                 min_distance = float("inf")
@@ -71,29 +74,29 @@ class PerimeterFollowingAgentLocal(Agent):
                 if min_block is None:
                     if stash_position not in self.known_empty_stashes:
                         self.known_empty_stashes.append(stash_position)
-                        aprint(self.id, "EMPTY STASH APPENDED IN CHECK_STASHES")
+                        self.aprint("EMPTY STASH APPENDED IN CHECK_STASHES")
                     # move on to next stash
                     if self.current_stash_path_index + 1 < len(self.current_stash_path):
                         self.current_stash_path_index += 1
                         next_position = self.current_stash_path[self.current_stash_path_index]
-                        aprint(self.id, "MOVING ON TO NEXT STASH {}".format(next_position))
-                        aprint(self.id, "(index: {}, stash path: {})"
-                               .format(self.current_stash_path_index, self.current_stash_path))
+                        self.aprint("MOVING ON TO NEXT STASH {}".format(next_position))
+                        self.aprint("(index: {}, stash path: {})"
+                                    .format(self.current_stash_path_index, self.current_stash_path))
                         self.current_path.add_position([next_position[0], next_position[1], self.geometry.position[2]])
                     else:
                         self.current_task = Task.LAND
                         self.task_history.append(self.current_task)
                         self.current_path = None
-                        aprint(self.id, "LANDING BC STASHES EMPTY")
+                        self.aprint("LANDING BC STASHES EMPTY")
                 else:
-                    aprint(self.id, "BEFORE: {}".format(self.known_empty_stashes))
+                    self.aprint("BEFORE: {}".format(self.known_empty_stashes))
                     if stash_position in self.known_empty_stashes:
                         self.known_empty_stashes.remove(stash_position)
-                    aprint(self.id, "AFTER: {}".format(self.known_empty_stashes))
+                    self.aprint("AFTER: {}".format(self.known_empty_stashes))
                     self.current_task = Task.FETCH_BLOCK
                     self.task_history.append(self.current_task)
                     self.current_path = None
-                    aprint(self.id, "TRYING TO SWITCH TO FETCHING BLOCK FROM STASH")
+                    self.aprint("TRYING TO SWITCH TO FETCHING BLOCK FROM STASH")
         else:
             self.geometry.position = self.geometry.position + current_direction
 
@@ -110,17 +113,16 @@ class PerimeterFollowingAgentLocal(Agent):
             #         or (not self.current_block_type_seed
             #             and all([s in self.known_empty_stashes for s in environment.block_stashes.keys()])):
             if len(self.known_empty_stashes) == len(environment.seed_stashes) + len(environment.block_stashes):
-                # TODO: should maybe re-check stashes because blocks might be brought back
                 # i.e. the known-stashes thing would be reset at some point, e.g. each time returning to structure?
                 self.current_task = Task.CHECK_STASHES
                 self.task_history.append(self.current_task)
                 self.current_path = None
-                aprint(self.id, "CHECKING STASHES ({})".format(self.known_empty_stashes))
-                aprint(self.id, "l1: {}, l2: {}, l3: {}".format(len(self.known_empty_stashes),
-                                                                len(environment.seed_stashes),
-                                                                len(environment.block_stashes)))
+                self.aprint("CHECKING STASHES ({})".format(self.known_empty_stashes))
+                self.aprint("l1: {}, l2: {}, l3: {}".format(len(self.known_empty_stashes),
+                                                            len(environment.seed_stashes),
+                                                            len(environment.block_stashes)))
                 self.check_stashes(environment)
-                # aprint(self.id, "LANDING (1)")
+                # self.aprint("LANDING (1)")
                 return
 
             # first find the closest position that is not in the construction area anymore
@@ -145,8 +147,16 @@ class PerimeterFollowingAgentLocal(Agent):
             for p in list(stashes.keys()):
                 if p not in self.known_empty_stashes:
                     distance = simple_distance(compared_location, p)
-                    count = self.direction_agent_count(environment, [p - compared_location[:2]], angle=np.pi / 2)[0]
-                    stash_list.append((p, distance, count))
+                    count = self.direction_agent_count(environment,
+                                                       [p - self.geometry.position[:2]],
+                                                       angle=np.pi / 2,
+                                                       max_vert_distance=100)[0]
+                    count_at_stash = 0
+                    for a in environment.agents:
+                        if a is not self and simple_distance(a.geometry.position[:2], p) <= self.stash_min_distance:
+                            count_at_stash += 1
+                    block_count = len(stashes[p])
+                    stash_list.append((p, distance, count, count_at_stash, block_count))
                     if distance < min_distance:
                         min_distance = distance
                         min_stash_location = p
@@ -158,9 +168,15 @@ class PerimeterFollowingAgentLocal(Agent):
                     self.current_block_type_seed = True
                 self.next_seed_position = None
                 self.current_path = None
+                self.fetch_block(environment)
                 return
 
-            # aprint(self.id, "FETCHING BLOCK FROM {}".format(min_block_location))
+            # stash locations sorted by some other measure but distance
+            # stash_list = sorted(stash_list, key=lambda e: (-e[4], e[3], e[1], e[2]))
+            # min_stash_location = stash_list[0][0]
+            # min_stash_location = random.sample(stash_list, 1)[0][0]
+            # self.aprint("Choosing stash with minimum number of agents there: {} (all stashes: {})"
+            #             .format(stash_list[0][3], [e[3] for e in stash_list]))
 
             # construct path to that location
             # first add a point to get up to the level of movement for fetching blocks
@@ -182,10 +198,38 @@ class PerimeterFollowingAgentLocal(Agent):
             # wherever the closest perimeter thing is
             # should the movement happen over the grid only (?)
 
+        # if within a certain distance of the stash, check whether there are many other agents there
+        # that should maybe be avoided (issue here might be that other it's is fairly likely due to
+        # the low approach to the stashes that other agents push ones already there out of the way; in
+        # that case it would this check might still do some good (?))
+        if simple_distance(self.geometry.position[:2], self.current_path.positions[-1][:2]) < 50:
+            count_at_stash = 0
+            for a in environment.agents:
+                if a is not self and simple_distance(
+                        a.geometry.position[:2], self.current_path.positions[-1][:2]) <= self.stash_min_distance:
+                    count_at_stash += 1
+            # maybe don't make this a hard threshold though
+            if count_at_stash > 3:
+                stashes = environment.seed_stashes if self.current_block_type_seed else environment.block_stashes
+                min_stash_location = None
+                min_distance = float("inf")
+                for p in list(stashes.keys()):
+                    if p not in self.known_empty_stashes \
+                            and any([p[i] != self.current_path.positions[-1][i] for i in range(2)]):
+                        distance = simple_distance(self.geometry.position, p)
+                        if distance < min_distance:
+                            min_distance = distance
+                            min_stash_location = p
+
+                if min_stash_location is not None:
+                    fetch_level_z = max(self.geometry.position[2], self.geometry.position[2] + Block.SIZE * 2)
+                    self.current_path = Path()
+                    self.current_path.add_position([min_stash_location[0], min_stash_location[1], fetch_level_z])
+
         # assuming that the if-statement above takes care of setting the path:
         # collision detection should intervene here if necessary
         next_position, current_direction = self.move(environment)
-        if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
+        if simple_distance(self.geometry.position, next_position) <= Agent.MOVEMENT_PER_STEP:
             self.geometry.position = next_position
             ret = self.current_path.advance()
 
@@ -204,12 +248,12 @@ class PerimeterFollowingAgentLocal(Agent):
                 if len(stashes[stash_position]) == 0:
                     # remember that this stash is empty
                     self.known_empty_stashes.append(stash_position)
-                    aprint(self.id, "EMPTY STASH APPENDED IN FETCH_BLOCK")
+                    self.aprint("EMPTY STASH APPENDED IN FETCH_BLOCK")
 
                     # need to go to other stash, i.e. go to start of fetch_block again
                     self.current_path = None
-                    aprint(self.id, "STASH EMPTY AT {}".format(stash_position))
-                    aprint(self.id, "STASHES: {}".format(stashes))
+                    self.aprint("STASH EMPTY AT {}".format(stash_position))
+                    self.aprint("STASHES: {}".format(stashes))
                     return
 
                 self.current_task = Task.PICK_UP_BLOCK
@@ -247,16 +291,17 @@ class PerimeterFollowingAgentLocal(Agent):
                 if not len(stashes[stash_position]) == 0:
                     for a in environment.agents:
                         if stashes[stash_position][0] is a.current_block:
-                            aprint(self.id, "AGENT {} OCCUPYING BLOCK".format(a.id))
-                aprint(self.id, "EMPTY STASH APPENDED IN PICK_UP_BLOCK")
+                            self.aprint("AGENT {} OCCUPYING BLOCK".format(a.id))
+                self.aprint("EMPTY STASH APPENDED IN PICK_UP_BLOCK")
                 self.current_task = Task.FETCH_BLOCK
                 self.task_history.append(self.current_task)
                 self.current_path = None
+                self.fetch_block(environment)
                 return
 
             # stashes[stash_position].remove(min_block)
 
-            # aprint(self.id, "PICKING UP BLOCK: {}".format(min_block))
+            # self.aprint("PICKING UP BLOCK: {}".format(min_block))
 
             # otherwise, make the selected block the current block and pick it up
             min_block.color = "red"
@@ -268,21 +313,23 @@ class PerimeterFollowingAgentLocal(Agent):
             #     self.current_seed = self.current_block
 
         next_position, current_direction = self.move(environment)
-        if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
+        if simple_distance(self.geometry.position, next_position) <= Agent.MOVEMENT_PER_STEP:
             self.geometry.position = next_position
             ret = self.current_path.advance()
 
             # attach block and move on to the transport_block task
             if not ret:
                 if self.current_block is None:
-                    aprint(self.id, "AQUI ES EL PROBLEMO")
+                    self.aprint("AQUI ES EL PROBLEMO")
                     self.current_path = None
                     self.pick_up_block(environment)
                     return
+
                 for a in environment.agents:
                     if a is not self and self.current_block is a.current_block:
-                        aprint(self.id, "CURRENT TARGET BLOCK PICKED UP BY OTHER AGENT {}".format(a.id))
-                        print()
+                        self.aprint("CURRENT TARGET BLOCK PICKED UP BY OTHER AGENT {}".format(a.id))
+                        self.aprint("")
+
                 stashes = environment.seed_stashes if self.current_block_type_seed else environment.block_stashes
                 stashes[tuple(self.geometry.position[:2])].remove(self.current_block)
                 self.geometry.attached_geometries.append(self.current_block.geometry)
@@ -290,9 +337,16 @@ class PerimeterFollowingAgentLocal(Agent):
                     self.current_block.color = "#f44295"
                 else:
                     self.current_block.color = "green"
-                self.current_task = Task.TRANSPORT_BLOCK
+
+                if self.rejoining_swarm and not self.current_block_type_seed:
+                    self.current_task = Task.REJOIN_SWARM
+                    self.aprint("SWITCHING TO REJOINING SWARM WITH CURRENT BLOCK {}".format(self.current_block))
+                    self.aprint("")
+                else:
+                    self.current_task = Task.TRANSPORT_BLOCK
                 self.task_history.append(self.current_task)
                 self.current_path = None
+
                 if self.current_block_type_seed and self.next_seed_position is None:
                     if self.current_grid_positions_to_be_seeded is not None:
                         # decide on which possible seed positions to go for if the position has not been determined yet
@@ -320,13 +374,272 @@ class PerimeterFollowingAgentLocal(Agent):
                             self.current_grid_positions_to_be_seeded[i]) for i in order]
                         self.current_block.grid_position = self.current_grid_positions_to_be_seeded[0]
                         self.next_seed_position = self.current_grid_positions_to_be_seeded[0]
-                        # aprint(self.id, "(4) self.next_seed_position = {}".format(self.next_seed_position))
+                        # self.aprint("(4) self.next_seed_position = {}".format(self.next_seed_position))
                     else:
                         # try this stuff?
                         self.next_seed_position = self.current_seed.grid_position
-                        # aprint(self.id, "(5) self.next_seed_position = {}".format(self.next_seed_position))
+                        # self.aprint("(5) self.next_seed_position = {}".format(self.next_seed_position))
         else:
             self.geometry.position = self.geometry.position + current_direction
+
+    def wait_on_perimeter(self, environment: env.map.Map):
+        if self.current_path is None:
+            # from the current position, start moving counter-clockwise around the perimeter of the construction
+            # zone for now, maybe change this to the perimeter of the existing structure depending on its size
+            # -> might also have to account for components, maybe using some maximum distance allowed (?)
+            # -> could also consider ascending to a level a bit higher as to not disturb the movement of
+            #    quadcopters below (although they should almost always be at construction level anyway)
+
+            self.current_waiting_height = Block.SIZE * self.current_structure_level + Block.SIZE + Block.SIZE + \
+                                          self.required_distance + self.geometry.size[2] * 1.5 + \
+                                          self.geometry.size[2] + Block.SIZE * 2
+
+            # first calculate the next counter-clockwise corner point of the construction area and go there
+            ordered_corner_points = environment.ccw_corner_locations(self.geometry.position[:2],
+                                                                     self.geometry.size[2] * 1.5)
+
+            # plan path to the first of these points (when arriving there, simply recalculate, I think)
+            corner_point = ordered_corner_points[0]
+
+            self.current_path = Path()
+            self.current_path.add_position([corner_point[0], corner_point[1], self.current_waiting_height])
+
+        # need to re-check the condition on staying outside the construction zone and if it is not fulfilled anymore,
+        # somehow decide whether to enter or not (which might be problematic with multiple agents trying to do it)
+
+        # agent_count = 0
+        # for a in environment.agents:
+        #     if environment.check_over_construction_area(a.geometry.position):
+        #         agent_count += 1
+
+        # if agent_count < self.max_agent_count:
+        if self.area_density_restricted and environment.density_over_construction_area() <= 1:
+            self.current_path = self.previous_path
+            self.current_task = Task.TRANSPORT_BLOCK
+            self.task_history.append(self.current_task)
+            self.transport_block(environment)
+            return
+
+        next_position, current_direction = self.move(environment)
+        reached_end_zone = False
+        if self.current_path.optional_area_reached(self.geometry.position) \
+                and not simple_distance(self.geometry.position + current_direction, next_position) \
+                        < simple_distance(self.geometry.position, next_position):
+            ret = self.current_path.advance()
+            next_position, current_direction = self.move(environment)
+            if not ret:
+                reached_end_zone = True
+
+        if simple_distance(self.geometry.position, next_position) <= Agent.MOVEMENT_PER_STEP or reached_end_zone:
+            if not reached_end_zone:
+                self.geometry.position = next_position
+                ret = self.current_path.advance()
+
+            if reached_end_zone or not ret:
+                # check again whether the zone can be entered, if not move on
+                # agent_count = 0
+                # for a in environment.agents:
+                #     if environment.check_over_construction_area(a.geometry.position):
+                #         agent_count += 1
+
+                # if agent_count < self.max_agent_count:
+                if self.area_density_restricted and environment.density_over_construction_area() <= 1:
+                    self.current_path = self.previous_path
+                    self.current_task = Task.TRANSPORT_BLOCK
+                    self.task_history.append(self.current_task)
+                    return
+
+                # calculate next most CCW site
+                ordered_corner_points = environment.ccw_corner_locations(self.geometry.position[:2],
+                                                                         self.geometry.size[2] * 1.5)
+                corner_point = ordered_corner_points[0]
+                self.current_path.add_position([corner_point[0], corner_point[1], self.current_waiting_height])
+        else:
+            self.geometry.position = self.geometry.position + current_direction
+
+    def rejoin_swarm(self, environment: env.map.Map):
+        # while this is the task, should probably assign small probability to rejoining
+        # 1. fly towards the structure (towards the remembered seed?)
+        # 2. if the structure is higher than the current level, rise up as long as up as needed
+        #    (do the same when looking for new seed)
+        # 3. if the seed is still uncovered and no block at higher location was seen, assume that this is
+        #    still the same level and search for new component (?)
+        #    -> issue might be that there might not be anything at that point in the structure and it would
+        #       take a very long time to find out that it is required to go up a level (or even multiple)
+        #    -> best to survey the structure somehow? depending on what it looks like this could take very long
+        # 3. if some other block has been spotted, go to that component's approximate location for orientation
+        # => for now, we just cheat and select some seed on the latest component
+
+        # if self.current_path is None:
+        # if not self.rejoining_swarm and not ((self.collision_count / self.step_count) < 0.25 and random.random() < 0.01):
+        # if not self.rejoining_swarm and random.random() > 0.0005:
+        # if not self.rejoining_swarm and not ((self.collision_count / self.step_count) < 0.3 and random.random() < 1.0):
+        if not self.rejoining_swarm and not ((self.collision_count / self.step_count) < 0.34 and random.random() < 0.9):
+            return
+        # best performing so far: was simply proportion < 0.34 and random < 0.9 and 0.1 probability in the other place
+        # < 0.2 for other works fairly well too
+
+        self.aprint("REALLY THO")
+
+        self.rejoining_swarm = True
+        self.wait_for_rejoining = False
+        self.drop_out_of_swarm = False
+
+        if self.current_block is None:
+            self.current_task = Task.FETCH_BLOCK
+            self.task_history.append(self.current_task)
+            self.current_block_type_seed = False
+            return
+
+        self.aprint("WE GETTING SOMEWHERE")
+
+        # for now cheating: find the highest layer
+        highest_layer = self.current_structure_level
+        for z in range(self.current_structure_level, self.target_map.shape[0]):
+            if np.count_nonzero(environment.occupancy_map[z]) > 0:
+                highest_layer = z
+
+        for z in range(highest_layer + 1):
+            for y in range(self.target_map.shape[1]):
+                for x in range(self.target_map.shape[2]):
+                    self.local_occupancy_map[z, y, x] = environment.occupancy_map[z, y, x]
+        self.current_structure_level = highest_layer
+
+        if self.check_structure_finished(self.local_occupancy_map):
+            self.current_task = Task.LAND
+            self.task_history.append(self.current_task)
+            self.current_path = None
+            return
+
+        # now find some component on that layer
+        candidate_components = []
+        cc_grid_positions = []
+        cc_locations = []
+        for m in self.unfinished_component_markers(environment.occupancy_map, highest_layer):
+            # for m in [cm for cm in np.unique(self.component_target_map[highest_layer]) if cm != 0]:
+            #     if np.count_nonzero(self.local_occupancy_map[highest_layer][
+            #                             self.component_target_map[highest_layer] == m] != 0) > 0:
+            candidate_components.append(m)
+            grid_position = self.component_seed_location(m)
+            cc_grid_positions.append(grid_position)
+            cc_locations.append([environment.offset_origin[0] + Block.SIZE * grid_position[0],
+                                 environment.offset_origin[1] + Block.SIZE * grid_position[1],
+                                 Block.SIZE * (0.5 + grid_position[2])])
+
+        if len(candidate_components) == 0:
+            highest_layer += 1
+            for m in self.unfinished_component_markers(environment.occupancy_map, highest_layer):
+                candidate_components.append(m)
+                grid_position = self.component_seed_location(m)
+                cc_grid_positions.append(grid_position)
+                cc_locations.append([environment.offset_origin[0] + Block.SIZE * grid_position[0],
+                                     environment.offset_origin[1] + Block.SIZE * grid_position[1],
+                                     Block.SIZE * (0.5 + grid_position[2])])
+
+        # what if the components are unseeded? need a different seed for orientation then
+
+        self.aprint("Highest layer: {}".format(highest_layer))
+        self.aprint("Markers: {}".format(self.unfinished_component_markers(environment.occupancy_map, highest_layer)))
+        self.aprint("Local map: {}".format(environment.occupancy_map))
+
+        order = sorted(range(len(candidate_components)),
+                       key=lambda x: simple_distance(self.geometry.position, cc_locations[x]))
+
+        order = sorted(order, key=lambda x: int(
+            candidate_components[x] in self.unseeded_component_markers(environment.occupancy_map, highest_layer)))
+
+        # just pick closest bc lazy
+        candidate_components = [candidate_components[i] for i in order]
+        cc_grid_positions = [cc_grid_positions[i] for i in order]
+        cc_locations = [cc_locations[i] for i in order]
+
+        # this is only possible because of the cheating (or if global information is used, although
+        # in the latter case it would also be good to check whether a seed should be fetched instead
+        self.current_component_marker = candidate_components[0]
+
+        if self.current_component_marker in self.unseeded_component_markers(
+                environment.occupancy_map, highest_layer):
+            # the component is unseeded, therefore the current seed should be a different component's seed
+            candidate_seed_components = []
+            for m in [cm for cm in np.unique(self.component_target_map[highest_layer])
+                      if cm != 0 and cm != self.current_component_marker]:
+                if np.count_nonzero(environment.occupancy_map[highest_layer][
+                                        self.component_target_map[highest_layer] == m] != 0) > 0:
+                    candidate_seed_components.append(m)
+            if len(candidate_seed_components) > 0:
+                self.current_seed = environment.block_at_position(
+                    self.component_seed_location(candidate_seed_components[0]))
+                if self.current_seed is None:
+                    self.aprint("(1) Seed at grid position {} for marker {} is None"
+                                .format(candidate_seed_components[0], self.current_component_marker))
+            elif highest_layer > 0:
+                # do the same thing on a lower layer
+                for m in [cm for cm in np.unique(self.component_target_map[highest_layer - 1]) if cm != 0]:
+                    if np.count_nonzero(environment.occupancy_map[highest_layer - 1][
+                                            self.component_target_map[highest_layer - 1] == m] != 0) > 0:
+                        candidate_seed_components.append(m)
+                self.current_seed = environment.block_at_position(
+                    self.component_seed_location(candidate_seed_components[0]))
+                if self.current_seed is None:
+                    self.aprint("(2) Seed at grid position {} for marker {} is None"
+                                .format(candidate_seed_components[0], self.current_component_marker))
+            self.current_block_type_seed = False
+            self.current_task = Task.RETURN_BLOCK
+        else:
+            self.current_seed = environment.block_at_position(cc_grid_positions[0])
+            if self.current_seed is None:
+                self.aprint("(3) Seed at grid position {} for marker {} is None"
+                            .format(cc_grid_positions[0], self.current_component_marker))
+            self.current_task = Task.TRANSPORT_BLOCK
+        self.aprint("Current task: {}".format(self.current_task))
+        self.aprint("Current seed: {}".format(self.current_seed.grid_position))
+        self.aprint("Current proportion: {}".format((self.collision_count / self.step_count)))
+        self.aprint("Known empty stashes: {}".format(self.known_empty_stashes))
+        self.current_path = None
+        self.task_history.append(self.current_task)
+
+    def rejoin_swarm_local(self, environment: env.map.Map):
+        # first move to structure, using old seed for reference
+
+        # once any seed (whether it is the original one or not) has been reached and is covered by anything,
+        # start working as normal (e.g. try to search for attachment sites at that component, switch to others)
+
+        # whenever the agent encounters any blocks higher than the assumed (last) structure level, it should
+        # rise and start the search for a seed at that level again
+        # what would be good sensory capabilities for finding out where there are blocks higher than the current level?
+        # flying over or "almost into" any blocks would definitely qualify for identifying this
+
+        if not self.rejoining_swarm and not ((self.collision_count / self.step_count) < 0.34 and random.random() < 0.9):
+            return
+
+        self.rejoining_swarm = True
+        self.wait_for_rejoining = False
+        self.drop_out_of_swarm = False
+
+        if self.current_block is None:
+            self.current_task = Task.FETCH_BLOCK
+            self.task_history.append(self.current_task)
+            self.current_block_type_seed = False
+            return
+
+        # the first time this is called (when starting to rejoin the swarm), we should just have fetched a block
+        # therefore, we should now start moving towards the last seed that we remember, essentially just transporting
+        # the block
+        # however, while the rejoining_swarm parameter is True (i.e. before attaching a block again), should pay
+        # attention to the FUUUUUUUUUUUCK
+        seed_location = self.current_seed.geometry.position
+        transport_level_z = Block.SIZE * self.current_structure_level + Block.SIZE + Block.SIZE + \
+            self.required_distance + self.geometry.size[2] * 1.5
+        other_transport_level_z = (self.current_seed.grid_position[2] + 2) * Block.SIZE + self.geometry.size[2] * 2
+
+        self.current_path = Path()
+        # self.aprint("Current seed at {}".format(self.current_seed.grid_position))
+        # self.aprint("Next seed intended for {}".format(self.next_seed_position))
+        self.current_path.add_position([self.geometry.position[0], self.geometry.position[1], transport_level_z],
+                                       optional_distance=50)
+        self.current_path.add_position([seed_location[0], seed_location[1], transport_level_z],
+                                       optional_distance=30)
+        self.current_path.add_position([seed_location[0], seed_location[1], other_transport_level_z])
 
     def transport_block(self, environment: env.map.Map):
         # gain height to the "transport-to-structure" level
@@ -359,39 +672,70 @@ class PerimeterFollowingAgentLocal(Agent):
 
             other_transport_level_z = (self.current_seed.grid_position[2] + 2) * Block.SIZE + self.geometry.size[2] * 2
 
-            # aprint(self.id, "Current seed at {}".format(self.current_seed.grid_position))
-            # aprint(self.id, "Next seed intended for {}".format(self.next_seed_position))
-            self.current_path.add_position([self.geometry.position[0], self.geometry.position[1],
-                                            transport_level_z])
-            self.current_path.add_position([seed_location[0], seed_location[1], transport_level_z])
+            # self.aprint("Current seed at {}".format(self.current_seed.grid_position))
+            # self.aprint("Next seed intended for {}".format(self.next_seed_position))
+            self.current_path.add_position([self.geometry.position[0], self.geometry.position[1], transport_level_z],
+                                           optional_distance=20)
+            self.current_path.add_position([seed_location[0], seed_location[1], transport_level_z],
+                                           optional_distance=30)
             self.current_path.add_position([seed_location[0], seed_location[1], other_transport_level_z])
 
         # TODO: if not over structure already, check whether close enough to wait
-        # wait_on_perimeter = False
-        # if not environment.check_over_construction_area(self.geometry.position):
-        #     # not over construction area yet
-        #     if environment.distance_to_construction_area(self.geometry.position) <= self.geometry.size[0]:
-        #         # check whether close enough to construction area to warrant looking entering
-        #         agent_count = 0
-        #         for a in environment.agents:
-        #             if environment.check_over_construction_area(a.geometry.position):
-        #                 agent_count += 1
-        #
-        #         if agent_count >= 4:
-        #             # in this case it's too crowded -> don't move in yet
-        #             wait_on_perimeter = True
-        #             self.current_static_location = np.copy(self.geometry.position)
+        wait_on_perimeter = False
+        if not environment.check_over_construction_area(self.geometry.position):
+            # not over construction area yet
+            if environment.distance_to_construction_area(self.geometry.position) <= self.geometry.size[0] * 2:
+                # check whether close enough to construction area to warrant looking entering
+                # agent_count = 0
+                # agents_over_construction_area = []
+                # for a in environment.agents:
+                #     if environment.check_over_construction_area(a.geometry.position):
+                #         agent_count += 1
+                #         agents_over_construction_area.append(a.id)
 
-        # still need to dodge reactively, but should not actually move along the path
+                # self.aprint("Currently there are {} agents over the construction area.".format(agent_count))
+                # self.aprint("Current distance to construction area: {}".format(
+                #     environment.distance_to_construction_area(self.geometry.position)))
+                # self.aprint("Agents over construction area: {}".format(agents_over_construction_area))
+                # test = environment.ccw_corner_locations(self.geometry.position[:2])
+                # self.aprint("CCW ordered corner locations from {}: {}".format(self.geometry.position[:2], test))
+                # self.aprint("")
+
+                # TODO: if this is actually used, should definitely change the criteria for entering
+                # self.aprint("Density: {}".format(environment.density_over_construction_area()))
+                if self.area_density_restricted and environment.density_over_construction_area() > 1:
+                    # in this case it's too crowded -> don't move in yet
+                    wait_on_perimeter = True
+                    self.current_static_location = np.copy(self.geometry.position)
+                    self.current_task = Task.WAIT_ON_PERIMETER
+                    # self.aprint("Waiting on perimeter with {} agents in construction area"
+                    #             .format(environment.count_over_construction_area()))
+                    self.task_history.append(self.current_task)
+                    self.previous_path = self.current_path
+                    self.current_path = None
+                    self.wait_on_perimeter(environment)
+                    return
+
+        if simple_distance(self.current_seed.geometry.position[:2], self.geometry.position[:2]) < 50.0:
+            self.close_to_seed_count += 1
 
         next_position, current_direction = self.move(environment)
-        if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
+        if self.current_path.optional_area_reached(self.geometry.position):
+            ret = self.current_path.advance()
+            if ret:
+                next_position, current_direction = self.move(environment)
+            else:
+                self.current_path.retreat()
 
+        if simple_distance(self.geometry.position, next_position) <= Agent.MOVEMENT_PER_STEP:
             self.geometry.position = next_position
             ret = self.current_path.advance()
 
             # if the final point on the path has been reached, search for attachment site should start
             if not ret:
+                self.seed_arrival_delay_queue.append(self.close_to_seed_count)
+                self.close_to_seed_count = 0
+
                 # since this method is also used to move to a seed site with a carried seed after already having
                 # found the current seed for localisation, need to check whether we have arrived and should
                 # drop off the carried seed
@@ -400,13 +744,13 @@ class PerimeterFollowingAgentLocal(Agent):
                 self.update_local_occupancy_map(environment)
 
                 if self.current_block_type_seed and self.transporting_to_seed_site:
-                    aprint(self.id, "HAVE REACHED SITE FOR CARRIED SEED (DESTINATION: {})"
-                           .format(self.next_seed_position))
+                    self.aprint("HAVE REACHED SITE FOR CARRIED SEED (DESTINATION: {})"
+                                .format(self.next_seed_position))
                     # this means that we have arrived at the intended site for the seed, it should
                     # now be placed or, alternatively, a different site for it should be found
                     self.current_grid_position = np.array(self.next_seed_position)
                     if not environment.check_occupancy_map(self.next_seed_position):
-                        aprint(self.id, "GOING TO PLACE THE SEED (AT {})".format(self.current_grid_position))
+                        self.aprint("GOING TO PLACE THE SEED (AT {})".format(self.current_grid_position))
                         # can place the carried seed
                         self.current_task = Task.PLACE_BLOCK
                         self.task_history.append(self.current_task)
@@ -414,9 +758,9 @@ class PerimeterFollowingAgentLocal(Agent):
                                                                                   self.current_grid_position[1],
                                                                                   self.current_grid_position[0]]
                     else:
-                        aprint(self.id, "NEED TO FIND DIFFERENT SEED SITE (ON LEVEL {})"
-                               .format(self.current_structure_level))
-                        # print_map(self.local_occupancy_map)
+                        self.aprint("NEED TO FIND DIFFERENT SEED SITE (ON LEVEL {})"
+                                    .format(self.current_structure_level))
+                        # self.aprint(True, self.local_occupancy_map)
                         # the position is already occupied, need to move to different site
                         # check whether there are even any unseeded sites
                         unseeded = self.unseeded_component_markers(self.local_occupancy_map)
@@ -441,7 +785,7 @@ class PerimeterFollowingAgentLocal(Agent):
                     self.transporting_to_seed_site = False
                     return
 
-                # aprint(self.id, "HAVE REACHED END OF TRANSPORT PATH")
+                # self.aprint("HAVE REACHED END OF TRANSPORT PATH")
 
                 position_above = [self.current_grid_position[0],
                                   self.current_grid_position[1],
@@ -513,11 +857,11 @@ class PerimeterFollowingAgentLocal(Agent):
                         # here this is done assuming "perfect" knowledge, in reality more complicated
                         # search would probably have to be implemented
                         # for both cases, first determine the grid position for that component
-                        if self.current_structure_level == 9:
-                            aprint(self.id, "WHAT THE FUCK IS GOING ON HERE")
-                            aprint(self.id, "STRUCTURE LEVEL {}".format(self.current_structure_level))
-                            aprint(self.id, "SEED POSITION {}".format(self.current_seed.grid_position))
-                            aprint(self.id, "GRID POSITION {}".format(self.current_grid_position))
+
+                        self.aprint("Current seed {} covered by block, trying to "
+                                    "find seed of the covering component at {}"
+                                    .format(self.current_seed.grid_position, block_above_seed.grid_position))
+
                         seed_grid_location = self.component_seed_location(
                             self.component_target_map[block_above_seed.grid_position[2],
                                                       block_above_seed.grid_position[1],
@@ -533,7 +877,7 @@ class PerimeterFollowingAgentLocal(Agent):
                         self.current_path.add_position([seed_x, seed_y, self.geometry.position[2]])
 
                 if self.check_component_finished(self.local_occupancy_map):
-                    aprint(self.id, "FINISHED COMPONENT {} AFTER TRANSPORTING".format(self.current_component_marker))
+                    self.aprint("FINISHED COMPONENT {} AFTER TRANSPORTING".format(self.current_component_marker))
                     self.current_task = Task.FIND_NEXT_COMPONENT
                     self.task_history.append(self.current_task)
                     self.current_visited_sites = None
@@ -578,7 +922,7 @@ class PerimeterFollowingAgentLocal(Agent):
             # but it might still not be desirable, option d) is probably the best
 
         next_position, current_direction = self.move(environment)
-        if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
+        if simple_distance(self.geometry.position, next_position) <= Agent.MOVEMENT_PER_STEP:
             self.geometry.position = next_position
             ret = self.current_path.advance()
 
@@ -630,7 +974,7 @@ class PerimeterFollowingAgentLocal(Agent):
         # can either follow the perimeter itself or just fly over blocks (do the latter for now)
         if self.current_path is None:
             # might consider putting something here
-            aprint(self.id, "current_path is None in find_attachment_site")
+            self.aprint("current_path is None in find_attachment_site")
             self.current_path = Path()
             self.current_path.add_position(self.geometry.position)
 
@@ -641,12 +985,12 @@ class PerimeterFollowingAgentLocal(Agent):
             self.current_visited_sites = []
 
         next_position, current_direction = self.move(environment)
-        if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
+        if simple_distance(self.geometry.position, next_position) <= Agent.MOVEMENT_PER_STEP:
             self.geometry.position = next_position
             ret = self.current_path.advance()
 
-            # aprint(self.id, "Current local occupancy map:")
-            # print_map(self.local_occupancy_map)
+            # self.aprint("Current local occupancy map:")
+            # self.aprint(True, self.local_occupancy_map)
 
             if not ret:
                 self.update_local_occupancy_map(environment)
@@ -686,9 +1030,9 @@ class PerimeterFollowingAgentLocal(Agent):
                     # there are two options here: either the current component is finished, or we are trapped in a hole
                     # check if in hole
                     if check_map(self.hole_map, self.current_grid_position, lambda x: x > 1):
-                        # aprint(self.id, "REVISITED SITE (IN HOLE)")
-                        # aprint(self.id, "self.current_grid_position = {}".format(self.current_grid_position))
-                        # aprint(self.id, "HOLE MAP:\n{}".format(self.hole_map))
+                        # self.aprint("REVISITED SITE (IN HOLE)")
+                        # self.aprint("self.current_grid_position = {}".format(self.current_grid_position))
+                        # self.aprint("HOLE MAP:\n{}".format(self.hole_map))
                         self.current_task = Task.MOVE_TO_PERIMETER
                         self.task_history.append(self.current_task)
                         self.current_grid_direction = [1, 0, 0]  # should probably use expected SP here
@@ -696,11 +1040,11 @@ class PerimeterFollowingAgentLocal(Agent):
                                                                                     self.current_grid_position[1],
                                                                                     self.current_grid_position[0]]]] = 1
                     else:
-                        # aprint(self.id, "REVISITED SITE (ON PERIMETER), MOVING COMPONENTS")
-                        # aprint(self.id, "self.current_component_marker = {}".format(self.current_component_marker))
-                        # aprint(self.id, "current_site_tuple = {}".format(current_site_tuple))
-                        # aprint(self.id, "self.current_seed.grid_position = {}".format(self.current_seed.grid_position))
-                        # aprint(self.id, "self.current_visited_sites = {}".format(self.current_visited_sites))
+                        # self.aprint("REVISITED SITE (ON PERIMETER), MOVING COMPONENTS")
+                        # self.aprint("self.current_component_marker = {}".format(self.current_component_marker))
+                        # self.aprint("current_site_tuple = {}".format(current_site_tuple))
+                        # self.aprint("self.current_seed.grid_position = {}".format(self.current_seed.grid_position))
+                        # self.aprint("self.current_visited_sites = {}".format(self.current_visited_sites))
                         self.local_occupancy_map[self.component_target_map == self.current_component_marker] = 1
                         self.current_task = Task.FIND_NEXT_COMPONENT
                         self.task_history.append(self.current_task)
@@ -736,8 +1080,8 @@ class PerimeterFollowingAgentLocal(Agent):
                         self.current_path = None
                         self.logger.error("CASE 1-3: Attachment site found, but block cannot be placed at {}."
                                           .format(self.current_grid_position))
-                        aprint(self.id, "LANDING (2)")
-                        print_map(self.target_map)
+                        self.aprint("LANDING (2)")
+                        self.aprint(True, self.target_map)
                     else:
                         # site should be occupied AND
                         # 1. site ahead has a block (inner corner) OR
@@ -790,8 +1134,8 @@ class PerimeterFollowingAgentLocal(Agent):
                         self.current_row_started = True
 
                 if self.check_component_finished(self.local_occupancy_map):
-                    aprint(self.id, "FINISHED COMPONENT {} AFTER MOVING TO NEXT BLOCK IN ATTACHMENT SITE"
-                           .format(self.current_component_marker))
+                    self.aprint("FINISHED COMPONENT {} AFTER MOVING TO NEXT BLOCK IN ATTACHMENT SITE"
+                                .format(self.current_component_marker))
                     self.current_task = Task.FIND_NEXT_COMPONENT
                     self.task_history.append(self.current_task)
                     self.current_visited_sites = None
@@ -804,7 +1148,7 @@ class PerimeterFollowingAgentLocal(Agent):
             self.current_visited_sites = []
 
         next_position, current_direction = self.move(environment)
-        if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
+        if simple_distance(self.geometry.position, next_position) <= Agent.MOVEMENT_PER_STEP:
             self.geometry.position = next_position
             ret = self.current_path.advance()
 
@@ -899,7 +1243,7 @@ class PerimeterFollowingAgentLocal(Agent):
         current_direction = self.current_path.direction_to_next(self.geometry.position)
         current_direction /= sum(np.sqrt(current_direction ** 2))
         current_direction *= Agent.MOVEMENT_PER_STEP
-        if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
+        if simple_distance(self.geometry.position, next_position) <= Agent.MOVEMENT_PER_STEP:
             self.geometry.position = next_position
             ret = self.current_path.advance()
 
@@ -932,17 +1276,17 @@ class PerimeterFollowingAgentLocal(Agent):
                 if self.check_structure_finished(self.local_occupancy_map) \
                         or (self.check_layer_finished(self.local_occupancy_map)
                             and self.current_structure_level >= self.target_map.shape[0] - 1):
-                    aprint(self.id, "AFTER PLACING BLOCK: FINISHED")
+                    self.aprint("AFTER PLACING BLOCK: FINISHED")
                     self.current_task = Task.LAND
-                    aprint(self.id, "LANDING (3)")
+                    self.aprint("LANDING (3)")
                 elif self.check_component_finished(self.local_occupancy_map):
-                    aprint(self.id, "AFTER PLACING BLOCK: FINDING NEXT COMPONENT")
-                    print_map(self.local_occupancy_map)
+                    self.aprint("AFTER PLACING BLOCK: FINDING NEXT COMPONENT")
+                    self.aprint(True, self.local_occupancy_map)
                     self.current_task = Task.FIND_NEXT_COMPONENT
                 else:
-                    aprint(self.id, "AFTER PLACING BLOCK: FETCHING BLOCK FOR COMPONENT {} (PREVIOUS WAS SEED: {})"
-                           .format(self.current_component_marker, self.current_block_type_seed))
-                    print_map(self.local_occupancy_map)
+                    self.aprint("AFTER PLACING BLOCK: FETCHING BLOCK FOR COMPONENT {} (PREVIOUS WAS SEED: {})"
+                                .format(self.current_component_marker, self.current_block_type_seed))
+                    self.aprint(True, self.local_occupancy_map)
                     self.current_task = Task.FETCH_BLOCK
                     if self.current_block_type_seed:
                         self.current_block_type_seed = False
@@ -952,13 +1296,20 @@ class PerimeterFollowingAgentLocal(Agent):
                     for x in range(self.local_occupancy_map.shape[2]):
                         if self.local_occupancy_map[self.current_grid_position[2], y, x] != 0 \
                                 and self.target_map[self.current_grid_position[2], y, x] == 0:
-                            aprint(self.id, "LOCAL OCCUPANCY MAP IS WRONG")
-                            print()
+                            self.aprint("LOCAL OCCUPANCY MAP IS WRONG")
+                            self.aprint("Local occupancy map:\n{}".format(
+                                self.local_occupancy_map[self.current_grid_position[2]]))
+                            self.aprint("Global occupancy map:\n{}".format(
+                                environment.occupancy_map[self.current_grid_position[2]]))
+
+                            self.aprint("")
         else:
             self.geometry.position = self.geometry.position + current_direction
 
     def find_next_component(self, environment: env.map.Map):
         if self.current_path is None:
+            # TODO: include preference for inner, smaller, "emptier" components
+
             # need two different things depending on whether the agent has a block or not
             # first check whether we know that the current layer is already completed
 
@@ -970,11 +1321,11 @@ class PerimeterFollowingAgentLocal(Agent):
             candidate_components_placement = self.unfinished_component_markers(self.local_occupancy_map)
             candidate_components_seeding = self.unseeded_component_markers(self.local_occupancy_map)
 
-            aprint(self.id, "INFO: {}, {}, {}, {}\n{}".format(len(candidate_components_seeding),
-                                                              self.current_block_type_seed,
-                                                              self.check_layer_finished(self.local_occupancy_map),
-                                                              self.current_structure_level,
-                                                              self.local_occupancy_map))
+            self.aprint("INFO: {}, {}, {}, {}\n{}".format(len(candidate_components_seeding),
+                                                          self.current_block_type_seed,
+                                                          self.check_layer_finished(self.local_occupancy_map),
+                                                          self.current_structure_level,
+                                                          self.local_occupancy_map))
             if len(candidate_components_seeding) == 0 and self.current_block_type_seed \
                     and self.check_layer_finished(self.local_occupancy_map):
                 # if environment.global_information:
@@ -987,6 +1338,8 @@ class PerimeterFollowingAgentLocal(Agent):
                 return
             elif len(candidate_components_seeding) == 0 and self.current_block_type_seed:
                 self.current_task = Task.RETURN_BLOCK
+                self.task_history.append(self.current_task)
+                self.return_block(environment)
                 return
 
             # check if any of these components have been seeded (and are unfinished) and the agent knows this
@@ -1000,13 +1353,14 @@ class PerimeterFollowingAgentLocal(Agent):
                         self.current_task = Task.FETCH_BLOCK if self.current_block is None else Task.TRANSPORT_BLOCK
                         self.task_history.append(self.current_task)
                         self.current_path = None
-                        aprint(self.id, "find_next_component: FOUND NEW COMPONENT ({}) IMMEDIATELY".format(m))
+                        self.aprint("find_next_component: FOUND NEW COMPONENT ({}) IMMEDIATELY".format(m))
+                        # TODO: even if this is the case, should probably switch to seeding other component after
                         return
 
             candidate_components = candidate_components_seeding if self.current_block_type_seed \
                 else candidate_components_placement
-            aprint(self.id, "UNFINISHED COMPONENT MARKERS: {} ({})".format(candidate_components,
-                                                                           self.current_structure_level))
+            self.aprint("UNFINISHED COMPONENT MARKERS: {} ({})".format(candidate_components,
+                                                                       self.current_structure_level))
 
             # first, need to figure out seed locations
             seed_grid_locations = []
@@ -1032,6 +1386,26 @@ class PerimeterFollowingAgentLocal(Agent):
                             min_index = l_idx
                 order.append(min_index)
 
+            # TODO: change order to be something with central components first etc.
+            order = sorted(range(len(seed_locations)),
+                           key=lambda x: (simple_distance(seed_locations[x], environment.center),
+                                          simple_distance(seed_locations[x], self.geometry.position)))
+
+            # order this by number of agents over each component (?)
+            # candidate_component_count = [0] * len(candidate_components)
+            # for a in environment.agents:
+            #     for m_idx, m in enumerate(candidate_components):
+            #         closest_x = int((a.geometry.position[0] - environment.offset_origin[0]) / env.block.Block.SIZE)
+            #         closest_y = int((a.geometry.position[1] - environment.offset_origin[1]) / env.block.Block.SIZE)
+            #         if 0 <= closest_x < self.target_map.shape[2] and 0 <= closest_y < self.target_map.shape[1] \
+            #                 and any([self.component_target_map[z, closest_y, closest_x] == m
+            #                          for z in range(self.target_map.shape[0])]):
+            #             candidate_component_count[m_idx] += 1
+            #
+            # order = sorted(order, key=lambda x: candidate_component_count[x])
+            #
+            # self.aprint("Candidate component counts: {}".format(candidate_component_count))
+
             # then plan a path to visit all seed locations as quickly as possible
             # while this may not be the best solution (NP-hardness, yay) it should not be terrible
             seed_grid_locations = [np.array(seed_grid_locations[i]) for i in order]
@@ -1054,12 +1428,12 @@ class PerimeterFollowingAgentLocal(Agent):
             # TODO: make these paths follow the grid (i.e. always perpendicular)
             # also, since this is a good opportunity to avoid other agents, maybe should do this one by one?
 
-            aprint(self.id, "SEED PATH: {} ({})".format(self.current_path.positions, seed_grid_locations))
+            self.aprint("SEED PATH: {} ({})".format(self.current_path.positions, seed_grid_locations))
             self.current_seed_grid_positions = seed_grid_locations
             self.current_seed_grid_position_index = 0
 
         next_position, current_direction = self.move(environment)
-        if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
+        if simple_distance(self.geometry.position, next_position) <= Agent.MOVEMENT_PER_STEP:
             self.geometry.position = next_position
 
             can_skip = not self.current_path.inserted_sequentially[self.current_path.current_index]
@@ -1069,7 +1443,7 @@ class PerimeterFollowingAgentLocal(Agent):
                 ret = False
 
             if self.current_path.current_index != 0 and not can_skip and not ret:
-                aprint(self.id, "self.current_seed_grid_position_index increaseed")
+                self.aprint("self.current_seed_grid_position_index increaseed")
                 self.current_seed_grid_position_index += 1
 
             if not can_skip and not ret:
@@ -1077,31 +1451,40 @@ class PerimeterFollowingAgentLocal(Agent):
                 # check whether the position below has been seeded
                 # current_seed_position = self.current_seed_grid_positions[
                 #     self.current_path.current_index - (2 if ret else 1)]
-                # aprint(self.id, "AT LOCATION OF BLOCK THING: {}".format(self.current_seed_grid_position_index))
-                # aprint(self.id, "POSITION: {}".format(self.geometry.position))
-                # aprint(self.id, "PATH: {}".format(self.current_path.positions))
-                # aprint(self.id, "index: {}, length: {}".format(self.current_path.current_index, len(self.current_path.positions)))
-                # aprint(self.id, "ret: {}".format(ret))
+                # self.aprint("AT LOCATION OF BLOCK THING: {}".format(self.current_seed_grid_position_index))
+                # self.aprint("POSITION: {}".format(self.geometry.position))
+                # self.aprint("PATH: {}".format(self.current_path.positions))
+                # self.aprint("index: {}, length: {}".format(self.current_path.current_index, len(self.current_path.positions)))
+                # self.aprint("ret: {}".format(ret))
                 current_seed_position = self.current_seed_grid_positions[self.current_seed_grid_position_index - 1]
                 self.current_grid_position = np.array(current_seed_position)
                 self.update_local_occupancy_map(environment)
                 if environment.check_occupancy_map(current_seed_position):
-                    aprint(self.id, "find_next_component: SEED AT {}".format(current_seed_position))
+                    self.aprint("find_next_component: SEED AT {}".format(current_seed_position))
+                    self.aprint("find_next_component: own location is {}".format(self.geometry.position))
                     self.local_occupancy_map[current_seed_position[2],
                                              current_seed_position[1],
                                              current_seed_position[0]] = 1
                     self.current_seed = environment.block_at_position(current_seed_position)
                     if self.current_block is not None:
+                        self.aprint("find_next_component: still carrying block")
                         # check again whether there has been any change
                         if not self.check_component_finished(self.local_occupancy_map,
                                                              self.component_target_map[current_seed_position[2],
                                                                                        current_seed_position[1],
                                                                                        current_seed_position[0]]):
+                            self.aprint("find_next_component: component not finished yet")
                             if not self.current_block_type_seed:
+                                self.aprint("find_next_component: try to attach there")
                                 # if it has, simply switch to that component and try to attach there
+                                previous = self.current_component_marker
                                 self.current_component_marker = self.component_target_map[current_seed_position[2],
                                                                                           current_seed_position[1],
                                                                                           current_seed_position[0]]
+
+                                if self.id == 2 and self.current_component_marker == 8:
+                                    self.aprint("The fateful encounter")
+                                    self.aprint("")
                                 self.current_seed = environment.block_at_position(current_seed_position)
                                 # self.current_task = Task.FIND_ATTACHMENT_SITE
                                 self.current_task = Task.MOVE_TO_PERIMETER
@@ -1110,9 +1493,14 @@ class PerimeterFollowingAgentLocal(Agent):
                                 self.current_grid_positions_to_be_seeded = None
                                 self.current_path = None
                             else:
+                                self.aprint("find_next_component: move on to next location (with seed)")
                                 # need to move on to next location
                                 if self.current_seed_grid_position_index + 1 > len(self.current_seed_grid_positions):
                                     # have not found a single location without seed, therefore return it and fetch block
+                                    # might want to attach at the original component instead (?)
+                                    self.current_component_marker = self.component_target_map[current_seed_position[2],
+                                                                                              current_seed_position[1],
+                                                                                              current_seed_position[0]]
                                     self.current_task = Task.RETURN_BLOCK
                                     self.task_history.append(self.current_task)
                                     self.current_path = None
@@ -1127,6 +1515,7 @@ class PerimeterFollowingAgentLocal(Agent):
                                     self.current_path.add_position(first_site)
                                     self.current_path.add_position(second_site)
                         else:
+                            self.aprint("find_next_component: component is finished")
                             # would need to update going to the next position
                             self.current_path = None
                     else:
@@ -1142,7 +1531,8 @@ class PerimeterFollowingAgentLocal(Agent):
                             self.current_task = Task.FETCH_BLOCK
                             self.task_history.append(self.current_task)
                             self.next_seed_position = current_seed_position
-                            # aprint(self.id, "(1) self.next_seed_position = {}".format(self.next_seed_position))
+                            previous = self.current_component_marker
+                            # self.aprint("(1) self.next_seed_position = {}".format(self.next_seed_position))
                             self.current_component_marker = self.component_target_map[current_seed_position[2],
                                                                                       current_seed_position[1],
                                                                                       current_seed_position[0]]
@@ -1150,57 +1540,70 @@ class PerimeterFollowingAgentLocal(Agent):
                         else:
                             if self.check_structure_finished(self.local_occupancy_map):
                                 self.current_task = Task.LAND
-                                aprint(self.id, "LANDING (7)")
+                                self.aprint("LANDING (7)")
                                 self.task_history.append(self.current_task)
                                 self.current_path = None
                             else:
                                 # would need to update going to the next position
                                 self.current_path = None
                 else:
-                    aprint(self.id, "find_next_component: NO SEED AT {}".format(current_seed_position))
+                    self.aprint("find_next_component: NO SEED AT {}".format(current_seed_position))
                     if self.current_block is not None:
                         if not self.current_block_type_seed:
-                            if self.current_seed_grid_position_index + 1 > len(self.current_seed_grid_positions):
-                                aprint(self.id, "RETURNING CURRENT (NORMAL) BLOCK SINCE THERE ARE NO SEEDS YET")
-                                if self.current_block is None:
-                                    self.current_block_type_seed = True
-                                self.current_task = Task.RETURN_BLOCK
-                                self.task_history.append(self.current_task)
-                                self.current_path = None
-                            else:
-                                aprint(self.id, "MORE SEED POSITIONS TO CHECK OUT: {}"
-                                       .format(self.current_seed_grid_positions))
-                                aprint(self.id, "PATH (with index {} at location {}): {}".format(
-                                    self.current_path.current_index, self.geometry.position,
-                                    self.current_path.positions))
-
-                                next_x = environment.offset_origin[0] + Block.SIZE * \
-                                         self.current_seed_grid_positions[self.current_seed_grid_position_index][0]
-                                next_y = environment.offset_origin[1] + Block.SIZE * \
-                                         self.current_seed_grid_positions[self.current_seed_grid_position_index][1]
-                                first_site = np.array([self.geometry.position[0], next_y, self.geometry.position[2]])
-                                second_site = np.array([next_x, next_y, self.geometry.position[2]])
-                                self.current_path.add_position(first_site)
-                                self.current_path.add_position(second_site)
+                            # TODO: if every block is supposed to be returned once there is an opportunity for
+                            # getting a seed, then this has to be changed here
+                            self.aprint("RETURNING CURRENT (NORMAL) BLOCK TO GET SEED")
+                            self.current_block_type_seed = False
+                            self.current_task = Task.RETURN_BLOCK
+                            self.task_history.append(self.current_task)
+                            self.current_path = None
+                            # if self.current_seed_grid_position_index + 1 > len(self.current_seed_grid_positions):
+                            #     self.aprint("RETURNING CURRENT (NORMAL) BLOCK SINCE THERE ARE NO SEEDS YET")
+                            #     if self.current_block is None:
+                            #         self.current_block_type_seed = True
+                            #     self.current_task = Task.RETURN_BLOCK
+                            #     self.task_history.append(self.current_task)
+                            #     self.current_path = None
+                            # else:
+                            #     self.aprint("MORE SEED POSITIONS TO CHECK OUT: {}"
+                            #            .format(self.current_seed_grid_positions))
+                            #     self.aprint("PATH (with index {} at location {}): {}".format(
+                            #         self.current_path.current_index, self.geometry.position,
+                            #         self.current_path.positions))
+                            #
+                            #     next_x = environment.offset_origin[0] + Block.SIZE * \
+                            #              self.current_seed_grid_positions[self.current_seed_grid_position_index][0]
+                            #     next_y = environment.offset_origin[1] + Block.SIZE * \
+                            #              self.current_seed_grid_positions[self.current_seed_grid_position_index][1]
+                            #     first_site = np.array([self.geometry.position[0], next_y, self.geometry.position[2]])
+                            #     second_site = np.array([next_x, next_y, self.geometry.position[2]])
+                            #     self.current_path.add_position(first_site)
+                            #     self.current_path.add_position(second_site)
                         else:
                             # can place the seed here
                             self.current_task = Task.PLACE_BLOCK
                             self.task_history.append(self.current_task)
                             self.next_seed_position = current_seed_position
+                            previous = self.current_component_marker
                             self.current_component_marker = self.component_target_map[current_seed_position[2],
                                                                                       current_seed_position[1],
                                                                                       current_seed_position[0]]
                             self.current_path = None
                     else:
-                        aprint(self.id, "REMEMBERING SEED LOCATION AND FETCHING SEED FOR ATTACHMENT")
+                        self.aprint("REMEMBERING SEED LOCATION AND FETCHING SEED FOR ATTACHMENT")
                         # if we do not have a block currently, remember this site as the seed location and fetch seed
                         self.current_task = Task.FETCH_BLOCK
                         self.task_history.append(self.current_task)
                         self.current_block_type_seed = True
                         self.next_seed_position = current_seed_position
+                        previous = self.current_component_marker
                         self.current_component_marker = self.component_target_map[current_seed_position[2],
                                                                                   current_seed_position[1],
                                                                                   current_seed_position[0]]
+                        if self.current_component_marker == 11 and self.id == 8:
+                            self.aprint("Current position: {}, previous: {}"
+                                        .format(self.current_grid_position, previous))
+                            self.aprint("")
                         self.current_path = None
                 # in case we currently have a block:
                 # if all locations turn out not to be seeded, initiate returning the current block to the
@@ -1237,11 +1640,26 @@ class PerimeterFollowingAgentLocal(Agent):
             min_distance = float("inf")
             compared_location = np.array(off_construction_locations[0])
             compared_location = self.geometry.position
+            stash_list = []
             for key, value in stashes.items():
-                temp = simple_distance(compared_location, key)
-                if temp < min_distance:
+                distance = simple_distance(compared_location, key)
+                count = self.direction_agent_count(environment,
+                                                   [key - self.geometry.position[:2]],
+                                                   angle=np.pi / 2,
+                                                   max_vert_distance=100)[0]
+                count_at_stash = 0
+                for a in environment.agents:
+                    if a is not self and simple_distance(a.geometry.position[:2], key) <= self.stash_min_distance:
+                        count_at_stash += 1
+                stash_list.append((key, distance, count, count_at_stash))
+                if distance < min_distance:
                     min_stash_location = key
-                    min_distance = temp
+                    min_distance = distance
+
+            # stash locations sorted by some other measure but distance
+            # stash_list = sorted(stash_list, key=lambda e: (e[3], e[1], e[2]))
+            # min_stash_location = stash_list[0][0]
+            # min_stash_location = random.sample(stash_list, 1)[0][0]
 
             # plan a path there
             return_z = Block.SIZE * (self.current_structure_level + 2) + self.geometry.size[2] / 2 + \
@@ -1252,18 +1670,55 @@ class PerimeterFollowingAgentLocal(Agent):
             self.current_path = Path()
             self.current_path.add_position([self.geometry.position[0], self.geometry.position[1], return_z])
             # self.current_path.add_position([compared_location[0], compared_location[1], return_z])
-            self.current_path.add_position([min_stash_location[0], min_stash_location[1], return_z])
+            self.current_path.add_position([min_stash_location[0], min_stash_location[1], return_z],
+                                           optional_distance=30)
             self.current_path.add_position([min_stash_location[0], min_stash_location[1],
                                             Block.SIZE + self.geometry.size[2] / 2])
 
+        if simple_distance(self.geometry.position[:2], self.current_path.positions[-1][:2]) < 50:
+            count_at_stash = 0
+            for a in environment.agents:
+                if a is not self and simple_distance(
+                        a.geometry.position[:2], self.current_path.positions[-1][:2]) <= self.stash_min_distance:
+                    count_at_stash += 1
+            # maybe don't make this a hard threshold though
+            if count_at_stash > 3:
+                stashes = environment.seed_stashes if self.current_block_type_seed else environment.block_stashes
+                min_stash_location = None
+                min_distance = float("inf")
+                for p in list(stashes.keys()):
+                    if p not in self.known_empty_stashes \
+                            and any([p[i] != self.current_path.positions[-1][i] for i in range(2)]):
+                        distance = simple_distance(self.geometry.position, p)
+                        if distance < min_distance:
+                            min_distance = distance
+                            min_stash_location = p
+
+                if min_stash_location is not None:
+                    return_z = self.geometry.position[2]
+                    self.current_path = Path()
+                    self.current_path.add_position([min_stash_location[0], min_stash_location[1], return_z],
+                                                   optional_distance=30)
+                    self.current_path.add_position([min_stash_location[0], min_stash_location[1],
+                                                    Block.SIZE + self.geometry.size[2] / 2])
+
         next_position, current_direction = self.move(environment)
-        if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
+        if self.current_path.optional_area_reached(self.geometry.position):
+            ret = self.current_path.advance()
+            if ret:
+                next_position, current_direction = self.move(environment)
+            else:
+                self.current_path.retreat()
+
+        if simple_distance(self.geometry.position, next_position) <= Agent.MOVEMENT_PER_STEP:
             self.geometry.position = next_position
             ret = self.current_path.advance()
 
             # if arrived at the stash, release the block and go to fetch a seed currently there is not other task
             # that needs to be performed in that case, therefore we can be sure that a seed should be fetched
             if not ret:
+                self.aprint("Trying to return block {} (drop_out_of_swarm: {})"
+                            .format(self.current_block, self.drop_out_of_swarm))
                 self.geometry.attached_geometries.remove(self.current_block.geometry)
                 backup = []
                 for s in self.known_empty_stashes:
@@ -1271,31 +1726,33 @@ class PerimeterFollowingAgentLocal(Agent):
                         backup.append(s)
                 stashes = environment.seed_stashes if self.current_block_type_seed else environment.block_stashes
                 if self.current_block_type_seed:
+                    self.aprint("Block color should be set to {}".format(Block.COLORS_SEEDS[0]))
                     self.current_block.color = Block.COLORS_SEEDS[0]
                     environment.seed_stashes[tuple(self.current_block.geometry.position[:2])].append(self.current_block)
                 else:
+                    self.aprint("Block color should be set to white")
                     self.current_block.color = "#FFFFFF"
                     environment.block_stashes[tuple(self.current_block.geometry.position[:2])].append(
                         self.current_block)
-                # aprint(self.id, "RETURNING BLOCK TO STASH AT {}".format(tuple(self.current_block.geometry.position[:2])))
-                # aprint(self.id, "STASHES: {}".format(stashes))
+                # self.aprint("RETURNING BLOCK TO STASH AT {}".format(tuple(self.current_block.geometry.position[:2])))
+                # self.aprint("STASHES: {}".format(stashes))
                 for key in environment.block_stashes:
                     for block in environment.block_stashes[key]:
                         if block.color == "green":
-                            aprint(self.id, "BLOCK RETURNED TO BLOCK STASH WITHOUT TURNING HWHITE")
-                            print()
+                            self.aprint("BLOCK RETURNED TO BLOCK STASH WITHOUT TURNING HWHITE")
+                            self.aprint("")
                 if self.current_block.color == "green":
-                    aprint(self.id, "BLOCK RETURNED STILL GREEN")
-                    print()
+                    self.aprint("BLOCK RETURNED STILL GREEN")
+                    self.current_block.color = "#FFFFFF"
+                    self.aprint("")
                 self.known_empty_stashes = backup
                 self.current_block = None
                 self.current_path = None
-                self.current_task = Task.FETCH_BLOCK
+                if self.drop_out_of_swarm:
+                    self.current_task = Task.LAND
+                else:
+                    self.current_task = Task.FETCH_BLOCK
                 self.task_history.append(self.current_task)
-                if not self.current_block_type_seed:
-                    # decide on where to place the seed that is to be fetched
-                    # order grid positions based on distance from here
-                    pass
 
                 self.current_block_type_seed = not self.current_block_type_seed
         else:
@@ -1385,7 +1842,7 @@ class PerimeterFollowingAgentLocal(Agent):
         current_direction /= sum(np.sqrt(current_direction ** 2))
         current_direction *= Agent.MOVEMENT_PER_STEP
 
-        if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
+        if simple_distance(self.geometry.position, next_position) <= Agent.MOVEMENT_PER_STEP:
             self.geometry.position = next_position
             ret = self.current_path.advance()
             if not ret:
@@ -1440,7 +1897,7 @@ class PerimeterFollowingAgentLocal(Agent):
             not_dodging = not_dodging and \
                           simple_distance(a.geometry.position, self.current_seed.geometry.position) > \
                           simple_distance(self.geometry.position, self.current_seed.geometry.position)
-            # aprint(self.id, "Distance to current goal: {:3f} (other agent) and {:3f} (self)".format(
+            # self.aprint("Distance to current goal: {:3f} (other agent) and {:3f} (self)".format(
             #     simple_distance(a.geometry.position, self.current_seed.geometry.position),
             #     simple_distance(self.geometry.position, self.current_seed.geometry.position)))
 
@@ -1494,7 +1951,7 @@ class PerimeterFollowingAgentLocal(Agent):
         self.current_collision_avoidance_counter += 1
 
         next_position, current_direction = self.move(environment)
-        if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
+        if simple_distance(self.geometry.position, next_position) <= Agent.MOVEMENT_PER_STEP:
             self.geometry.position = next_position
             ret = self.current_path.advance()
             if not ret:
@@ -1518,7 +1975,7 @@ class PerimeterFollowingAgentLocal(Agent):
             not_dodging = not_dodging and \
                           simple_distance(a.geometry.position, self.current_seed.geometry.position) > \
                           simple_distance(self.geometry.position, self.current_seed.geometry.position)
-            # aprint(self.id, "Distance to current goal: {:3f} (other agent) and {:3f} (self)".format(
+            # self.aprint("Distance to current goal: {:3f} (other agent) and {:3f} (self)".format(
             #     simple_distance(a.geometry.position, self.current_seed.geometry.position),
             #     simple_distance(self.geometry.position, self.current_seed.geometry.position)))
 
@@ -1572,7 +2029,7 @@ class PerimeterFollowingAgentLocal(Agent):
         self.current_collision_avoidance_counter += 1
 
         next_position, current_direction = self.move(environment)
-        if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
+        if simple_distance(self.geometry.position, next_position) <= Agent.MOVEMENT_PER_STEP:
             self.geometry.position = next_position
             ret = self.current_path.advance()
             if not ret:
@@ -1604,29 +2061,34 @@ class PerimeterFollowingAgentLocal(Agent):
             self.current_path.add_position([self.geometry.position[0], self.geometry.position[1], land_level_z])
             self.current_path.add_position([candidate_x, candidate_y, land_level_z])
             self.current_path.add_position([candidate_x, candidate_y, self.geometry.size[2] / 2])
-            # aprint(self.id, "SETTING PATH TO LAND: {}".format(self.current_path.positions))
+            # self.aprint("SETTING PATH TO LAND: {}".format(self.current_path.positions))
 
         next_position, current_direction = self.move(environment)
-        if simple_distance(self.geometry.position, next_position) < Agent.MOVEMENT_PER_STEP:
+        if simple_distance(self.geometry.position, next_position) <= Agent.MOVEMENT_PER_STEP:
             self.geometry.position = next_position
             ret = self.current_path.advance()
             if not ret:
                 if abs(self.geometry.position[2] - Block.SIZE / 2) > Block.SIZE / 2:
-                    aprint(self.id, "FINISHED WITHOUT LANDING")
-                    aprint(self.id, "PATH POSITIONS: {}\nPATH INDEX: {}".format(self.current_path.positions,
-                                                                                self.current_path.current_index))
-                    aprint(self.id, "POSITION IN QUESTION: {}".format(
+                    self.aprint("FINISHED WITHOUT LANDING")
+                    self.aprint("PATH POSITIONS: {}\nPATH INDEX: {}".format(self.current_path.positions,
+                                                                            self.current_path.current_index))
+                    self.aprint("POSITION IN QUESTION: {}".format(
                         self.current_path.positions[self.current_path.current_index]))
-                    aprint(self.id, "LAST 10 TASKS: {}".format(self.task_history[-10:]))
-                    aprint(self.id, "HAPPENING IN AGENT: {}".format(self))
-                    aprint(self.id, "placeholder")
+                    self.aprint("LAST 10 TASKS: {}".format(self.task_history[-10:]))
+                    self.aprint("HAPPENING IN AGENT: {}".format(self))
+                    self.aprint("placeholder")
                     self.current_path = None
                 if self.current_block is not None:
-                    aprint(self.id, "LANDING WITH BLOCK STILL ATTACHED")
-                    aprint(self.id, "LAST 20 TASKS: {}".format(self.task_history[-10:]))
-                    aprint(self.id, "what")
-                self.current_task = Task.FINISHED
+                    self.aprint("LANDING WITH BLOCK STILL ATTACHED")
+                    self.aprint("LAST 20 TASKS: {}".format(self.task_history[-10:]))
+                    self.aprint("what")
+                if self.drop_out_of_swarm:
+                    self.wait_for_rejoining = True
+                    self.current_task = Task.REJOIN_SWARM
+                else:
+                    self.current_task = Task.FINISHED
                 self.task_history.append(self.current_task)
+                self.current_path = None
         else:
             self.geometry.position = self.geometry.position + current_direction
 
@@ -1638,6 +2100,13 @@ class PerimeterFollowingAgentLocal(Agent):
         # place block
         if self.current_seed is None:
             self.current_seed = environment.blocks[0]
+            self.local_occupancy_map[self.current_seed.grid_position[2],
+                                     self.current_seed.grid_position[1],
+                                     self.current_seed.grid_position[0]] = 1
+            self.current_component_marker = self.component_target_map[self.current_seed.grid_position[2],
+                                                                      self.current_seed.grid_position[1],
+                                                                      self.current_seed.grid_position[0]]
+
         if self.initial_position is None:
             self.initial_position = np.copy(self.geometry.position)
 
@@ -1646,7 +2115,7 @@ class PerimeterFollowingAgentLocal(Agent):
 
         if self.current_task != Task.LAND and self.check_structure_finished(self.local_occupancy_map):
             self.current_task = Task.LAND
-            aprint(self.id, "LANDING (8)")
+            self.aprint("LANDING (8)")
             self.task_history.append(self.current_task)
 
         self.agent_statistics.step(environment)
@@ -1659,6 +2128,8 @@ class PerimeterFollowingAgentLocal(Agent):
             self.pick_up_block(environment)
         elif self.current_task == Task.TRANSPORT_BLOCK:
             self.transport_block(environment)
+        elif self.current_task == Task.WAIT_ON_PERIMETER:
+            self.wait_on_perimeter(environment)
         elif self.current_task == Task.MOVE_TO_PERIMETER:
             self.move_to_perimeter(environment)
         elif self.current_task == Task.FIND_ATTACHMENT_SITE:
@@ -1678,8 +2149,9 @@ class PerimeterFollowingAgentLocal(Agent):
 
         if self.current_task != Task.FINISHED:
             if len(self.position_queue) == self.position_queue.maxlen \
-                    and sum([simple_distance(self.geometry.position, x) for x in self.position_queue]) < 70:
-                aprint(self.id, "STUCK")
+                    and sum([simple_distance(self.geometry.position, x) for x in self.position_queue]) < 70 \
+                    and self.current_path is not None:
+                self.aprint("STUCK")
                 self.current_path.add_position([self.geometry.position[0],
                                                 self.geometry.position[1],
                                                 self.geometry.position[2] + self.geometry.size[2] * random.random()],
@@ -1692,7 +2164,7 @@ class PerimeterFollowingAgentLocal(Agent):
             for a in environment.agents:
                 if self is not a and self.collision_potential(a) \
                         and a.geometry.position[2] <= self.geometry.position[2] - self.required_vertical_distance:
-                    # aprint(self.id, "INITIATING HIGH-LEVEL COLLISION AVOIDANCE")
+                    # self.aprint("INITIATING HIGH-LEVEL COLLISION AVOIDANCE")
                     self.previous_task = self.current_task
                     self.current_task = Task.AVOID_COLLISION
                     self.task_history.append(self.current_task)
@@ -1705,6 +2177,8 @@ class PerimeterFollowingAgentLocal(Agent):
 
         self.collision_queue.append(collision_danger)
         # if len(self.collision_queue) == self.collision_queue.maxlen:
-        #     aprint(self.id, "Proportion of collision danger to other movement: {}"
+        #     self.aprint("Proportion of collision danger to other movement: {}"
         #            .format(sum(self.collision_queue) / self.collision_queue.maxlen))
-        # aprint(self.id, "Current collision danger proportion: {}".format(self.collision_count / self.step_count))
+        # self.aprint("Current collision danger proportion: {}".format(self.collision_count / self.step_count))
+
+

@@ -27,6 +27,8 @@ class Task(Enum):
     CHECK_STASHES = 11
     LAND = 12
     FINISHED = 13
+    WAIT_ON_PERIMETER = 14
+    REJOIN_SWARM = 15
 
 
 class AgentStatistics:
@@ -46,13 +48,18 @@ class AgentStatistics:
             Task.AVOID_COLLISION: 0,
             Task.CHECK_STASHES: 0,
             Task.LAND: 0,
-            Task.FINISHED: 0
+            Task.FINISHED: 0,
+            Task.WAIT_ON_PERIMETER: 0,
+            Task.REJOIN_SWARM: 0
         }
         self.previous_task = None
+        self.collision_danger = []
+        self.collision_avoidance_contribution = []
+        self.attachment_interval = []
 
     def step(self, environment: env.map.Map):
         if self.previous_task != self.agent.current_task:
-            # aprint(self.agent.id, "Changed task to {}".format(self.agent.current_task))
+            # print("[Agent {}]: Changed task to {}".format(self.agent.id, self.agent.current_task))
             self.previous_task = self.agent.current_task
         self.task_counter[self.agent.current_task] = self.task_counter[self.agent.current_task] + 1
 
@@ -69,13 +76,6 @@ def check_map(map_to_check, position, comparator=lambda x: x != 0):
         return val
 
 
-def aprint(identifier, *args, **kwargs):
-    if isinstance(identifier, str):
-        identifier = "?"
-    print("[Agent {}]: ".format(identifier), end="")
-    print(*args, **kwargs)
-
-
 class Agent:
     __metaclass__ = ABCMeta
 
@@ -85,8 +85,10 @@ class Agent:
                  position: List[float],
                  size: List[float],
                  target_map: np.ndarray,
-                 required_spacing: float):
+                 required_spacing: float,
+                 printing_enabled=True):
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.printing_enabled = printing_enabled
 
         self.geometry = GeomBox(position, size, 0.0)
         self.collision_avoidance_geometry = GeomBox(position,
@@ -104,7 +106,7 @@ class Agent:
         self.target_map = target_map
         self.component_target_map = None
         self.required_spacing = required_spacing
-        self.required_distance = 80
+        self.required_distance = 90
         self.required_vertical_distance = -50
         self.known_empty_stashes = []
 
@@ -116,6 +118,7 @@ class Agent:
         self.current_trajectory = None
         self.current_task = Task.FETCH_BLOCK
         self.current_path = None
+        self.previous_path = None
         self.current_static_location = self.geometry.position
         self.current_structure_level = 0
         self.current_grid_position = None  # closest grid position if at structure
@@ -132,16 +135,32 @@ class Agent:
         self.current_collision_avoidance_counter = 0
         self.current_stash_path = None
         self.current_stash_path_index = 0
+        self.current_waiting_height = 0
 
         self.backup_grid_position = None
         self.previous_task = Task.FETCH_BLOCK
         self.transporting_to_seed_site = False
         self.path_before_collision_avoidance_none = False
+        self.wait_for_rejoining = False
+        self.rejoining_swarm = False
         self.position_queue = dq(maxlen=20)
         self.collision_queue = dq(maxlen=100)
+        self.collision_average_queue = dq(maxlen=100)
+        self.path_finding_contribution_queue = dq(maxlen=100)
+        self.collision_avoidance_contribution_queue = dq(maxlen=100)
         self.collision_count = 0
         self.collision_average = 0
         self.step_count = 0
+        self.non_static_count = 0
+        self.count_since_last_attachment = 0
+        self.reference_position = np.copy(self.geometry.position)
+        self.drop_out_of_swarm = False
+        self.close_to_seed_count = 0
+        self.seed_arrival_delay_queue = dq(maxlen=10)
+
+        self.max_agent_count = 20
+        self.area_density_restricted = True
+        self.stash_min_distance = 100
 
         self.collision_using_geometries = False
         self.task_history = []
@@ -166,8 +185,6 @@ class Agent:
         return self.geometry.overlaps(other.geometry)
 
     def move(self, environment: env.map.Map, react_only=False):
-        # TODO: implement reaction only movement, trying to stay in one spot if possible, instead of following path
-
         if not react_only:
             next_position = self.current_path.next()
             current_direction = self.current_path.direction_to_next(self.geometry.position)
@@ -178,45 +195,22 @@ class Agent:
             original_direction = next_position - self.geometry.position
         current_direction /= sum(np.sqrt(current_direction ** 2))
 
-        # do (force field, not planned) collision avoidance
         movement_multiplier = 1.0
-        stop_moving = False
-        candidates = []
-        # TODO: scale force vector by angle compared to direction of movement
+        # scale force vector by angle compared to direction of movement?
         # if angle is small, then the influence of the force vector should also be smaller because
         # the movement itself will already contribute to the collision avoidance
         # otherwise, the force vector has to do most of the work (e.g. also stop the agent movement forwards
         # and should therefore be scaled up)
+        # collision_count_updated = False or not self.current_task in [Task.FIND_NEXT_COMPONENT,
+        #                                                              Task.FIND_ATTACHMENT_SITE,
+        #                                                              Task.MOVE_TO_PERIMETER,
+        #                                                              Task.SURVEY_COMPONENT,
+        #                                                              Task.PLACE_BLOCK]
+        collision_count_updated = False
+        total_ff_vector = np.array([0.0, 0.0, 0.0])
         if self.collision_possible:
             for a in environment.agents:
                 if self is not a and self.collision_potential(a) and self.collision_potential_visible(a):
-                    candidates.append(a)
-                    """
-                    position_difference = a.geometry.position - self.geometry.position
-                    position_signed_angle = np.arctan2(position_difference[1], position_difference[0]) - \
-                                            np.arctan2(original_direction[1], original_direction[0])
-                    # if abs(self.geometry.position[2] - a.geometry.position[2]) < 20.0 \
-                    #         and abs(position_signed_angle) < np.pi / 2:
-                    if abs(position_signed_angle) < np.pi / 2:
-                        # if the other QC is at roughly the same height and in front of us, initiate force-field
-                        # collision avoidance (at least check whether it should be performed)
-                        if a.current_path is not None:
-                            other_direction = a.current_path.next() - np.array(a.geometry.position)
-                            direction_signed_angle = np.arctan2(other_direction[1], other_direction[0]) - \
-                                                     np.arctan2(original_direction[1], original_direction[0])
-                            if abs(direction_signed_angle) >= np.pi / 2:
-                                # other agent is heading (roughly) towards us, should do force field avoidance
-                                # should consider making this area bigger
-                                force_field_vector = np.array([0.0, 0.0, 0.0])
-                                force_field_vector += (self.geometry.position - a.geometry.position)
-                                force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
-                                force_field_vector *= 50 / simple_distance(self.geometry.position, a.geometry.position)
-                                current_direction += 2 * force_field_vector
-                            else:
-                                # wait until other agent has moved on
-                                stop_moving = True
-                    """
-
                     position_difference = a.geometry.position - self.geometry.position
                     position_signed_angle = np.arctan2(position_difference[1], position_difference[0]) - \
                                             np.arctan2(original_direction[1], original_direction[0])
@@ -229,62 +223,32 @@ class Agent:
                         force_field_vector *= 100 / simple_distance(self.geometry.position, a.geometry.position)
                     else:
                         force_field_vector *= 200 / simple_distance(self.geometry.position, a.geometry.position)
-                    # force_field_vector[:2] *= np.rad2deg(abs(position_signed_angle)) / simple_distance(self.geometry.position, a.geometry.position)
-                    # force_field_vector[0] = force_field_vector[0] * pow(1.5, position_signed_angle) * 100 / simple_distance(self.geometry.position, a.geometry.position)
-                    # force_field_vector[1] = force_field_vector[1] * pow(1.5, position_signed_angle) * 100 / simple_distance(self.geometry.position, a.geometry.position)
-                    # force_field_vector[2] = force_field_vector[2] * 100 / simple_distance(self.geometry.position, a.geometry.position)
-
-                    # force_field_vector[0] = force_field_vector[0] * 25 / np.sqrt(abs(np.rad2deg(position_signed_angle)))
-                    # force_field_vector[1] = force_field_vector[1] * 25 / np.sqrt(abs(np.rad2deg(position_signed_angle)))
-                    # force_field_vector[2] = force_field_vector[2] * 100 / simple_distance(self.geometry.position, a.geometry.position)
 
                     current_direction += force_field_vector
+                    total_ff_vector += force_field_vector
 
-                    """
-                    if a.current_path is not None:
-                        other_direction = a.current_path.next() - np.array(a.geometry.position)
-                        dot_product = other_direction[0] * original_direction[0] + \
-                                      other_direction[1] * original_direction[1]
-                        length_product = np.sqrt(other_direction[0] ** 2 + other_direction[1] ** 2) * \
-                                         np.sqrt(original_direction[0] ** 2 + original_direction[1] ** 2)
-                        angle = 0
-                        if length_product != 0:
-                            angle = np.arccos(dot_product / length_product)
+                    if not collision_count_updated:
+                        self.collision_queue.append(1)
+                        self.agent_statistics.collision_danger.append(1)
+                        self.collision_count += 1
+                        collision_count_updated = True
 
-                        # if angle >= np.pi / 4 or (other_direction[0] == 0 and other_direction[1] == 0):
-                        if a.geometry.position[2] <= self.geometry.position[2]:
-                            force_field_vector = np.array([0.0, 0.0, 0.0])
-                            force_field_vector += (self.geometry.position - a.geometry.position)
-                            force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
-                            # force_field_vector = rotation_2d(force_field_vector, np.pi / 4)
-                            # force_field_vector = rotation_2d_experimental(force_field_vector, np.pi / 4)
-                            force_field_vector *= 50 / simple_distance(self.geometry.position, a.geometry.position)
-                            current_direction += 2 * force_field_vector
-                    """
-            # if len(candidates) != 0:
-            #     min_distance = float("inf")
-            #     min_agent = None
-            #     for ca in candidates:
-            #         temp = simple_distance(self.geometry.position, ca.geometry.position)
-            #         if temp < min_distance:
-            #             min_distance = temp
-            #             min_agent = ca
-            #
-            #     force_field_vector = np.array([0.0, 0.0, 0.0])
-            #     force_field_vector += (self.geometry.position - min_agent.geometry.position)
-            #     force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
-            #     force_field_vector = rotation_2d(force_field_vector, random.random() * np.pi / 8)
-            #     force_field_vector *= 100 / simple_distance(self.geometry.position, min_agent.geometry.position)
-            #     current_direction += force_field_vector
+        if not collision_count_updated:
+            self.agent_statistics.collision_danger.append(0)
+            self.collision_queue.append(0)
+
+        ca_contribution = sum(np.sqrt(total_ff_vector ** 2))
+        pf_contribution = 1.0
+        self.collision_avoidance_contribution_queue.append(ca_contribution)
+        self.path_finding_contribution_queue.append(pf_contribution)
+
+        self.agent_statistics.collision_avoidance_contribution.append(ca_contribution)
 
         current_direction /= sum(np.sqrt(current_direction ** 2))
         current_direction *= Agent.MOVEMENT_PER_STEP * movement_multiplier
 
         if any(np.isnan(current_direction)):
             current_direction = np.array([0, 0, 0])
-
-        if stop_moving:
-            return False, False
 
         return next_position, current_direction
 
@@ -346,7 +310,12 @@ class Agent:
                 return True
         return False
 
-    def direction_agent_count(self, environment: env.map.Map, directions=None, angle=np.pi / 4, max_distance=500):
+    def direction_agent_count(self,
+                              environment: env.map.Map,
+                              directions=None,
+                              angle=np.pi / 4,
+                              max_distance=500,
+                              max_vert_distance=50):
         # should this method only return the positions of "reasonably" visible agents or should it do more
         # and e.g. just give directions (angles) and distances?
 
@@ -356,7 +325,7 @@ class Agent:
         agents_counts = [0] * len(directions)
         for a in environment.agents:
             if a is not self and self.collision_potential_visible(a) \
-                    and a.geometry.position[2] <= self.geometry.position[2] + 50 \
+                    and a.geometry.position[2] <= self.geometry.position[2] + max_vert_distance \
                     and simple_distance(self.geometry.position[:2], a.geometry.position[:2]) < max_distance \
                     and environment.offset_origin[0] - a.geometry.size[0] <= a.geometry.position[0] <= \
                     Block.SIZE * self.target_map.shape[2] + environment.offset_origin[0] + a.geometry.size[0] \
@@ -374,7 +343,7 @@ class Agent:
                     position_difference = a.geometry.position - self.geometry.position
                     position_signed_angle = np.arctan2(position_difference[1], position_difference[0]) - \
                                             np.arctan2(d[1], d[0])
-                    # aprint(self.id, "Direction {} signed angle to agent {}: {}".format(d[:2], a.id, np.rad2deg(position_signed_angle)))
+                    # self.aprint("Direction {} signed angle to agent {}: {}".format(d[:2], a.id, np.rad2deg(position_signed_angle)))
                     if abs(position_signed_angle) < angle:
                         agents_counts[d_idx] = agents_counts[d_idx] + 1
 
@@ -463,6 +432,28 @@ class Agent:
                             else:
                                 self.local_occupancy_map[self.current_grid_position[2], y, other_x:x] = 1
 
+        # for y in range(3, 7):
+        #     if self.local_occupancy_map[0, y, 0] != 0 and environment.occupancy_map[0, y, 0] == 0:
+        #         self.aprint("Local occupancy map occupied at {} where environment not occupied."
+        #                .format((0, y, 0)))
+        #         self.aprint("Current position: {}".format(self.current_grid_position))
+        #         self.aprint("Local occupancy map at this level:\n{}".format(self.local_occupancy_map[0]))
+        #         self.aprint("Global occupancy map at this level:\n{}".format(environment.occupancy_map[0]))
+        #         print()
+        #         break
+
+        for z in range(self.local_occupancy_map.shape[0]):
+            for y in range(self.local_occupancy_map.shape[1]):
+                for x in range(self.local_occupancy_map.shape[2]):
+                    if self.local_occupancy_map[z, y, x] != 0 and environment.occupancy_map[z, y, x] == 0:
+                        self.aprint("Local occupancy map occupied at {} where environment not occupied."
+                               .format((x, y, z)))
+                        self.aprint("Current position: {}".format(self.current_grid_position))
+                        self.aprint("Local occupancy map at this level:\n{}".format(self.local_occupancy_map[z]))
+                        self.aprint("Global occupancy map at this level:\n{}".format(environment.occupancy_map[z]))
+                        self.aprint("")
+                        break
+
     def check_component_finished(self, compared_map: np.ndarray, component_marker=None):
         if component_marker is None:
             component_marker = self.current_component_marker
@@ -494,11 +485,13 @@ class Agent:
         if level is None:
             level = self.current_structure_level
         candidate_components = []
+        self.aprint("CHECKING UNFINISHED MARKERS, COMPONENT TARGET MAP:\n{}".format(self.component_target_map[level]))
         for marker in np.unique(self.component_target_map[level]):
             if marker != 0:  # != self.current_component_marker:
                 subset_indices = np.where(
                     self.component_target_map[level] == marker)
                 candidate_values = compared_map[level][subset_indices]
+                self.aprint("CANDIDATE VALUES FOR MARKER {}:\n{}".format(marker, candidate_values))
                 # the following check means that on the occupancy map, this component still has all
                 # positions unoccupied, i.e. no seed has been placed -> this makes it a candidate
                 # for placing the currently transported seed there
@@ -520,9 +513,9 @@ class Agent:
         return candidate_components
 
     def component_seed_location(self, component_marker, level=None, include_closing_corners=False):
-        if component_marker == 2:
-            location = np.where(self.target_map == 2)
-            return location[2][0], location[1][0], location[0][0]
+        # if component_marker == 2:
+        #     location = np.where(self.target_map == 2)
+        #     return location[2][0], location[1][0], location[0][0]
 
         if level is None:
             level = self.current_structure_level
@@ -540,7 +533,11 @@ class Agent:
             occupied_locations = [x for x in occupied_locations if (x[1], x[0], level)
                                   not in self.closing_corners[level][self.current_component_marker]]
 
-        center_point = np.array([max([l[0] for l in occupied_locations]), max([l[1] for l in occupied_locations])]) / 2
+        min_y = min([l[0] for l in occupied_locations])
+        max_y = max([l[0] for l in occupied_locations])
+        min_x = min([l[1] for l in occupied_locations])
+        max_x = max([l[1] for l in occupied_locations])
+        center_point = np.array([max_y + min_y, max_x + min_x]) / 2
         min_distance = float("inf")
         min_location = None
         for l in occupied_locations:
@@ -589,10 +586,10 @@ class Agent:
                     position + np.array([1, 0, 0])) and tuple(position + np.array([1, 0, 0])) in possible_boundaries:
                 counter += 1
             if counter >= 2:
-                # aprint(self.id, "CORNER ALREADY SURROUNDED BY ADJACENT BLOCKS")
+                # self.aprint("CORNER ALREADY SURROUNDED BY ADJACENT BLOCKS")
                 loop_corner_attachable = True
             else:
-                # aprint(self.id, "CORNER NOT SURROUNDED BY ADJACENT BLOCKS YET")
+                # self.aprint("CORNER NOT SURROUNDED BY ADJACENT BLOCKS YET")
                 pass
         else:
             loop_corner_attachable = True
@@ -712,7 +709,7 @@ class Agent:
                         if m1_clear and m2_clear:
                             # print("Component {} and {} can be merged.".format(m1, m2))
                             mergeable_pairs.append((m1, m2))
-        print("Mergeable pairs:\n{}".format(mergeable_pairs))
+        self.aprint("Mergeable pairs:\n{}".format(mergeable_pairs))
 
         # merge all components which share one component in the mergeable pairs list
         # first group all those pairs which have share components
@@ -750,7 +747,7 @@ class Agent:
             all_ml_components.extend(unique_values)
         mergeable_groups = backup
 
-        print("Mergeable groups:\n{}".format(mergeable_groups))
+        self.aprint("Mergeable groups:\n{}".format(mergeable_groups))
 
         ml_index = 2
         ml_component_map = np.zeros_like(self.component_target_map)
@@ -793,8 +790,6 @@ class Agent:
                         flood_fill(hole_map[z], y, x, hole_marker)
                         valid_markers[z].append(hole_marker)
                         hole_marker += 1
-
-        # TODO: need to check whether hole is between two different components, because then it's not a hole
 
         for z in range(len(valid_markers)):
             temp_copy = valid_markers[z].copy()
@@ -844,8 +839,8 @@ class Agent:
                 # should already only include components in hole boundaries which are actually AROUND the hole
                 # i.e. the hole does not enclose that component
 
-        print("HOLE MAP BEFORE BETWEEN-COMPONENT-REMOVAL:\n{}".format(hole_map))
-        print("HOLES TO BE REVIEWED: {}".format(removable_holes))
+        self.aprint("HOLE MAP BEFORE BETWEEN-COMPONENT-REMOVAL:\n{}".format(hole_map))
+        self.aprint("HOLES TO BE REVIEWED: {}".format(removable_holes))
         # why that stupid name? because this might be a case of
         # a) the hole having to be removed because it is between components
         # b) the hole encircling a component, but still being a valid hole
@@ -889,13 +884,13 @@ class Agent:
                     # the component is (hopefully) enclosed by the hole
                     local_enclosed_components.append(ac)
             if len(local_enclosed_components) <= len(adjacent_components) - 2:
-                print("HOLE {} IS BETWEEN COMPONENTS AND THEREFORE REMOVABLE.".format(m))
+                self.aprint("HOLE {} IS BETWEEN COMPONENTS AND THEREFORE REMOVABLE.".format(m))
                 index = valid_markers[z].index(m)
                 np.place(hole_map[z], hole_map[z] == m, 0)
                 del valid_markers[z][index]
                 del hole_boundaries[z][index]
             else:
-                print("ADJACENT COMPONENTS ENCLOSED BY HOLE {}:\n{}".format(m, local_enclosed_components))
+                self.aprint("ADJACENT COMPONENTS ENCLOSED BY HOLE {}:\n{}".format(m, local_enclosed_components))
                 enclosed_components[(z, m)] = local_enclosed_components
 
         # for z, m in removable_holes:
@@ -933,8 +928,8 @@ class Agent:
         #         del valid_markers[z][index]
         #         del hole_boundaries[z][index]
 
-        print("COMPONENT MAP:\n{}".format(self.component_target_map))
-        print("ENCLOSED COMPONENTS: {}".format(enclosed_components))
+        self.aprint("COMPONENT MAP:\n{}".format(self.component_target_map))
+        self.aprint("ENCLOSED COMPONENTS: {}".format(enclosed_components))
 
         for z, m in enclosed_components:
             index = valid_markers[z].index(m)
@@ -1029,9 +1024,19 @@ class Agent:
                     # it should also be possible to determine the correct closing corner
                     # TODO: somehow make sure that using possibly including the closing corners here does
                     # not lead to problems (although there should be other corners that could be used (?))
-                    adjacent_seed_location = self.component_seed_location(cm, include_closing_corners=True)
 
-                    print("\nSEED LOCATION FOR HOLE {} IN COMPONENT {}: {}".format(m, cm, adjacent_seed_location))
+                    # need to check whether the component contains the original seed
+                    if cm in self.component_target_map[self.target_map == 2]:
+                        # in this case, the original seed is in this component and needs to be chosen as the position
+                        position = np.where(self.target_map == 2)
+                        position = tuple(zip(position[2], position[1], position[0]))
+                        if len(position) > 0:
+                            self.logger.warning("Too many seeds when creating hole map.")
+                        adjacent_seed_location = position[0]
+                    else:
+                        adjacent_seed_location = self.component_seed_location(cm, include_closing_corners=True)
+
+                    self.aprint("\nSEED LOCATION FOR HOLE {} IN COMPONENT {}: {}".format(m, cm, adjacent_seed_location))
 
                     # determine the location of the hole with respect to the seed (NW, NE, SW, SE)
                     # does this depend on the min/max? I think it can, but doesnt have to
@@ -1054,11 +1059,11 @@ class Agent:
                         temp = shortest_path(
                             self.target_map[corner[2]], tuple(adjacent_seed_location[:2]), tuple(corner[:2]))
                         current_sp_lengths.append(len(temp))
-                    print("SHORTEST PATH LENGTHS FOR HOLE {} IN COMPONENT {}:\n{}".format(m, cm, current_sp_lengths))
+                    self.aprint("SHORTEST PATH LENGTHS FOR HOLE {} IN COMPONENT {}:\n{}".format(m, cm, current_sp_lengths))
                     ordered_idx = sorted(range(len(current_sp_lengths)), key=lambda i: current_sp_lengths[i])
                     ordered_outer = [current_outer[i] for i in ordered_idx]
                     ordered_boundary = [current_boundary[i] for i in ordered_idx]
-                    print("ORDERED POSSIBLE CORNERS:\n{}\n{}"
+                    self.aprint("ORDERED POSSIBLE CORNERS:\n{}\n{}"
                           .format([current_sp_lengths[i] for i in ordered_idx], ordered_outer))
 
                     # other possibility: choose the corner that excludes the smallest area?
@@ -1178,7 +1183,17 @@ class Agent:
             for x, y, z in all_hole_boundaries[z]:
                 boundary_map[z, y, x] = 1
 
-        print("\nCLOSING CORNERS:\n{}".format(closing_corners))
-        print("CLOSING CORNER ORIENTATIONS:\n{}".format(closing_corner_orientations))
+        self.aprint("\nCLOSING CORNERS:\n{}".format(closing_corners))
+        self.aprint("CLOSING CORNER ORIENTATIONS:\n{}".format(closing_corner_orientations))
 
         return closing_corners, hole_map, hole_boundary_coords, closing_corner_boundaries, closing_corner_orientations
+
+    def aprint(self, *args, print_as_map=False, **kwargs):
+        if self.printing_enabled:
+            if print_as_map:
+                print("[Agent {}]: ".format(self.id))
+                print_map(*args, **kwargs)
+            else:
+                print("[Agent {}]: ".format(self.id), end="")
+                print(*args, **kwargs)
+

@@ -393,6 +393,12 @@ def legal_attachment_sites_revisited(target_map: np.ndarray,
                 if 1 <= counter < 3:
                     legal_sites[y, x] = 1
 
+    print_map(target_map)
+    print_map(occupancy_map)
+
+    print("NO WROEWRJESWÜORENMOÜF")
+    print_map(legal_sites)
+
     # identifying those sites where the row rule would be violated
     for y in range(legal_sites.shape[0]):
         for x in range(legal_sites.shape[1]):
@@ -439,6 +445,9 @@ def legal_attachment_sites_revisited(target_map: np.ndarray,
     # an alternative might be that for each row/column only the most CCW site would be a legal attachment site?
     # -> let's try this one first because it's easier
     # -> also choose southwestern-most (?)
+
+    print("FUCK FUCK FUCK")
+    print_map(legal_sites)
 
     # determine corner sites (two adjacent blocks already placed) and protruding sites (width 1 parts of structure)
     corner_sites = []
@@ -739,10 +748,28 @@ def cw_angle_and_distance(point, origin=(0, 0), ref_vec=(0, 1)):
     if len_vector == 0:
         return -math.pi, 0
     normalized = [vector[0]/len_vector, vector[1]/len_vector]
-    dot_prod  = normalized[0] * ref_vec[0] + normalized[1] * ref_vec[1]     # x1*x2 + y1*y2
+    dot_prod = normalized[0] * ref_vec[0] + normalized[1] * ref_vec[1]     # x1*x2 + y1*y2
     diff_prod = ref_vec[1] * normalized[0] - ref_vec[0] * normalized[1]     # x1*y2 - y1*x2
     angle = math.atan2(diff_prod, dot_prod)
     if angle < 0:
         return 2*math.pi+angle, len_vector
+    return angle, len_vector
+
+
+def ccw_angle_and_distance(point, origin=(0, 0), ref_point=(0, 1)):
+    vector = np.array([point[0] - origin[0], point[1] - origin[1]])
+    len_vector = sum(np.sqrt(vector ** 2))
+    ref_vector = np.array([ref_point[0] - origin[0], ref_point[1] - origin[1]])
+    len_ref_vector = sum(np.sqrt(ref_vector ** 2))
+
+    if len_vector == 0 or len_ref_vector == 0:
+        return -np.pi, 0
+
+    signed_angle = np.arctan2(vector[1], vector[0]) - np.arctan2(ref_vector[1], ref_vector[0])
+    if signed_angle < 0:
+        angle = 2 * np.pi + signed_angle
+    else:
+        angle = signed_angle
+
     return angle, len_vector
 

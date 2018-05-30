@@ -2,7 +2,8 @@ import time
 import random
 import json
 from emergency_structures import emergency_structures
-from agents.agent import PerimeterFollowingAgent, Task
+from agents.agent import Task
+from agents.local_knowledge.ps_agent import PerimeterFollowingAgentLocal
 from agents.local_knowledge.sp_agent import ShortestPathAgentLocal
 from env.map import *
 from env.util import *
@@ -217,7 +218,7 @@ def main():
     target_maps = emergency_structures
     agent_counts = [1, 2, 4, 8]
     scales = [1]
-    agent_types = [PerimeterFollowingAgent, ShortestPathAgentLocal]
+    agent_types = [PerimeterFollowingAgentLocal, ShortestPathAgentLocal]
 
     for agent_type in agent_types:
         index = 0

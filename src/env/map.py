@@ -3,7 +3,8 @@ import seaborn as sns
 import logging
 import env.block
 from typing import List, Tuple
-from env.util import cw_angle_and_distance
+from geom.util import simple_distance
+from env.util import cw_angle_and_distance, ccw_angle_and_distance
 
 
 class Map:
@@ -42,6 +43,8 @@ class Map:
                 environment_extent[1] = min_y_extent
             if environment_extent[2] < min_z_extent:
                 environment_extent[2] = min_z_extent
+        self.center = (self.offset_origin[0] + env.block.Block.SIZE * int(self.target_map.shape[2] / 2),
+                       self.offset_origin[1] + env.block.Block.SIZE * int(self.target_map.shape[1] / 2))
 
         # global information available?
         self.global_information = False
@@ -70,11 +73,6 @@ class Map:
                 self.block_stashes[(b.geometry.position[0], b.geometry.position[1])] = [b]
             elif not b.is_seed:
                 self.block_stashes[(b.geometry.position[0], b.geometry.position[1])].append(b)
-
-        # place blocks according to some scheme, for now just specified positions
-
-        # might have to select one block, designate and place it as seed
-        # (seed is already in correct position for this first test)
 
     def required_blocks(self):
         # return either number of blocks (for starters) or some other specification of blocks,
@@ -115,7 +113,7 @@ class Map:
         closest_x = int((position[0] - self.offset_origin[0]) / env.block.Block.SIZE)
         closest_y = int((position[1] - self.offset_origin[1]) / env.block.Block.SIZE)
         if structure_level is None:
-            for height_level in range(self.occupancy_map.shape[0]):
+            for height_level in range(self.occupancy_map.shape[0], -1, -1):
                 if 0 <= closest_x < self.occupancy_map.shape[2] and 0 <= closest_y < self.occupancy_map.shape[1] \
                         and self.check_occupancy_map(np.array([closest_x, closest_y, height_level])):
                     temp = [closest_x, closest_y, height_level]
@@ -138,25 +136,57 @@ class Map:
 
     def ccw_block_stash_locations(self):
         stash_positions = list(self.block_stashes.keys())
-        ordered_stash_positions = sorted(stash_positions, key=lambda x: cw_angle_and_distance(
-            x, (self.offset_origin[0] + env.block.Block.SIZE * int(self.target_map.shape[2] / 2),
-                self.offset_origin[1] + env.block.Block.SIZE * int(self.target_map.shape[1] / 2)),
-            stash_positions[0]))
+        ordered_stash_positions = sorted(stash_positions,
+                                         key=lambda x: cw_angle_and_distance(x, self.center, stash_positions[0]))
         return ordered_stash_positions[::-1]
 
     def ccw_seed_stash_locations(self):
         stash_positions = list(self.seed_stashes.keys())
-        ordered_stash_positions = sorted(stash_positions, key=lambda x: cw_angle_and_distance(
-            x, (self.offset_origin[0] + env.block.Block.SIZE * int(self.target_map.shape[2] / 2),
-                self.offset_origin[1] + env.block.Block.SIZE * int(self.target_map.shape[1] / 2)),
-            stash_positions[0]))
+        ordered_stash_positions = sorted(stash_positions,
+                                         key=lambda x: cw_angle_and_distance(x, self.center, stash_positions[0]))
         return ordered_stash_positions[::-1]
+
+    def ccw_corner_locations(self, position, offset=0.0):
+        corner_locations = [(self.offset_origin[0] - offset, self.offset_origin[1] - offset),
+                            (self.offset_origin[0] + env.block.Block.SIZE * self.target_map.shape[2] + offset,
+                             self.offset_origin[1] - offset),
+                            (self.offset_origin[0] + env.block.Block.SIZE * self.target_map.shape[2] + offset,
+                             self.offset_origin[1] + env.block.Block.SIZE * self.target_map.shape[1] + offset),
+                            (self.offset_origin[0] - offset,
+                             self.offset_origin[1] + env.block.Block.SIZE * self.target_map.shape[1] + offset)]
+        ordered_corner_locations = sorted(corner_locations,
+                                          key=lambda x: ccw_angle_and_distance(x, self.center, position))
+        if all(ordered_corner_locations[0][i] == position[i] for i in range(2)):
+            temp = ordered_corner_locations[0]
+            ordered_corner_locations.remove(temp)
+            ordered_corner_locations.append(temp)
+        return ordered_corner_locations
 
     def check_over_construction_area(self, position):
         return self.offset_origin[0] <= position[0] < self.offset_origin[0] \
                + env.block.Block.SIZE * self.target_map.shape[2] \
-               and self.offset_origin[0] <= position[0] < self.offset_origin[0] \
-               + env.block.Block.SIZE * self.target_map.shape[2]
+               and self.offset_origin[1] <= position[1] < self.offset_origin[1] \
+               + env.block.Block.SIZE * self.target_map.shape[1]
+
+    def count_over_construction_area(self):
+        agent_count = 0
+        for a in self.agents:
+            if self.check_over_construction_area(a.geometry.position):
+                agent_count += 1
+        return agent_count
+
+    def density_over_construction_area(self):
+        construction_area = self.target_map.shape[2] * self.target_map.shape[1]
+        # assuming that 1 agent over an area of 16 blocks is roughly balanced (because it takes up that space)
+        # -> therefore normalise using that number
+        required_area = (np.round(self.agents[0].required_distance / env.block.Block.SIZE) + 1) ** 2
+        return (self.count_over_construction_area() / construction_area) / (1 / required_area)
+
+    def count_at_stash(self, stash_position, min_distance=50.0):
+        agent_count = 0
+        for a in self.agents:
+            pass
+        pass
 
     def distance_to_construction_area(self, position):
         if self.check_over_construction_area(position):
@@ -164,7 +194,22 @@ class Map:
         # otherwise, find the distance to the closest side
         width = env.block.Block.SIZE * self.target_map.shape[2]
         height = env.block.Block.SIZE * self.target_map.shape[1]
-        dx = max(abs(position[0] - self.offset_origin[0] + width / 2) - width / 2, 0)
-        dy = max(abs(position[0] - self.offset_origin[1] + height / 2) - height / 2, 0)
+        dx = max(abs(position[0] - (self.offset_origin[0] + width / 2)) - width / 2, 0)
+        dy = max(abs(position[1] - (self.offset_origin[1] + height / 2)) - height / 2, 0)
         return np.sqrt(dx ** 2 + dy ** 2)
+
+    def collision_potential_with_structure(self, agent, check_z=False):
+        max_index = 3 if check_z else 2
+        # should check only in x, y direction by default
+        collision_potential_blocks = []
+        for b in self.placed_blocks:
+            # if there is collision potential, return true, use required distance to check
+            if simple_distance(b.geometry.position, agent.geometry.position) \
+                    < b.geometry.size[0] + agent.required_distance / 2:
+                collision_potential_blocks.append(b)
+        # the block information can then also be used to identify the highest block
+        # then something has to be done to rise to that level and possibly go closer to said block
+        # -> if there is still a block in the way then we should rise higher
+        # perhaps could just do a while block in the way, rise sorta thing
+        return collision_potential_blocks
 

@@ -15,14 +15,17 @@ class Path:
         self.number_inserted_positions = 0
         self.inserted_indices = []
         self.inserted_sequentially = []
+        self.optional_distances = []
 
-    def add_position(self, position, index=None):
+    def add_position(self, position, index=None, optional_distance=0):
         if index is None:
             self.positions.append(np.array(position))
             self.inserted_sequentially.append(True)
+            self.optional_distances.append(optional_distance)
         else:
             self.positions.insert(index, np.array(position))
             self.inserted_sequentially.insert(index, False)
+            self.optional_distances.insert(index, optional_distance)
 
     def advance(self):
         if self.current_index in self.inserted_paths:
@@ -79,3 +82,10 @@ class Path:
         """Return the direction to the next (best) point on the path."""
         return self.next() - np.array(position)
 
+    def optional_area_reached(self, position):
+        """Determine whether the position is close enough to an optional point to count it as having been reached."""
+        # TODO: implement something that allows for one coordinate to be disregarded
+        # e.g. have to reach (x, y), preferably at z, but not necessarily
+        optional_position = self.next()
+        optional_distance = self.optional_distances[self.current_index]
+        return simple_distance(position, optional_position) <= optional_distance
