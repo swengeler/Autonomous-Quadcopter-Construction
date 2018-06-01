@@ -139,12 +139,14 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
             self.aprint("Shortest path to attachment site: {}".format(sp))
 
             if not all(sp[-1][i] == attachment_sites[0][i] for i in range(2)):
-                self.aprint("SHORTEST PATH DOESN'T LEAD TO INTENDED ATTACHMENT SITE")
-                self.aprint("Current grid position: {}".format(self.current_grid_position))
-                self.aprint("Shortest path: {}".format(sp))
-                self.aprint("Attachment map:")
+                self.aprint("SHORTEST PATH DOESN'T LEAD TO INTENDED ATTACHMENT SITE",
+                            override_global_printing_enabled=True)
+                self.aprint("Current grid position: {}".format(self.current_grid_position),
+                            override_global_printing_enabled=True)
+                self.aprint("Shortest path: {}".format(sp), override_global_printing_enabled=True)
+                self.aprint("Attachment map:", override_global_printing_enabled=True)
                 self.aprint(attachment_map, print_as_map=True)
-                self.aprint("hl")
+                raise Exception
 
             # construct the path to that site
             self.current_grid_position = np.array([sp[0][0], sp[0][1], self.current_structure_level])

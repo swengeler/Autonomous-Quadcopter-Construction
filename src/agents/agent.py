@@ -1197,8 +1197,8 @@ class Agent:
 
         return closing_corners, hole_map, hole_boundary_coords, closing_corner_boundaries, closing_corner_orientations
 
-    def aprint(self, *args, print_as_map=False, **kwargs):
-        if self.printing_enabled:
+    def aprint(self, *args, print_as_map=False, override_global_printing_enabled=False, **kwargs):
+        if self.printing_enabled or override_global_printing_enabled:
             if print_as_map:
                 print("[Agent {}]: ".format(self.id))
                 print_map(*args, **kwargs)
