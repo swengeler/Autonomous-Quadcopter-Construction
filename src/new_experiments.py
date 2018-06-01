@@ -325,7 +325,7 @@ def run_experiment(parameters):
                 print("State of the structure:")
                 print_map(environment.occupancy_map)
 
-            if all([a.current_task == Task.FINISHED for a in agent_list]):
+            if got_stuck or all([a.current_task == Task.FINISHED for a in agent_list]):
                 print("Finished construction with {} agents in {} steps ({} colliding)."
                       .format(agent_count, steps, collisions / 2))
 

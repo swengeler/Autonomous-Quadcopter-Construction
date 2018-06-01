@@ -144,9 +144,21 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
                 self.aprint("Current grid position: {}".format(self.current_grid_position),
                             override_global_printing_enabled=True)
                 self.aprint("Shortest path: {}".format(sp), override_global_printing_enabled=True)
+                self.aprint("Intended attachment site: {}".format(attachment_sites[0]))
+                self.aprint("Current component marker: {}".format(self.current_component_marker))
+                self.aprint("Current seed at {} and seed's component marker: {}"
+                            .format(self.current_seed.grid_position,
+                                    self.component_target_map[self.current_seed.grid_position[2],
+                                                              self.current_seed.grid_position[1],
+                                                              self.current_seed.grid_position[0]]))
                 self.aprint("Attachment map:", override_global_printing_enabled=True)
-                self.aprint(attachment_map, print_as_map=True)
-                raise Exception
+                self.aprint(attachment_map, print_as_map=True, override_global_printing_enabled=True)
+                if self.current_component_marker != self.component_target_map[self.current_seed.grid_position[2], self.current_seed.grid_position[1], self.current_seed.grid_position[0]]:
+                    self.current_seed = environment.block_at_position(self.component_seed_location(self.current_component_marker))
+                    self.recheck_task(environment)
+                    return
+                else:
+                    raise Exception
 
             # construct the path to that site
             self.current_grid_position = np.array([sp[0][0], sp[0][1], self.current_structure_level])
@@ -236,7 +248,8 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
                     self.update_local_occupancy_map(environment)
             self.geometry.position = self.geometry.position + current_direction
 
-        self.per_task_distance_travelled[Task.FIND_ATTACHMENT_SITE] += simple_distance(position_before, self.geometry.position)
+        self.per_task_distance_travelled[Task.FIND_ATTACHMENT_SITE] += simple_distance(position_before,
+                                                                                       self.geometry.position)
 
     def place_block(self, environment: env.map.Map):
         position_before = np.copy(self.geometry.position)
@@ -251,8 +264,10 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
             self.current_path.add_position([placement_x, placement_y, init_z])
             self.current_path.add_position([placement_x, placement_y, first_z])
             self.current_path.add_position([placement_x, placement_y, placement_z])
-            self.aprint("place_block, height of init, first, placement: {}, {}, {}".format(init_z, first_z, placement_z))
-            self.aprint("current grid position: {}, current structure level: {}".format(self.current_grid_position, self.current_structure_level))
+            self.aprint(
+                "place_block, height of init, first, placement: {}, {}, {}".format(init_z, first_z, placement_z))
+            self.aprint("current grid position: {}, current structure level: {}".format(self.current_grid_position,
+                                                                                        self.current_structure_level))
 
         # check again whether attachment is allowed since other agents placing blocks there may have made it illegal
         if not self.current_block_type_seed:
@@ -436,7 +451,17 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
                 self.stuck_count += 1
                 self.current_path.add_position([self.geometry.position[0],
                                                 self.geometry.position[1],
-                                                self.geometry.position[2] + self.geometry.size[2] * 2 * random.random()],
+                                                self.geometry.position[2] + self.geometry.size[
+                                                    2] * 2 * random.random()],
+                                               self.current_path.current_index)
+        elif self.current_task == Task.LAND:
+            if len(self.position_queue) == self.position_queue.maxlen \
+                    and sum([simple_distance(self.geometry.position, x) for x in self.position_queue]) < 70 \
+                    and self.current_path is not None:
+                self.stuck_count += 1
+                self.current_path.add_position([self.geometry.position[0],
+                                                self.geometry.position[1],
+                                                self.geometry.position[2] + self.geometry.size[2] * 2],
                                                self.current_path.current_index)
 
         # self.collision_queue.append(collision_danger)
