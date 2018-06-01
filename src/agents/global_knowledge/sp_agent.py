@@ -425,7 +425,7 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
             self.current_path = None
             self.current_shortest_path = None
 
-        if self.current_task != Task.FINISHED:
+        if self.current_task not in [Task.FINISHED, Task.LAND, Task.HOVER_OVER_COMPONENT]:
             if len(self.position_queue) == self.position_queue.maxlen \
                     and sum([simple_distance(self.geometry.position, x) for x in self.position_queue]) < 70 \
                     and self.current_path is not None and not self.wait_for_rejoining:

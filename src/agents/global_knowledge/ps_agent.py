@@ -355,7 +355,7 @@ class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):
         elif self.current_task == Task.LAND:
             self.land(environment)
 
-        if self.current_task not in [Task.FINISHED, Task.LAND]:
+        if self.current_task not in [Task.FINISHED, Task.LAND, Task.HOVER_OVER_COMPONENT]:
             if len(self.position_queue) == self.position_queue.maxlen \
                     and sum([simple_distance(self.geometry.position, x) for x in self.position_queue]) < 70 \
                     and self.current_path is not None:

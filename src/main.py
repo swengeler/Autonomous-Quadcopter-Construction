@@ -14,7 +14,7 @@ from structures import *
 from emergency_structures import emergency_structures
 from experiments import scale_map
 
-random.seed(202)
+# random.seed(202)
 
 request_queue = queue.Queue()
 return_queue = queue.Queue()
@@ -45,7 +45,8 @@ def main():
 
     target_map = component_balance_test
 
-    target_map = block_13x13x3
+    target_map = np.load(
+        "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/block_4x4x4.npy").astype("int64")
     # target_map = big_loop
     # target_map = scale_map(target_map, 2, (1, 2))
 
@@ -130,12 +131,13 @@ def main():
             processed.append(b)
 
     # creating the agent_list
-    agent_count = 8
-    agent_type = GlobalShortestPathAgent
+    agent_count = 4
+    agent_type = GlobalPerimeterFollowingAgent
     agent_list = [agent_type([50, 60, 7.5], [40, 40, 15], target_map, 10.0) for _ in range(0, agent_count)]
     for i in range(len(agent_list)):
         agent_list[i].id = i
-        agent_list[i].waiting_on_perimeter_enabled = True
+        agent_list[i].avoiding_crowded_stashes_enabled = True
+        agent_list[i].transport_avoid_others_enabled = True
         # agent_list[i].dropping_out_enabled = True
         # agent_list[i].printing_enabled = False
 

@@ -222,9 +222,12 @@ class Agent:
             next_position = self.current_static_location
             current_direction = next_position - self.geometry.position
             original_direction = next_position - self.geometry.position
-        current_direction /= sum(np.sqrt(current_direction ** 2))
+            current_direction = np.array([0.0, 0.0, 0.0])
+            original_direction = np.array([0.0, 0.0, 0.0])
 
-        movement_multiplier = 1.0
+        if sum(np.sqrt(current_direction ** 2)) > 0:
+            current_direction /= sum(np.sqrt(current_direction ** 2))
+
         # scale force vector by angle compared to direction of movement?
         # if angle is small, then the influence of the force vector should also be smaller because
         # the movement itself will already contribute to the collision avoidance
@@ -240,9 +243,9 @@ class Agent:
         if self.collision_possible:
             for a in environment.agents:
                 if self is not a and self.collision_potential(a) and self.collision_potential_visible(a):
-                    position_difference = a.geometry.position - self.geometry.position
-                    position_signed_angle = np.arctan2(position_difference[1], position_difference[0]) - \
-                                            np.arctan2(original_direction[1], original_direction[0])
+                    # position_difference = a.geometry.position - self.geometry.position
+                    # position_signed_angle = np.arctan2(position_difference[1], position_difference[0]) - \
+                    #                         np.arctan2(original_direction[1], original_direction[0])
 
                     force_field_vector = np.array([0.0, 0.0, 0.0])
                     force_field_vector += (self.geometry.position - a.geometry.position)
@@ -251,7 +254,7 @@ class Agent:
                     if not react_only:
                         force_field_vector *= 100 / simple_distance(self.geometry.position, a.geometry.position)
                     else:
-                        force_field_vector *= 200 / simple_distance(self.geometry.position, a.geometry.position)
+                        force_field_vector *= 100 / simple_distance(self.geometry.position, a.geometry.position)
 
                     current_direction += force_field_vector
                     total_ff_vector += force_field_vector
@@ -274,8 +277,9 @@ class Agent:
 
         self.agent_statistics.collision_avoidance_contribution.append(ca_contribution)
 
-        current_direction /= sum(np.sqrt(current_direction ** 2))
-        current_direction *= Agent.MOVEMENT_PER_STEP * movement_multiplier
+        if sum(np.sqrt(current_direction ** 2)) > 0:
+            current_direction /= sum(np.sqrt(current_direction ** 2))
+        current_direction *= Agent.MOVEMENT_PER_STEP
 
         if any(np.isnan(current_direction)):
             current_direction = np.array([0, 0, 0])
@@ -1039,7 +1043,7 @@ class Agent:
                         # in this case, the original seed is in this component and needs to be chosen as the position
                         position = np.where(self.target_map == 2)
                         position = tuple(zip(position[2], position[1], position[0]))
-                        if len(position) > 0:
+                        if len(position) > 1:
                             self.logger.warning("Too many seeds when creating hole map.")
                         adjacent_seed_location = position[0]
                     else:

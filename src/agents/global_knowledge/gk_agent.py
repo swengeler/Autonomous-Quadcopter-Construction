@@ -45,10 +45,10 @@ class GlobalKnowledgeAgent(Agent):
         order_by_distance = sorted(range(len(candidate_components)),
                                    key=lambda i: (simple_distance(seed_locations[i], self.geometry.position),
                                                   simple_distance(seed_locations[i], environment.center)))
-        order_by_hor_vert = sorted(range(len(candidate_components)),
-                                   key=lambda i: (abs(self.current_grid_position[0] - seed_grid_locations[i][0]) +
-                                                  abs(self.current_grid_position[1] - seed_grid_locations[i][1]),
-                                                  simple_distance(seed_locations[i], environment.center)))
+        # order_by_hor_vert = sorted(range(len(candidate_components)),
+        #                            key=lambda i: (abs(self.current_grid_position[0] - seed_grid_locations[i][0]) +
+        #                                           abs(self.current_grid_position[1] - seed_grid_locations[i][1]),
+        #                                           simple_distance(seed_locations[i], environment.center)))
 
         # second option: order by the number of agents over that component; realistically this could only ever
         # be an estimate but for the sake of time and implementational difficulty, it is just the count now
@@ -94,8 +94,8 @@ class GlobalKnowledgeAgent(Agent):
             order = order_by_agent_count
         elif order == "distance":
             order = order_by_distance
-        elif order == "hor_vert":
-            order = order_by_hor_vert
+        # elif order == "hor_vert":
+        #     order = order_by_hor_vert
         return [candidate_components[i] for i in order]
 
     def recheck_task(self, environment: env.map.Map):
