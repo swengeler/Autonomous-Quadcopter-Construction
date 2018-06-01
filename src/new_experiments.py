@@ -478,6 +478,7 @@ def main(map_name="block_4x4x4"):
         except KeyboardInterrupt:
             print("Cancelled run with the following parameters:")
             pprint(p)
+            break
         except Exception as e:
             print("Error in run with the following parameters:")
             pprint(p)
