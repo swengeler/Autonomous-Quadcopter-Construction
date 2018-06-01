@@ -323,6 +323,7 @@ class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):
             self.current_component_marker = self.component_target_map[self.current_seed.grid_position[2],
                                                                       self.current_seed.grid_position[1],
                                                                       self.current_seed.grid_position[0]]
+            self.next_seed_position = np.copy(self.current_seed.grid_position)
 
         if self.initial_position is None:
             self.initial_position = np.copy(self.geometry.position)

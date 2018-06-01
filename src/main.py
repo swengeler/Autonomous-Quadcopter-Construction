@@ -131,7 +131,7 @@ def main():
             processed.append(b)
 
     # creating the agent_list
-    agent_count = 4
+    agent_count = 2
     agent_type = GlobalPerimeterFollowingAgent
     agent_list = [agent_type([50, 60, 7.5], [40, 40, 15], target_map, 10.0) for _ in range(0, agent_count)]
     for i in range(len(agent_list)):
@@ -278,6 +278,7 @@ def main():
                         interval = new_interval
                     except queue.Empty:
                         pass
+            print("INTERVAL: {}".format(interval))
             time.sleep(interval)
     except KeyboardInterrupt:
         # submit_to_tkinter(stop_tk_thread)
