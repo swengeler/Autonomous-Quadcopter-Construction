@@ -10,7 +10,7 @@ from geom.path import Path
 from geom.util import simple_distance
 
 
-class ShortestPathAgentLocal(LocalKnowledgeAgent):
+class LocalShortestPathAgent(LocalKnowledgeAgent):
 
     def __init__(self,
                  position: List[float],
@@ -18,20 +18,16 @@ class ShortestPathAgentLocal(LocalKnowledgeAgent):
                  target_map: np.ndarray,
                  required_spacing: float = 5.0,
                  printing_enabled=True):
-        super(ShortestPathAgentLocal, self).__init__(position, size, target_map, required_spacing, printing_enabled)
+        super(LocalShortestPathAgent, self).__init__(position, size, target_map, required_spacing, printing_enabled)
         self.current_shortest_path = None
         self.current_sp_index = 0
         self.illegal_sites = []
         self.current_attachment_info = None
+        self.attachment_site_order = "shortest_path"  # others are "prioritise", "shortest_travel_path", "agent_count"
 
     def find_attachment_site(self, environment: env.map.Map):
-        # self.aprint("Calling find_attachment_site (path is None: {})".format(self.current_path is None))
-        # if self.id == 4 and self.current_component_marker == 15:
-        #     self.aprint("Current path when calling attachment site search is {}".format(self.current_path))
-        #     self.aprint("self.current_shortest_path = {}".format(self.current_shortest_path))
-        #     self.aprint("")
+        position_before = np.copy(self.geometry.position)
 
-        # hacky solution for the None problem, but here goes:
         if self.current_path is None or self.current_shortest_path is None:
             self.update_local_occupancy_map(environment)
 
@@ -46,6 +42,11 @@ class ShortestPathAgentLocal(LocalKnowledgeAgent):
                 legal_attachment_sites(self.component_target_map[self.current_structure_level],
                                        self.local_occupancy_map[self.current_structure_level],
                                        component_marker=self.current_component_marker, local_info=True)
+
+            sites = legal_attachment_sites(self.target_map[self.current_structure_level],
+                                           environment.occupancy_map[self.current_structure_level],
+                                           component_marker=self.current_component_marker)
+            self.per_search_attachment_site_count["total"].append(int(np.count_nonzero(sites)))
 
             self.aprint("DETERMINING ATTACHMENT SITES ON LEVEL {} WITH MARKER {} AND SEED AT {}:"
                         .format(self.current_structure_level,
@@ -181,38 +182,37 @@ class ShortestPathAgentLocal(LocalKnowledgeAgent):
 
             # find the closest corner or protruding site
             # if there are none then take the closest most CCW site
-            most_ccw_sites_used = False
-            if len(corner_sites) != 0:
-                attachment_sites = corner_sites
-                self.aprint("USING CORNER SITES")
-            elif len(protruding_sites) != 0:
-                attachment_sites = protruding_sites
-                self.aprint("USING PROTRUDING SITES")
-            else:
-                most_ccw_sites_used = True
+
+            self.attachment_site_order = "prioritise"  # others are "shortest_path", "shortest_travel_path", "agent_count"
+
+            if self.attachment_site_order == "prioritise":
+                if len(corner_sites) != 0:
+                    attachment_sites = [(s,) for s in corner_sites]
+                    self.aprint("USING CORNER SITES")
+                elif len(protruding_sites) != 0:
+                    attachment_sites = [(s,) for s in protruding_sites]
+                    self.aprint("USING PROTRUDING SITES")
+                else:
+                    attachment_sites = most_ccw_sites
+                    self.aprint("USING END-OF-ROW SITES")
+            elif self.attachment_site_order in ["shortest_path", "shortest_travel_path", "agent_count"]:
                 attachment_sites = []
-                for site, _, _ in most_ccw_sites:
-                    attachment_sites.append(site)
-                self.aprint("USING END-OF-ROW SITES")
-
-            attachment_sites = []
-            attachment_sites.extend([(s,) for s in corner_sites])
-            attachment_sites.extend([(s,) for s in protruding_sites])
-            attachment_sites.extend(most_ccw_sites)
-
-            most_ccw_sites_used = False
+                attachment_sites.extend([(s,) for s in corner_sites])
+                attachment_sites.extend([(s,) for s in protruding_sites])
+                attachment_sites.extend(most_ccw_sites)
 
             if len(attachment_sites) == 0:
                 self.aprint("NO LEGAL ATTACHMENT SITES AT LEVEL {} WITH MARKER {}"
                             .format(self.current_structure_level, self.current_component_marker))
                 self.aprint("LOCAL MAP:\n{}".format(self.local_occupancy_map))
 
+            self.per_search_attachment_site_count["possible"].append(len(attachment_sites))
+
             # for now just take the shortest distance to CCW sites as well, to improve efficiency could include
             # the expected time to find an attachment sites, i.e. the expected length of the row
 
             # find the closest one
             shortest_paths = []
-            number_adjacent_blocks = []
             for tpl in attachment_sites:
                 x, y = tpl[0]
                 occupancy_map_copy[y, x] = 1
@@ -220,37 +220,30 @@ class ShortestPathAgentLocal(LocalKnowledgeAgent):
                                                         self.current_grid_position[1]), (x, y))
                 occupancy_map_copy[y, x] = 0
                 shortest_paths.append(sp)
-                counter = 0
-                for y2 in (y - 1, y + 1):
-                    if 0 <= y2 < occupancy_map_copy.shape[0] and occupancy_map_copy[y2, x] != 0:
-                        counter += 1
-                for x2 in (x - 1, x + 1):
-                    if 0 <= x2 < occupancy_map_copy.shape[1] and occupancy_map_copy[y, x2] != 0:
-                        counter += 1
-                number_adjacent_blocks.append(counter)
-            if most_ccw_sites_used:
-                sorted_indices = sorted(range(len(attachment_sites)),
-                                        key=lambda i: len(shortest_paths[i]) + most_ccw_sites[i][2])
-            else:
+
+            if self.attachment_site_order in ["prioritise", "shortest_path"] or self.attachment_site_order == "shortest_travel_path" and len(most_ccw_sites) == 0:
                 sorted_indices = sorted(range(len(attachment_sites)), key=lambda i: len(shortest_paths[i]))
+            elif self.attachment_site_order == "shortest_travel_path":
+                sorted_indices = sorted(range(len(attachment_sites)),
+                                        key=lambda i: len(shortest_paths[i]) + attachment_sites[i][2]
+                                        if len(attachment_sites[i]) > 1 else 0)
+            elif self.attachment_site_order == "agent_count":
+                directions = [np.array([s[0][0] - self.current_grid_position[0],
+                                        s[0][1] - self.current_grid_position[1]]) for s in attachment_sites]
+                counts = self.count_in_direction(environment, directions=directions, angle=np.pi / 2)
+                sorted_indices = sorted(range(len(attachment_sites)), key=lambda i: (counts[i], len(shortest_paths[i])))
+            else:
+                sorted_indices = sorted(range(len(attachment_sites)), key=lambda i: random.random())
 
-            directions = [np.array([s[0][0] - self.current_grid_position[0], s[0][1] - self.current_grid_position[1]])
-                          for s in attachment_sites]
-            counts = self.direction_agent_count(environment, directions=directions, angle=np.pi / 2)
-            self.aprint("Directions: {}, Counts: {}".format(directions, counts))
-            sorted_indices = sorted(sorted_indices, key=lambda i: counts[i])
-
-            # sorted_indices = random.sample(sorted_indices, len(sorted_indices))
-
-            sorted_indices = sorted(range(len(attachment_sites)),
-                                    key=lambda i: abs(attachment_sites[i][0][0] - self.current_grid_position[0]) +
-                                                  abs(attachment_sites[i][0][1] - self.current_grid_position[1]))
+            # sorted_indices = sorted(range(len(attachment_sites)),
+            #                         key=lambda i: abs(attachment_sites[i][0][0] - self.current_grid_position[0]) +
+            #                                       abs(attachment_sites[i][0][1] - self.current_grid_position[1]))
 
             attachment_sites = [attachment_sites[i] for i in sorted_indices]
             shortest_paths = [shortest_paths[i] for i in sorted_indices]
 
-            new_sp = [(self.current_grid_position[0], attachment_sites[0][0][1]),
-                      (attachment_sites[0][0][0], attachment_sites[0][0][1])]
+            # new_sp = [(self.current_grid_position[0], attachment_sites[0][0][1]),
+            #           (attachment_sites[0][0][0], attachment_sites[0][0][1])]
             # the initial direction of this shortest path would maybe be good to decide based on
 
             sp = shortest_paths[0]
@@ -283,9 +276,6 @@ class ShortestPathAgentLocal(LocalKnowledgeAgent):
             # if the CCW sites are used, then store the additional required information
             # also need to make sure to reset this to None because it will be used for checks
             self.current_attachment_info = None
-            if most_ccw_sites_used:
-                most_ccw_sites = [most_ccw_sites[i] for i in sorted_indices]
-                self.current_attachment_info = most_ccw_sites[0]
             if len(attachment_sites[0]) > 1:
                 self.current_attachment_info = attachment_sites[0]
 
@@ -461,14 +451,20 @@ class ShortestPathAgentLocal(LocalKnowledgeAgent):
                     self.update_local_occupancy_map(environment)
             self.geometry.position = self.geometry.position + current_direction
 
+        self.per_task_distance_travelled[Task.FIND_ATTACHMENT_SITE] += simple_distance(position_before, self.geometry.position)
+
     def place_block(self, environment: env.map.Map):
+        position_before = np.copy(self.geometry.position)
+
         if self.current_path is None:
             init_z = Block.SIZE * (self.current_structure_level + 2) + self.required_spacing + self.geometry.size[2] / 2
+            first_z = Block.SIZE * (self.current_grid_position[2] + 2) + self.geometry.size[2] / 2
             placement_x = Block.SIZE * self.current_grid_position[0] + environment.offset_origin[0]
             placement_y = Block.SIZE * self.current_grid_position[1] + environment.offset_origin[1]
             placement_z = Block.SIZE * (self.current_grid_position[2] + 1) + self.geometry.size[2] / 2
             self.current_path = Path()
             self.current_path.add_position([placement_x, placement_y, init_z])
+            self.current_path.add_position([placement_x, placement_y, first_z])
             self.current_path.add_position([placement_x, placement_y, placement_z])
 
         if environment.check_occupancy_map(self.current_grid_position):
@@ -498,10 +494,14 @@ class ShortestPathAgentLocal(LocalKnowledgeAgent):
             # MAJOR CHEATING HERE
             return
 
-        next_position = self.current_path.next()
-        current_direction = self.current_path.direction_to_next(self.geometry.position)
-        current_direction /= sum(np.sqrt(current_direction ** 2))
-        current_direction *= Agent.MOVEMENT_PER_STEP
+        if self.current_path.current_index != len(self.current_path.positions) - 1:
+            next_position, current_direction = self.move(environment)
+        else:
+            next_position = self.current_path.next()
+            current_direction = self.current_path.direction_to_next(self.geometry.position)
+            current_direction /= sum(np.sqrt(current_direction ** 2))
+            current_direction *= Agent.MOVEMENT_PER_STEP
+            self.per_task_step_count[self.current_task] += 1
         if simple_distance(self.geometry.position, next_position) <= Agent.MOVEMENT_PER_STEP:
             self.geometry.position = next_position
             ret = self.current_path.advance()
@@ -511,6 +511,9 @@ class ShortestPathAgentLocal(LocalKnowledgeAgent):
                 if self.current_block.is_seed:
                     self.current_seed = self.current_block
                     self.next_seed_position = None
+                    self.components_seeded.append(int(self.current_component_marker))
+                elif self.current_component_marker not in self.components_attached:
+                    self.components_attached.append(int(self.current_component_marker))
 
                 if self.current_block.geometry.position[2] > (self.current_grid_position[2] + 1.0) * Block.SIZE:
                     self.logger.error("BLOCK PLACED IN AIR ({}, {}, {})".format(
@@ -524,6 +527,7 @@ class ShortestPathAgentLocal(LocalKnowledgeAgent):
                     self.rejoining_swarm = False
 
                 self.agent_statistics.attachment_interval.append(self.count_since_last_attachment)
+                self.attachment_frequency_count.append(self.count_since_last_attachment)
                 self.count_since_last_attachment = 0
 
                 environment.place_block(self.current_grid_position, self.current_block)
@@ -557,6 +561,8 @@ class ShortestPathAgentLocal(LocalKnowledgeAgent):
                 self.task_history.append(self.current_task)
         else:
             self.geometry.position = self.geometry.position + current_direction
+
+        self.per_task_distance_travelled[Task.PLACE_BLOCK] += simple_distance(position_before, self.geometry.position)
 
     def advance(self, environment: env.map.Map):
         if self.current_task == Task.FINISHED:
@@ -651,9 +657,10 @@ class ShortestPathAgentLocal(LocalKnowledgeAgent):
                     and sum([simple_distance(self.geometry.position, x) for x in self.position_queue]) < 70 \
                     and self.current_path is not None and not self.wait_for_rejoining:
                 self.aprint("STUCK")
+                self.stuck_count += 1
                 self.current_path.add_position([self.geometry.position[0],
                                                 self.geometry.position[1],
-                                                self.geometry.position[2] + self.geometry.size[2] * random.random()],
+                                                self.geometry.position[2] + self.geometry.size[2] * 2 * random.random()],
                                                self.current_path.current_index)
 
         self.position_queue.append(self.geometry.position.copy())
@@ -671,6 +678,9 @@ class ShortestPathAgentLocal(LocalKnowledgeAgent):
 
         self.step_count += 1
         self.count_since_last_attachment += 1
+        self.drop_out_statistics["drop_out_of_swarm"].append(self.drop_out_of_swarm)
+        self.drop_out_statistics["wait_for_rejoining"].append(self.wait_for_rejoining)
+        self.drop_out_statistics["rejoining_swarm"].append(self.rejoining_swarm)
 
         # self.collision_queue.append(collision_danger)
         if len(self.collision_queue) == self.collision_queue.maxlen:

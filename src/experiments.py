@@ -3,8 +3,8 @@ import random
 import json
 from emergency_structures import emergency_structures
 from agents.agent import Task
-from agents.local_knowledge.ps_agent import PerimeterFollowingAgentLocal
-from agents.local_knowledge.sp_agent import ShortestPathAgentLocal
+from agents.local_knowledge.ps_agent import LocalPerimeterFollowingAgent
+from agents.local_knowledge.sp_agent import LocalShortestPathAgent
 from env.map import *
 from env.util import *
 from geom.shape import *
@@ -224,7 +224,7 @@ def main():
     target_maps = emergency_structures
     agent_counts = [1, 2, 4, 8]
     scales = [1]
-    agent_types = [PerimeterFollowingAgentLocal, ShortestPathAgentLocal]
+    agent_types = [LocalPerimeterFollowingAgent, LocalShortestPathAgent]
 
     for agent_type in agent_types:
         index = 0

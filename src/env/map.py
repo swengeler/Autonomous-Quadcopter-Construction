@@ -49,8 +49,14 @@ class Map:
         # global information available?
         self.global_information = False
 
+        # some things to keep track of
+        self.highest_block_z = 0
+        self.component_target_map = None
+        self.component_info = {}
+
     def add_agents(self, agents):
         self.agents.extend(agents)
+        self.store_component_coordinates(self.agents[0].split_into_components())
 
         # place agents according to some scheme, for now just specified positions
         # I guess it makes sense that agents, by definition, actually encapsulate their own positions, right?
@@ -90,8 +96,15 @@ class Map:
         return np.array([x[0], y[0], z[0]], dtype="int32")
 
     def place_block(self, grid_position, block):
+        # if self.occupancy_map[tuple(reversed(grid_position))] != 0:
+        #     # self.logger.error("Block at {} (is_seed = {}) placed in already occupied location: {}"
+        #     #                   .format(block.grid_position, block.is_seed, grid_position))
+        #     print("Block at {} (is_seed = {}) placed in already occupied location: {}"
+        #           .format(block.grid_position, block.is_seed, grid_position))
         self.occupancy_map[tuple(reversed(grid_position))] = 2 if block.is_seed else 1
         self.placed_blocks.append(block)
+        if grid_position[2] > self.highest_block_z:
+            self.highest_block_z = grid_position[2]
         if self.global_information:
             for a in self.agents:
                 a.local_occupancy_map[tuple(reversed(grid_position))] = 1
@@ -175,6 +188,33 @@ class Map:
                 agent_count += 1
         return agent_count
 
+    def count_over_component(self, component_marker):
+        if self.highest_block_z > self.component_info[component_marker]["layer"] \
+                or self.highest_block_z < self.component_info[component_marker]["layer"]:
+            return 0
+
+        agent_count = 0
+        for a in self.agents:
+            closest_x = int((a.geometry.position[0] - self.offset_origin[0]) / env.block.Block.SIZE)
+            closest_y = int((a.geometry.position[1] - self.offset_origin[1]) / env.block.Block.SIZE)
+            if closest_x in self.component_info[component_marker]["coordinates_np"][2] \
+                    and closest_y in self.component_info[component_marker]["coordinates_np"][1]:
+                return agent_count
+        return 0
+
+    def component_started(self, component_marker):
+        return np.count_nonzero(self.occupancy_map[self.component_info[component_marker]["coordinates_np"]]) > 0
+
+    def component_finished(self, component_marker):
+        return np.count_nonzero(self.occupancy_map[self.component_info[component_marker]["coordinates_np"]]) == \
+               len(self.component_info[component_marker]["coordinates_np"][0])
+
+    def layer_started(self, layer):
+        return np.count_nonzero(self.occupancy_map[layer]) > 0
+
+    def layer_finished(self, layer):
+        return np.count_nonzero(self.occupancy_map[layer]) == np.count_nonzero(self.target_map[layer])
+
     def density_over_construction_area(self):
         construction_area = self.target_map.shape[2] * self.target_map.shape[1]
         # assuming that 1 agent over an area of 16 blocks is roughly balanced (because it takes up that space)
@@ -212,4 +252,16 @@ class Map:
         # -> if there is still a block in the way then we should rise higher
         # perhaps could just do a while block in the way, rise sorta thing
         return collision_potential_blocks
+
+    def store_component_coordinates(self, component_target_map):
+        self.component_target_map = component_target_map
+        for m in [cm for cm in np.unique(self.component_target_map) if cm != 0]:
+            coords = np.where(self.component_target_map == m)
+            coord_tuples = tuple(zip(coords[2], coords[1], coords[0]))
+            layer = coords[2][0]
+            self.component_info[m] = {
+                "coordinates_np": coords,
+                "coordinate_tuples": coord_tuples,
+                "layer": layer
+            }
 

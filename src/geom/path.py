@@ -17,7 +17,7 @@ class Path:
         self.inserted_sequentially = []
         self.optional_distances = []
 
-    def add_position(self, position, index=None, optional_distance=0):
+    def add_position(self, position, index=None, optional_distance=(0, 0, 0)):
         if index is None:
             self.positions.append(np.array(position))
             self.inserted_sequentially.append(True)
@@ -84,8 +84,13 @@ class Path:
 
     def optional_area_reached(self, position):
         """Determine whether the position is close enough to an optional point to count it as having been reached."""
-        # TODO: implement something that allows for one coordinate to be disregarded
         # e.g. have to reach (x, y), preferably at z, but not necessarily
         optional_position = self.next()
         optional_distance = self.optional_distances[self.current_index]
-        return simple_distance(position, optional_position) <= optional_distance
+        # optional_axes = self.optional_distances[self.current_index][1]
+        # return simple_distance(position[[a for a in optional_axes]],
+        #                        optional_position[[a for a in optional_axes]]) <= optional_distance
+        if isinstance(optional_distance, tuple):
+            return all([abs(position[i] - optional_position[i]) <= optional_distance[i] for i in range(3)])
+        else:
+            return simple_distance(position, optional_position) <= optional_distance

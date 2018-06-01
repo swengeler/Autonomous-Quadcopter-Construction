@@ -288,14 +288,6 @@ def legal_attachment_sites(target_map: np.ndarray, occupancy_map: np.ndarray, co
                 # [B] [E] ... [A]
                 # where (B = block already placed), (E = other potential attachment site), (A = current site)
                 # and where at "..." there are only E's
-                # TODO: to make sure that local information is enough for this to work, would probably be better
-                # to only allow placement at the end of rows (similar to perimeter search)
-                # THIS SHOULD ONLY HOLD FOR THE LOCAL INFO VERSION THOUGH
-                # CAN UNIQUE-BLOCK INFO BE UTILISED HERE? NOT SURE, DOUBT IT
-                # ANOTHER INTERESTING OPTION WOULD BE TO ALLOW POSSIBLE FALSE ATTACHMENT AND FIX IT
-
-                # might need to return positions of interest instead, where you have to go "scouting"
-                # and finding out which sites may be legal, but first have to update your information
                 for diff in (-1, 1):
                     # making it through this loop without a break means that in the x-row, y-column where the block
                     # could be placed, there is either only a block immediately adjacent or any blocks already placed
@@ -402,11 +394,6 @@ def legal_attachment_sites_revisited(target_map: np.ndarray,
                 # [B] [E] ... [A]
                 # where (B = block already placed), (E = other potential attachment site), (A = current site)
                 # and where at "..." there are only E's
-                # TODO: to make sure that local information is enough for this to work, would probably be better
-                # to only allow placement at the end of rows (similar to perimeter search)
-
-                # might need to return positions of interest instead, where you have to go "scouting"
-                # and finding out which sites may be legal, but first have to update your information
                 for diff in (-1, 1):
                     # making it through this loop without a break means that in the x-row, y-column where the block
                     # could be placed, there is either only a block immediately adjacent or any blocks already placed

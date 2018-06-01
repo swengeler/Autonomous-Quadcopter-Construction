@@ -2,10 +2,10 @@ import time
 import random
 import queue
 from agents.agent import Task
-from agents.local_knowledge.ps_agent import PerimeterFollowingAgentLocal
-from agents.local_knowledge.sp_agent import ShortestPathAgentLocal
-from agents.global_knowledge.ps_agent import PerimeterFollowingAgentGlobal
-from agents.global_knowledge.sp_agent import ShortestPathAgentGlobal
+from agents.local_knowledge.ps_agent import LocalPerimeterFollowingAgent
+from agents.local_knowledge.sp_agent import LocalShortestPathAgent
+from agents.global_knowledge.ps_agent import GlobalPerimeterFollowingAgent
+from agents.global_knowledge.sp_agent import GlobalShortestPathAgent
 from env.map import *
 from env.util import *
 from geom.shape import *
@@ -70,7 +70,7 @@ def main():
     Block.COLORS_SEEDS = hex_palette_seed
 
     # offset of the described target occupancy map to the origin (only in x/y directions)
-    offset_structure = 300
+    offset_structure = 400
     offset_stashes = 100
     offset_origin = (offset_structure, offset_structure)
     environment_extent = [150.0, 200.0, 200.0]
@@ -85,7 +85,7 @@ def main():
     block_count = environment.required_blocks()
 
     # finding out how many components there are
-    dummy_agent = PerimeterFollowingAgentLocal([0, 0, 0], [0, 0, 0], target_map)
+    dummy_agent = LocalPerimeterFollowingAgent([0, 0, 0], [0, 0, 0], target_map)
     component_target_map = dummy_agent.split_into_components()
     required_seeds = np.max(component_target_map) - 2
 
@@ -130,11 +130,13 @@ def main():
             processed.append(b)
 
     # creating the agent_list
-    agent_count = 4
-    agent_type = ShortestPathAgentGlobal
+    agent_count = 8
+    agent_type = GlobalShortestPathAgent
     agent_list = [agent_type([50, 60, 7.5], [40, 40, 15], target_map, 10.0) for _ in range(0, agent_count)]
     for i in range(len(agent_list)):
         agent_list[i].id = i
+        agent_list[i].waiting_on_perimeter_enabled = True
+        # agent_list[i].dropping_out_enabled = True
         # agent_list[i].printing_enabled = False
 
     processed_counter = 0
@@ -165,7 +167,7 @@ def main():
     environment.add_agents(agent_list)
 
     # print("CLOSING CORNERS: {}".format(agent_list[0].closing_corners))
-    # print("COMPONENT MAP:\n{}".format(agent_list[0].component_target_map))
+    print("COMPONENT MAP:\n{}".format(agent_list[0].component_target_map))
 
     idx = 0
     # print("FOR AGENT 0 AT POSITION {}:".format(agent_list[idx].geometry.position))
@@ -186,12 +188,29 @@ def main():
     structure_complete = False
     results = {}
     collision_pairs = []
+
+    component_markers = [cm for cm in np.unique(dummy_agent.component_target_map) if cm != 0]
+    agents_over_construction_zone = []
+    agents_over_components = dict([(cm, []) for cm in component_markers])
+    component_completion_count = dict([(cm, 0) for cm in component_markers])
+    layer_completion_count = [0] * target_map.shape[2]
+    # probably need reference in agents
+    started_components = []
+    completed_components = []
+    completed_layers = []
     try:
         while True:
             if not paused:
                 for a in agent_list:
                     a.advance(environment)
                 steps += 1
+                for cm in component_markers:
+                    if cm not in completed_components and cm not in started_components:
+                        # check whether components have been started
+                        if cm not in dummy_agent.unseeded_component_markers(environment.occupancy_map):
+                            pass
+                    elif cm not in completed_components:
+                        pass
                 if steps % 1000 == 0:
                     print("Simulation steps: {}".format(steps))
                 if all([a.current_task == Task.FINISHED for a in agent_list]):

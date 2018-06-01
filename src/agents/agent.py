@@ -29,6 +29,7 @@ class Task(Enum):
     FINISHED = 13
     WAIT_ON_PERIMETER = 14
     REJOIN_SWARM = 15
+    HOVER_OVER_COMPONENT = 16
 
 
 class AgentStatistics:
@@ -50,7 +51,8 @@ class AgentStatistics:
             Task.LAND: 0,
             Task.FINISHED: 0,
             Task.WAIT_ON_PERIMETER: 0,
-            Task.REJOIN_SWARM: 0
+            Task.REJOIN_SWARM: 0,
+            Task.HOVER_OVER_COMPONENT: 0
         }
         self.previous_task = None
         self.collision_danger = []
@@ -135,10 +137,33 @@ class Agent:
         self.current_collision_avoidance_counter = 0
         self.current_stash_path = None
         self.current_stash_path_index = 0
+        self.current_stash_position = None
         self.current_waiting_height = 0
 
+        # parameters that can change for all agent types
         self.waiting_on_perimeter_enabled = False
-        self.dropping_out_enabled = False
+        self.avoiding_crowded_stashes_enabled = False
+        self.transport_avoid_others_enabled = False
+
+        # performance metrics
+        self.step_count = 0  # happens in advance method
+        self.stuck_count = 0
+        self.returned_blocks = 0
+        self.per_task_step_count = dict([(task, 0) for task in Task])  # happens in move method
+        self.per_task_collision_avoidance_count = dict([(task, 0) for task in Task])  # happens in move method
+        self.per_task_distance_travelled = dict([(task, 0) for task in Task]) # has to happen in every method
+        self.attachment_frequency_count = []
+        self.components_seeded = []  # this and the following one to see how balanced the work load is
+        self.components_attached = []
+        self.per_search_attachment_site_count = {
+            "possible": [],
+            "total": []
+        }
+        self.drop_out_statistics = {
+            "drop_out_of_swarm": [],
+            "wait_for_rejoining": [],
+            "rejoining_swarm": []
+        }
 
         self.backup_grid_position = None
         self.previous_task = Task.FETCH_BLOCK
@@ -153,7 +178,6 @@ class Agent:
         self.collision_avoidance_contribution_queue = dq(maxlen=100)
         self.collision_count = 0
         self.collision_average = 0
-        self.step_count = 0
         self.non_static_count = 0
         self.count_since_last_attachment = 0
         self.reference_position = np.copy(self.geometry.position)
@@ -188,6 +212,8 @@ class Agent:
         return self.geometry.overlaps(other.geometry)
 
     def move(self, environment: env.map.Map, react_only=False):
+        self.per_task_step_count[self.current_task] += 1
+
         if not react_only:
             next_position = self.current_path.next()
             current_direction = self.current_path.direction_to_next(self.geometry.position)
@@ -235,6 +261,7 @@ class Agent:
                         self.agent_statistics.collision_danger.append(1)
                         self.collision_count += 1
                         collision_count_updated = True
+                        self.per_task_collision_avoidance_count[self.current_task] += 1
 
         if not collision_count_updated:
             self.agent_statistics.collision_danger.append(0)
@@ -313,12 +340,12 @@ class Agent:
                 return True
         return False
 
-    def direction_agent_count(self,
-                              environment: env.map.Map,
-                              directions=None,
-                              angle=np.pi / 4,
-                              max_distance=500,
-                              max_vert_distance=50):
+    def count_in_direction(self,
+                           environment: env.map.Map,
+                           directions=None,
+                           angle=np.pi / 4,
+                           max_distance=500,
+                           max_vertical_distance=200):
         # should this method only return the positions of "reasonably" visible agents or should it do more
         # and e.g. just give directions (angles) and distances?
 
@@ -328,7 +355,7 @@ class Agent:
         agents_counts = [0] * len(directions)
         for a in environment.agents:
             if a is not self and self.collision_potential_visible(a) \
-                    and a.geometry.position[2] <= self.geometry.position[2] + max_vert_distance \
+                    and a.geometry.position[2] <= self.geometry.position[2] + max_vertical_distance \
                     and simple_distance(self.geometry.position[:2], a.geometry.position[:2]) < max_distance \
                     and environment.offset_origin[0] - a.geometry.size[0] <= a.geometry.position[0] <= \
                     Block.SIZE * self.target_map.shape[2] + environment.offset_origin[0] + a.geometry.size[0] \
@@ -377,7 +404,6 @@ class Agent:
         # not be permitted, the agent knows that the previously empty sites have to be occupied at
         # this point
         # this would actually also be the case if there is a gap of more than 1:
-        # TODO: make this work for bigger gaps than 1
         # any continuous row/column in the target map between two occupied locations in the local occupancy
         # map should be assumed to be filled out already
         current_occupancy_map = self.local_occupancy_map[self.current_grid_position[2]]
@@ -548,12 +574,41 @@ class Agent:
                 min_location = l
         seed_location = [min_location[1], min_location[0], level]
 
-        # TODO: while this now uses the most SOUTH-WESTERN position, something else might be even better
-        # sorted_by_y = sorted(occupied_locations, key=lambda e: e[0])
-        # sorted_by_x = sorted(sorted_by_y, key=lambda e: e[1])
-        #
-        # seed_location = [sorted_by_x[0][1], sorted_by_x[0][0], level]
         return seed_location
+
+    def shortest_direction_to_perimeter(self,
+                                        compared_map:np.ndarray,
+                                        start_position,
+                                        level=None,
+                                        component_marker=None):
+        if level is None:
+            level = self.current_structure_level
+
+        if component_marker is None:
+            component_marker = self.current_component_marker
+
+        directions = np.array([(1, 0), (-1, 0), (0, 1), (0, -1)])
+        start_position = np.array(start_position)
+        min_distance = 0
+        min_direction = None
+        for d in directions:
+            current_position = start_position.copy()
+            current_distance = 0
+            done = False
+            while not done:
+                current_position += d
+                if 0 <= current_position[0] < compared_map.shape[1] \
+                        and 0 <= current_position[1] < compared_map.shape[0]:
+                    # check whether on outside of current component's perimeter, i.e. not in a hole
+                    current_distance += 1
+                else:
+                    done = True
+            if current_distance > min_distance:
+                min_distance = current_distance
+                min_direction = d
+            elif current_distance == min_distance:
+                min_direction = random.sample([min_direction, d], 1)[0]
+        return np.array([min_direction[0], min_direction[1], 0])
 
     def check_loop_corner(self, environment: env.map.Map, position=None):
         if position is None:
@@ -901,12 +956,6 @@ class Agent:
                 temp[self.component_target_map == c] = 0
             hole_boundaries[z][index] = np.where(temp == 1)
 
-        # TODO: figure out closing corners that don't have to be in the NORTH-EAST
-        # two possible approaches:
-        # 1) determine what seed position would be chosen for a particular component and determine the best site
-        #    (since the seed selection has been put into a method of its own that might actually be really good)
-        # 2) store the necessary information and compute dynamically during the simulation
-
         a_dummy_copy = np.copy(hole_map)
         hole_corners = []
         closing_corners = []
@@ -984,8 +1033,6 @@ class Agent:
 
                     # now the seed location for that component can be determined, meaning that
                     # it should also be possible to determine the correct closing corner
-                    # TODO: somehow make sure that using possibly including the closing corners here does
-                    # not lead to problems (although there should be other corners that could be used (?))
 
                     # need to check whether the component contains the original seed
                     if cm in self.component_target_map[self.target_map == 2]:
@@ -1087,10 +1134,6 @@ class Agent:
                     #    technique to guarantee correct construction -> should include that in the thesis (at least
                     #    if I find cases where this is indeed the case)
 
-                    # TODO: implement decision when hole entirely on some side of seed
-                    # TODO: if a corner is both an inner and outer corner exclude it (?)
-                    # -> means that the hole "bends back" on itself (?)
-
                     if (len(current_outer) + len(current_inner)) % 2 == 0:
                         # THE BLOCK BELOW IS THE OLD METHOD OF DOING THINGS AND IT WORKED ON RESTRICTED STRUCTURES
                         # sorted_by_y = sorted(range(len(current_outer)),
@@ -1113,8 +1156,7 @@ class Agent:
                     # need to actually register open corners as such, I think, because otherwise a corner might e.g.
                     # be chosen as a closing corner even though it is in the SOUTH-EAST of the hole, which given the
                     # attachment and hole rules that we have could result in trouble
-                    # TODO: record open corners and make sure that a corner is only picked as closing if it is truly
-                    # in the NORTH-EAST of the structure (and not open of course)
+
                 hole_corners[z].append(outer_corner_coord_list)
 
         all_hole_boundaries = []

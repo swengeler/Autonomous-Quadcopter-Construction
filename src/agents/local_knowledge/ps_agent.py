@@ -4,12 +4,13 @@ import env.map
 from agents.agent import Task, Agent, check_map
 from agents.local_knowledge.lk_agent import LocalKnowledgeAgent
 from env.block import Block
+from env.util import legal_attachment_sites
 from geom.shape import *
 from geom.path import Path
 from geom.util import simple_distance, rotation_2d
 
 
-class PerimeterFollowingAgentLocal(LocalKnowledgeAgent):
+class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
 
     def __init__(self,
                  position: List[float],
@@ -17,15 +18,17 @@ class PerimeterFollowingAgentLocal(LocalKnowledgeAgent):
                  target_map: np.ndarray,
                  required_spacing: float = 5.0,
                  printing_enabled=True):
-        super(PerimeterFollowingAgentLocal, self).__init__(
+        super(LocalPerimeterFollowingAgent, self).__init__(
             position, size, target_map, required_spacing, printing_enabled)
 
     def find_attachment_site(self, environment: env.map.Map):
+        position_before = np.copy(self.geometry.position)
+
         # orientation happens counter-clockwise -> follow seed edge in that direction once its reached
         # can either follow the perimeter itself or just fly over blocks (do the latter for now)
         if self.current_path is None:
             # might consider putting something here
-            self.aprint("current_path is None in find_attachment_site")
+            self.aprint("current_path is None in find_atGlobalPerimeterFollowingAgenttachment_site")
             self.current_path = Path()
             self.current_path.add_position(self.geometry.position)
 
@@ -148,6 +151,12 @@ class PerimeterFollowingAgentLocal(LocalKnowledgeAgent):
                         else:
                             log_string = log_string.format(2, self.current_grid_position)
                         self.logger.debug(log_string)
+
+                        sites = legal_attachment_sites(self.target_map[self.current_structure_level],
+                                                       environment.occupancy_map[self.current_structure_level],
+                                                       component_marker=self.current_component_marker)
+                        self.per_search_attachment_site_count["possible"].append(1)
+                        self.per_search_attachment_site_count["total"].append(int(np.count_nonzero(sites)))
                 else:
                     # site should not be occupied -> determine whether to turn a corner or continue, options:
                     # 1. turn right (site ahead occupied)
@@ -194,17 +203,24 @@ class PerimeterFollowingAgentLocal(LocalKnowledgeAgent):
         else:
             self.geometry.position = self.geometry.position + current_direction
 
+        self.per_task_distance_travelled[Task.FIND_ATTACHMENT_SITE] += simple_distance(position_before,
+                                                                                       self.geometry.position)
+
     def place_block(self, environment: env.map.Map):
+        position_before = np.copy(self.geometry.position)
+
         # fly to determined attachment site, lower quadcopter and place block,
         # then switch task back to fetching blocks
 
         if self.current_path is None:
             init_z = Block.SIZE * (self.current_structure_level + 2) + self.required_spacing + self.geometry.size[2] / 2
+            first_z = Block.SIZE * (self.current_grid_position[2] + 2) + self.geometry.size[2] / 2
             placement_x = Block.SIZE * self.current_grid_position[0] + environment.offset_origin[0]
             placement_y = Block.SIZE * self.current_grid_position[1] + environment.offset_origin[1]
             placement_z = Block.SIZE * (self.current_grid_position[2] + 1) + self.geometry.size[2] / 2
             self.current_path = Path()
             self.current_path.add_position([placement_x, placement_y, init_z])
+            self.current_path.add_position([placement_x, placement_y, first_z])
             self.current_path.add_position([placement_x, placement_y, placement_z])
 
         if environment.check_occupancy_map(self.current_grid_position):
@@ -217,10 +233,14 @@ class PerimeterFollowingAgentLocal(LocalKnowledgeAgent):
             self.task_history.append(self.current_task)
             return
 
-        next_position = self.current_path.next()
-        current_direction = self.current_path.direction_to_next(self.geometry.position)
-        current_direction /= sum(np.sqrt(current_direction ** 2))
-        current_direction *= Agent.MOVEMENT_PER_STEP
+        if self.current_path.current_index != len(self.current_path.positions) - 1:
+            next_position, current_direction = self.move(environment)
+        else:
+            next_position = self.current_path.next()
+            current_direction = self.current_path.direction_to_next(self.geometry.position)
+            current_direction /= sum(np.sqrt(current_direction ** 2))
+            current_direction *= Agent.MOVEMENT_PER_STEP
+            self.per_task_step_count[self.current_task] += 1
         if simple_distance(self.geometry.position, next_position) <= Agent.MOVEMENT_PER_STEP:
             self.geometry.position = next_position
             ret = self.current_path.advance()
@@ -230,6 +250,9 @@ class PerimeterFollowingAgentLocal(LocalKnowledgeAgent):
                 if self.current_block.is_seed:
                     self.current_seed = self.current_block
                     self.next_seed_position = None
+                    self.components_seeded.append(int(self.current_component_marker))
+                elif self.current_component_marker not in self.components_attached:
+                    self.components_attached.append(int(self.current_component_marker))
 
                 if self.current_block.geometry.position[2] > (self.current_grid_position[2] + 0.5) * Block.SIZE:
                     self.logger.error("BLOCK PLACED IN AIR ({})".format(self.current_grid_position[2]))
@@ -237,6 +260,9 @@ class PerimeterFollowingAgentLocal(LocalKnowledgeAgent):
                         np.array([self.geometry.position[0], self.geometry.position[1],
                                   (self.current_grid_position[2] + 1) * Block.SIZE + self.geometry.size[2] / 2]))
                     return
+
+                self.attachment_frequency_count.append(self.count_since_last_attachment)
+                self.count_since_last_attachment = 0
 
                 environment.place_block(self.current_grid_position, self.current_block)
                 self.geometry.attached_geometries.remove(self.current_block.geometry)
@@ -283,6 +309,8 @@ class PerimeterFollowingAgentLocal(LocalKnowledgeAgent):
                             self.aprint("")
         else:
             self.geometry.position = self.geometry.position + current_direction
+
+        self.per_task_distance_travelled[Task.PLACE_BLOCK] += simple_distance(position_before, self.geometry.position)
 
     def advance(self, environment: env.map.Map):
         if self.current_seed is None:
@@ -334,9 +362,10 @@ class PerimeterFollowingAgentLocal(LocalKnowledgeAgent):
                     and sum([simple_distance(self.geometry.position, x) for x in self.position_queue]) < 70 \
                     and self.current_path is not None:
                 self.aprint("STUCK")
+                self.stuck_count += 1
                 self.current_path.add_position([self.geometry.position[0],
                                                 self.geometry.position[1],
-                                                self.geometry.position[2] + self.geometry.size[2] * random.random()],
+                                                self.geometry.position[2] + self.geometry.size[2] * 2 * random.random()],
                                                self.current_path.current_index)
 
         self.position_queue.append(self.geometry.position.copy())
@@ -347,17 +376,22 @@ class PerimeterFollowingAgentLocal(LocalKnowledgeAgent):
                 if self is not a and self.collision_potential(a) \
                         and a.geometry.position[2] <= self.geometry.position[2] - self.required_vertical_distance:
                     # self.aprint("INITIATING HIGH-LEVEL COLLISION AVOIDANCE")
-                    self.previous_task = self.current_task
-                    self.current_task = Task.AVOID_COLLISION
-                    self.task_history.append(self.current_task)
+                    # self.previous_task = self.current_task
+                    # self.current_task = Task.AVOID_COLLISION
+                    # self.task_history.append(self.current_task)
                     if self.current_path is None:
                         self.path_before_collision_avoidance_none = True
                     collision_danger = True
-                    self.collision_count += 1
+                    # self.collision_count += 1
                     break
-        self.step_count += 1
 
+        self.step_count += 1
         self.collision_queue.append(collision_danger)
+        self.count_since_last_attachment += 1
+        self.drop_out_statistics["drop_out_of_swarm"].append(self.drop_out_of_swarm)
+        self.drop_out_statistics["wait_for_rejoining"].append(self.wait_for_rejoining)
+        self.drop_out_statistics["rejoining_swarm"].append(self.rejoining_swarm)
+
         # if len(self.collision_queue) == self.collision_queue.maxlen:
         #     self.aprint("Proportion of collision danger to other movement: {}"
         #            .format(sum(self.collision_queue) / self.collision_queue.maxlen))

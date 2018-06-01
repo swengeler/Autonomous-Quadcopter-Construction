@@ -25,6 +25,7 @@ class Graphics2D:
                  views: List[str] = None,
                  min_update_interval=200,
                  padding: Tuple[float, float] = (20, 20),
+                 scale=1,
                  render: bool = True):
         self.map = map
         self.update_queue = request_queue
@@ -32,6 +33,7 @@ class Graphics2D:
         self.views = views if views is not None else ["top", "front"]
         self.update_interval = int(min_update_interval / 2)
         self.padding = padding
+        self.scale = scale
         self.render = render
         self.master = None
         self.canvases = dict()
@@ -174,7 +176,7 @@ class Graphics2D:
 
                 canvas.create_text(a.geometry.position[0] + self.padding[0],
                                    self.map.environment_extent[1] - a.geometry.position[1] + self.padding[1],
-                                   fill="white", font="Times 20 italic bold", text="{}".format(counter))
+                                   fill="white", font="Arial 20 bold", text="{}".format(counter))
                 counter += 1
 
         if "front" in self.views:
@@ -214,13 +216,13 @@ class Graphics2D:
             for a in self.map.agents:
                 canvas.create_text(a.geometry.position[0] + self.padding[0],
                                    self.map.environment_extent[1] - a.geometry.position[1] + self.padding[1],
-                                   fill="white", font="Times 20 italic bold", text="{}".format(a.id))
+                                   fill="white", font="Arial 20 bold", text="{}".format(a.id))
 
             for b in self.map.placed_blocks:
                 if b.is_seed:
                     canvas.create_text(b.geometry.position[0] + self.padding[0],
                                        self.map.environment_extent[1] - b.geometry.position[1] + self.padding[1],
-                                       fill="white", font="Times 10 italic bold", text="{}".format(b.grid_position[2]))
+                                       fill="white", font="Arial 10 bold", text="{}".format(b.grid_position[2]))
 
         if "front" in self.views:
             canvas = self.canvases["front"]
@@ -228,14 +230,14 @@ class Graphics2D:
                 canvas.create_text(a.geometry.position[0] + self.padding[0],
                                    self.map.environment_extent[2] - a.geometry.position[2] +
                                    self.padding[1] + a.geometry.size[2] / 2,
-                                   fill="white", font="Times 20 italic bold", text="{}".format(a.id))
+                                   fill="white", font="Arial 20 italic bold", text="{}".format(a.id))
 
             for b in self.map.placed_blocks:
                 if b.is_seed:
                     canvas.create_text(b.geometry.position[0] + self.padding[0],
                                        self.map.environment_extent[2] - b.geometry.position[2] +
                                        self.padding[1] + b.geometry.size[2] / 2,
-                                       fill="white", font="Times 10 italic bold", text="{}".format(b.grid_position[2]))
+                                       fill="white", font="Arial 10 bold", text="{}".format(b.grid_position[2]))
 
     def update_graphics(self):
         if self.render:

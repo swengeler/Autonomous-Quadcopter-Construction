@@ -10,7 +10,7 @@ from geom.path import Path
 from geom.util import simple_distance
 
 
-class ShortestPathAgentGlobal(GlobalKnowledgeAgent):
+class GlobalShortestPathAgent(GlobalKnowledgeAgent):
 
     def __init__(self,
                  position: List[float],
@@ -18,13 +18,14 @@ class ShortestPathAgentGlobal(GlobalKnowledgeAgent):
                  target_map: np.ndarray,
                  required_spacing: float = 5.0,
                  printing_enabled=True):
-        super(ShortestPathAgentGlobal, self).__init__(position, size, target_map, required_spacing, printing_enabled)
+        super(GlobalShortestPathAgent, self).__init__(position, size, target_map, required_spacing, printing_enabled)
         self.current_shortest_path = None
         self.current_sp_index = 0
-        self.illegal_sites = []
-        self.current_attachment_info = None
+        self.attachment_site_ordering = "shortest_path"  # other is "agent_count"
 
     def find_attachment_site(self, environment: env.map.Map):
+        position_before = np.copy(self.geometry.position)
+
         if self.current_path is None or self.current_shortest_path is None:
             # get all legal attachment sites for the current component given the current occupancy matrix
             attachment_sites = legal_attachment_sites(self.component_target_map[self.current_structure_level],
@@ -44,6 +45,8 @@ class ShortestPathAgentGlobal(GlobalKnowledgeAgent):
             # convert to coordinates
             attachment_sites = np.where(attachment_sites == 1)
             attachment_sites = list(zip(attachment_sites[1], attachment_sites[0]))
+
+            self.per_search_attachment_site_count["total"].append(len(attachment_sites))
 
             backup = []
             for site in attachment_sites:
@@ -86,6 +89,8 @@ class ShortestPathAgentGlobal(GlobalKnowledgeAgent):
                 self.aprint("ATTACHMENT MAP:")
                 self.aprint(attachment_map, print_as_map=True)
 
+            self.per_search_attachment_site_count["possible"].append(len(attachment_sites))
+
             # find the closest one
             shortest_paths = []
             for x, y in attachment_sites:
@@ -98,10 +103,15 @@ class ShortestPathAgentGlobal(GlobalKnowledgeAgent):
             # this should be used later:
             directions = [np.array([x - self.current_grid_position[0], y - self.current_grid_position[1]])
                           for x, y in attachment_sites]
-            counts = self.direction_agent_count(environment, directions=directions, angle=np.pi / 2)
+            counts = self.count_in_direction(environment, directions=directions, angle=np.pi / 2)
 
             # order = sorted(range(len(shortest_paths)), key=lambda i: len(shortest_paths[i]))
-            order = sorted(range(len(shortest_paths)), key=lambda i: (counts[i], len(shortest_paths[i])))
+            if self.attachment_site_ordering == "shortest_path":
+                order = sorted(range(len(shortest_paths)), key=lambda i: (len(shortest_paths[i]), counts[i]))
+            elif self.attachment_site_ordering == "agent_count":
+                order = sorted(range(len(shortest_paths)), key=lambda i: (counts[i], len(shortest_paths[i])))
+            else:
+                order = sorted(range(len(shortest_paths)), key=lambda i: random.random())
 
             shortest_paths = [shortest_paths[i] for i in order]
             attachment_sites = [attachment_sites[i] for i in order]
@@ -224,7 +234,11 @@ class ShortestPathAgentGlobal(GlobalKnowledgeAgent):
                     self.update_local_occupancy_map(environment)
             self.geometry.position = self.geometry.position + current_direction
 
+        self.per_task_distance_travelled[Task.FIND_ATTACHMENT_SITE] += simple_distance(position_before, self.geometry.position)
+
     def place_block(self, environment: env.map.Map):
+        position_before = np.copy(self.geometry.position)
+
         if self.current_path is None:
             init_z = Block.SIZE * (self.current_structure_level + 2) + self.required_spacing + self.geometry.size[2] / 2
             first_z = Block.SIZE * (self.current_grid_position[2] + 2) + self.geometry.size[2] / 2
@@ -235,6 +249,8 @@ class ShortestPathAgentGlobal(GlobalKnowledgeAgent):
             self.current_path.add_position([placement_x, placement_y, init_z])
             self.current_path.add_position([placement_x, placement_y, first_z])
             self.current_path.add_position([placement_x, placement_y, placement_z])
+            self.aprint("place_block, height of init, first, placement: {}, {}, {}".format(init_z, first_z, placement_z))
+            self.aprint("current grid position: {}, current structure level: {}".format(self.current_grid_position, self.current_structure_level))
 
         # check again whether attachment is allowed since other agents placing blocks there may have made it illegal
         if not self.current_block_type_seed:
@@ -262,6 +278,7 @@ class ShortestPathAgentGlobal(GlobalKnowledgeAgent):
             current_direction = self.current_path.direction_to_next(self.geometry.position)
             current_direction /= sum(np.sqrt(current_direction ** 2))
             current_direction *= Agent.MOVEMENT_PER_STEP
+            self.per_task_step_count[self.current_task] += 1
         if simple_distance(self.geometry.position, next_position) <= Agent.MOVEMENT_PER_STEP:
             self.geometry.position = next_position
             ret = self.current_path.advance()
@@ -270,7 +287,9 @@ class ShortestPathAgentGlobal(GlobalKnowledgeAgent):
             if not ret:
                 if self.current_block.is_seed:
                     self.current_seed = self.current_block
-                    self.next_seed_position = None
+                    self.components_seeded.append(int(self.current_component_marker))
+                elif self.current_component_marker not in self.components_attached:
+                    self.components_attached.append(int(self.current_component_marker))
 
                 if self.current_block.geometry.position[2] > (self.current_grid_position[2] + 1.0) * Block.SIZE:
                     self.logger.error("BLOCK PLACED IN AIR ({}, {}, {})".format(
@@ -284,6 +303,7 @@ class ShortestPathAgentGlobal(GlobalKnowledgeAgent):
                     self.rejoining_swarm = False
 
                 self.agent_statistics.attachment_interval.append(self.count_since_last_attachment)
+                self.attachment_frequency_count.append(self.count_since_last_attachment)
                 self.count_since_last_attachment = 0
 
                 environment.place_block(self.current_grid_position, self.current_block)
@@ -312,39 +332,61 @@ class ShortestPathAgentGlobal(GlobalKnowledgeAgent):
                         self.current_block_type_seed = False
                 self.task_history.append(self.current_task)
 
+                self.aprint("RECHECK CALLED FROM AGENT {}".format(self.id))
                 for a in environment.agents:
                     a.recheck_task(environment)
         else:
             self.geometry.position = self.geometry.position + current_direction
 
+        self.per_task_distance_travelled[Task.PLACE_BLOCK] += simple_distance(position_before, self.geometry.position)
+
     def advance(self, environment: env.map.Map):
         if self.current_task == Task.FINISHED:
             return
 
-        # if self.step_count > 0:
-        #     self.aprint("Current proportion: {}".format((self.collision_count / self.step_count)))
+        if self.current_task != Task.LAND and self.current_block is None:
+            finished = False
+            if self.check_structure_finished(environment.occupancy_map):
+                finished = True
+            elif all([len(environment.seed_stashes[key]) == 0 for key in environment.seed_stashes]) \
+                    and all([len(environment.block_stashes[key]) == 0 for key in environment.block_stashes]):
+                finished = True
+            # elif self.current_block_type_seed \
+            #         and all([len(environment.seed_stashes[key]) == 0 for key in environment.seed_stashes]):
+            #     finished = True
+            # elif not self.current_block_type_seed \
+            #         and all([len(environment.block_stashes[key]) == 0 for key in environment.block_stashes]):
+            #     finished = True
 
-        # this is only for testing obviously
-        # if not self.rejoining_swarm and not self.drop_out_of_swarm and self.step_count > 1000 \
-        #         and (self.collision_count / self.step_count) > 0.35 \
-        #         and random.random() < 0.1 \
-        #         and self.current_task in [Task.RETURN_BLOCK,
-        #                                   Task.FETCH_BLOCK,
-        #                                   Task.TRANSPORT_BLOCK,
-        #                                   Task.CHECK_STASHES,
-        #                                   Task.WAIT_ON_PERIMETER]:
-        #     if self.current_block is not None:
-        #         self.current_task = Task.RETURN_BLOCK
-        #     else:
-        #         self.current_task = Task.LAND
-        #     self.drop_out_of_swarm = True
-        #     self.wait_for_rejoining = False
-        #     self.rejoining_swarm = False
-        #     self.current_path = None
-        #     self.aprint("SETTING VARIABLES FOR LEAVING")
-        # 
-        # if self.wait_for_rejoining or self.current_task == Task.REJOIN_SWARM:
-        #     self.rejoin_swarm(environment)
+            if finished:
+                self.drop_out_of_swarm = False
+                self.wait_for_rejoining = False
+                self.rejoining_swarm = False
+                self.current_path = None
+                self.current_task = Task.LAND
+                self.aprint("LANDING (8)")
+                self.aprint("")
+                self.task_history.append(self.current_task)
+
+        if self.dropping_out_enabled:
+            if not self.rejoining_swarm and not self.drop_out_of_swarm and self.step_count > 1000 \
+                    and (self.collision_count / self.step_count) > 0.35 \
+                    and random.random() < 0.1 \
+                    and self.current_task in [Task.RETURN_BLOCK,
+                                              Task.FETCH_BLOCK,
+                                              Task.TRANSPORT_BLOCK,
+                                              Task.WAIT_ON_PERIMETER]:
+                if self.current_block is not None:
+                    self.current_task = Task.RETURN_BLOCK
+                else:
+                    self.current_task = Task.LAND
+                self.drop_out_of_swarm = True
+                self.wait_for_rejoining = False
+                self.rejoining_swarm = False
+                self.current_path = None
+
+            if self.wait_for_rejoining or self.current_task == Task.REJOIN_SWARM:
+                self.rejoin_swarm(environment)
 
         if self.current_seed is None:
             self.current_seed = environment.blocks[0]
@@ -354,11 +396,6 @@ class ShortestPathAgentGlobal(GlobalKnowledgeAgent):
 
         if self.initial_position is None:
             self.initial_position = np.copy(self.geometry.position)
-
-        if self.current_task != Task.LAND and self.check_structure_finished(self.local_occupancy_map):
-            self.current_task = Task.LAND
-            self.aprint("LANDING (8)")
-            self.task_history.append(self.current_task)
 
         self.agent_statistics.step(environment)
 
@@ -370,6 +407,8 @@ class ShortestPathAgentGlobal(GlobalKnowledgeAgent):
             self.transport_block(environment)
         elif self.current_task == Task.WAIT_ON_PERIMETER:
             self.wait_on_perimeter(environment)
+        elif self.current_task == Task.HOVER_OVER_COMPONENT:
+            self.hover_over_component(environment)
         elif self.current_task == Task.MOVE_TO_PERIMETER:
             self.move_to_perimeter(environment)
         elif self.current_task == Task.FIND_ATTACHMENT_SITE:
@@ -391,29 +430,22 @@ class ShortestPathAgentGlobal(GlobalKnowledgeAgent):
                     and sum([simple_distance(self.geometry.position, x) for x in self.position_queue]) < 70 \
                     and self.current_path is not None and not self.wait_for_rejoining:
                 self.aprint("STUCK")
+                self.stuck_count += 1
                 self.current_path.add_position([self.geometry.position[0],
                                                 self.geometry.position[1],
-                                                self.geometry.position[2] + self.geometry.size[2] * random.random()],
+                                                self.geometry.position[2] + self.geometry.size[2] * 2 * random.random()],
                                                self.current_path.current_index)
-
-        self.position_queue.append(self.geometry.position.copy())
-
-        collision_danger = False
-        if self.collision_possible and self.current_task not in [Task.AVOID_COLLISION, Task.LAND, Task.FINISHED]:
-            for a in environment.agents:
-                if self is not a and self.collision_potential(a):
-                    self.previous_task = self.current_task
-                    collision_danger = True
-                    # self.collision_count += 1
-                    break
-
-        self.step_count += 1
-        self.count_since_last_attachment += 1
 
         # self.collision_queue.append(collision_danger)
         if len(self.collision_queue) == self.collision_queue.maxlen:
             avg = sum(self.collision_queue) / self.collision_queue.maxlen
-            # self.aprint("Proportion of collision danger to other movement: {}".format(avg))
-            # if len(self.collision_average_queue) == self.collision_average_queue.maxlen:
-            #     self.aprint("Moving average above 0.8: {}".format(sum(e > 0.8 for e in self.collision_average_queue)))
             self.collision_average_queue.append(avg)
+
+        self.position_queue.append(self.geometry.position.copy())
+        self.step_count += 1
+        self.count_since_last_attachment += 1
+        self.drop_out_statistics["drop_out_of_swarm"].append(self.drop_out_of_swarm)
+        self.drop_out_statistics["wait_for_rejoining"].append(self.wait_for_rejoining)
+        self.drop_out_statistics["rejoining_swarm"].append(self.rejoining_swarm)
+
+        # updating statistics

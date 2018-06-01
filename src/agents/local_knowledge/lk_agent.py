@@ -18,8 +18,14 @@ class LocalKnowledgeAgent(Agent):
                  required_spacing: float = 5.0,
                  printing_enabled=True):
         super(LocalKnowledgeAgent, self).__init__(position, size, target_map, required_spacing, printing_enabled)
+        self.seed_if_possible_enabled = False
+        self.seeding_strategy = "distance_self"  # others being: "distance_center", "agent_count"
+        self.find_next_component_count = []
 
     def check_stashes(self, environment: env.map.Map):
+        position_before = np.copy(self.geometry.position)
+        # TODO?: do the thing
+
         if self.current_path is None:
             # check all stashes in CCW order
             ordered_stash_positions = environment.ccw_seed_stash_locations() if self.current_block_type_seed \
@@ -36,6 +42,7 @@ class LocalKnowledgeAgent(Agent):
             self.current_stash_path = ordered_stash_positions[index:]
             self.current_stash_path.extend(ordered_stash_positions[:index])
             self.current_stash_path_index = 0
+            self.current_stash_position = min_stash_position
 
             check_level_z = Block.SIZE * (self.current_structure_level + 2) + self.geometry.size[2] / 2 + \
                             self.required_spacing
@@ -43,7 +50,8 @@ class LocalKnowledgeAgent(Agent):
                             self.geometry.size[2] * 1.5
             check_level_z = self.geometry.position[2]
             self.current_path = Path()
-            self.current_path.add_position([min_stash_position[0], min_stash_position[1], check_level_z])
+            self.current_path.add_position([min_stash_position[0], min_stash_position[1], check_level_z],
+                                           optional_distance=20)
             # TODO: potentially make this work with "approximate goals"?
 
         next_position, current_direction = self.move(environment)
@@ -52,7 +60,7 @@ class LocalKnowledgeAgent(Agent):
             ret = self.current_path.advance()
 
             if not ret:
-                stash_position = tuple(self.geometry.position[:2])
+                stash_position = self.current_stash_position
 
                 # check whether there are actually blocks at this location
                 stashes = environment.seed_stashes if self.current_block_type_seed else environment.block_stashes
@@ -78,10 +86,12 @@ class LocalKnowledgeAgent(Agent):
                     if self.current_stash_path_index + 1 < len(self.current_stash_path):
                         self.current_stash_path_index += 1
                         next_position = self.current_stash_path[self.current_stash_path_index]
+                        self.current_stash_position = next_position
                         self.aprint("MOVING ON TO NEXT STASH {}".format(next_position))
                         self.aprint("(index: {}, stash path: {})"
                                     .format(self.current_stash_path_index, self.current_stash_path))
-                        self.current_path.add_position([next_position[0], next_position[1], self.geometry.position[2]])
+                        self.current_path.add_position([next_position[0], next_position[1], self.geometry.position[2]],
+                                                       optional_distance=20)
                     else:
                         self.current_task = Task.LAND
                         self.task_history.append(self.current_task)
@@ -99,7 +109,10 @@ class LocalKnowledgeAgent(Agent):
         else:
             self.geometry.position = self.geometry.position + current_direction
 
+        self.per_task_distance_travelled[Task.CHECK_STASHES] += simple_distance(position_before, self.geometry.position)
+
     def fetch_block(self, environment: env.map.Map):
+        position_before = np.copy(self.geometry.position)
         # locate block, locations may be:
         # 1. known from the start (including block type)
         # 2. known roughly (in the case of block deposits/clusters)
@@ -146,10 +159,10 @@ class LocalKnowledgeAgent(Agent):
             for p in list(stashes.keys()):
                 if p not in self.known_empty_stashes:
                     distance = simple_distance(compared_location, p)
-                    count = self.direction_agent_count(environment,
-                                                       [p - self.geometry.position[:2]],
-                                                       angle=np.pi / 2,
-                                                       max_vert_distance=100)[0]
+                    count = self.count_in_direction(environment,
+                                                    [p - self.geometry.position[:2]],
+                                                    angle=np.pi / 2,
+                                                    max_vertical_distance=200)[0]
                     count_at_stash = 0
                     for a in environment.agents:
                         if a is not self and simple_distance(a.geometry.position[:2], p) <= self.stash_min_distance:
@@ -169,6 +182,10 @@ class LocalKnowledgeAgent(Agent):
                 self.current_path = None
                 self.fetch_block(environment)
                 return
+
+            self.current_stash_position = min_stash_location
+
+            # TODO: check whether path has to be altered to avoid structure
 
             # stash locations sorted by some other measure but distance
             # stash_list = sorted(stash_list, key=lambda e: (-e[4], e[3], e[1], e[2]))
@@ -190,7 +207,8 @@ class LocalKnowledgeAgent(Agent):
             self.current_path = Path()
             # self.current_path.add_position([compared_location[0], compared_location[1], fetch_level_z])
             self.current_path.add_position([self.geometry.position[0], self.geometry.position[1], fetch_level_z])
-            self.current_path.add_position([min_stash_location[0], min_stash_location[1], fetch_level_z])
+            self.current_path.add_position([min_stash_location[0], min_stash_location[1], fetch_level_z],
+                                           optional_distance=20)
 
             # TODO: need to find the direction with the fewest other agents (and simultaneously closest to perimeter)
             # either leave the structure in that direction only or constantly check whether there is free space
@@ -201,7 +219,8 @@ class LocalKnowledgeAgent(Agent):
         # that should maybe be avoided (issue here might be that other it's is fairly likely due to
         # the low approach to the stashes that other agents push ones already there out of the way; in
         # that case it would this check might still do some good (?))
-        if simple_distance(self.geometry.position[:2], self.current_path.positions[-1][:2]) < 50:
+        if self.avoiding_crowded_stashes_enabled and \
+                simple_distance(self.geometry.position[:2], self.current_path.positions[-1][:2]) < 50:
             count_at_stash = 0
             for a in environment.agents:
                 if a is not self and simple_distance(
@@ -221,6 +240,7 @@ class LocalKnowledgeAgent(Agent):
                             min_stash_location = p
 
                 if min_stash_location is not None:
+                    self.current_stash_position = min_stash_location
                     fetch_level_z = max(self.geometry.position[2], self.geometry.position[2] + Block.SIZE * 2)
                     self.current_path = Path()
                     self.current_path.add_position([min_stash_location[0], min_stash_location[1], fetch_level_z])
@@ -235,7 +255,7 @@ class LocalKnowledgeAgent(Agent):
             # if the final point on the path has been reached, determine a block to pick up
             if not ret:
                 stashes = environment.seed_stashes if self.current_block_type_seed else environment.block_stashes
-                stash_position = tuple(self.geometry.position[:2])
+                stash_position = self.current_stash_position
                 if stash_position not in list(stashes.keys()):
                     # find closest
                     min_stash_distance = float("inf")
@@ -244,6 +264,7 @@ class LocalKnowledgeAgent(Agent):
                         if temp < min_stash_distance:
                             min_stash_distance = temp
                             stash_position = p
+
                 if len(stashes[stash_position]) == 0:
                     # remember that this stash is empty
                     self.known_empty_stashes.append(stash_position)
@@ -261,7 +282,11 @@ class LocalKnowledgeAgent(Agent):
         else:
             self.geometry.position = self.geometry.position + current_direction
 
+        self.per_task_distance_travelled[Task.FETCH_BLOCK] += simple_distance(position_before, self.geometry.position)
+
     def pick_up_block(self, environment: env.map.Map):
+        position_before = np.copy(self.geometry.position)
+
         # at this point it has been confirmed that there is indeed a block around that location
         if self.current_path is None:
             stashes = environment.seed_stashes if self.current_block_type_seed else environment.block_stashes
@@ -381,7 +406,11 @@ class LocalKnowledgeAgent(Agent):
         else:
             self.geometry.position = self.geometry.position + current_direction
 
+        self.per_task_distance_travelled[Task.PICK_UP_BLOCK] += simple_distance(position_before, self.geometry.position)
+
     def wait_on_perimeter(self, environment: env.map.Map):
+        position_before = np.copy(self.geometry.position)
+
         if self.current_path is None:
             # from the current position, start moving counter-clockwise around the perimeter of the construction
             # zone for now, maybe change this to the perimeter of the existing structure depending on its size
@@ -456,7 +485,11 @@ class LocalKnowledgeAgent(Agent):
         else:
             self.geometry.position = self.geometry.position + current_direction
 
+        self.per_task_distance_travelled[Task.WAIT_ON_PERIMETER] += simple_distance(position_before, self.geometry.position)
+
     def rejoin_swarm(self, environment: env.map.Map):
+        position_before = np.copy(self.geometry.position)
+
         # while this is the task, should probably assign small probability to rejoining
         # 1. fly towards the structure (towards the remembered seed?)
         # 2. if the structure is higher than the current level, rise up as long as up as needed
@@ -597,50 +630,11 @@ class LocalKnowledgeAgent(Agent):
         self.current_path = None
         self.task_history.append(self.current_task)
 
-    def rejoin_swarm_local(self, environment: env.map.Map):
-        # first move to structure, using old seed for reference
-
-        # once any seed (whether it is the original one or not) has been reached and is covered by anything,
-        # start working as normal (e.g. try to search for attachment sites at that component, switch to others)
-
-        # whenever the agent encounters any blocks higher than the assumed (last) structure level, it should
-        # rise and start the search for a seed at that level again
-        # what would be good sensory capabilities for finding out where there are blocks higher than the current level?
-        # flying over or "almost into" any blocks would definitely qualify for identifying this
-
-        if not self.rejoining_swarm and not ((self.collision_count / self.step_count) < 0.34 and random.random() < 0.9):
-            return
-
-        self.rejoining_swarm = True
-        self.wait_for_rejoining = False
-        self.drop_out_of_swarm = False
-
-        if self.current_block is None:
-            self.current_task = Task.FETCH_BLOCK
-            self.task_history.append(self.current_task)
-            self.current_block_type_seed = False
-            return
-
-        # the first time this is called (when starting to rejoin the swarm), we should just have fetched a block
-        # therefore, we should now start moving towards the last seed that we remember, essentially just transporting
-        # the block
-        # however, while the rejoining_swarm parameter is True (i.e. before attaching a block again), should pay
-        # attention to the FUUUUUUUUUUUCK
-        seed_location = self.current_seed.geometry.position
-        transport_level_z = Block.SIZE * self.current_structure_level + Block.SIZE + Block.SIZE + \
-            self.required_distance + self.geometry.size[2] * 1.5
-        other_transport_level_z = (self.current_seed.grid_position[2] + 2) * Block.SIZE + self.geometry.size[2] * 2
-
-        self.current_path = Path()
-        # self.aprint("Current seed at {}".format(self.current_seed.grid_position))
-        # self.aprint("Next seed intended for {}".format(self.next_seed_position))
-        self.current_path.add_position([self.geometry.position[0], self.geometry.position[1], transport_level_z],
-                                       optional_distance=50)
-        self.current_path.add_position([seed_location[0], seed_location[1], transport_level_z],
-                                       optional_distance=30)
-        self.current_path.add_position([seed_location[0], seed_location[1], other_transport_level_z])
+        self.per_task_distance_travelled[Task.REJOIN_SWARM] += simple_distance(position_before, self.geometry.position)
 
     def transport_block(self, environment: env.map.Map):
+        position_before = np.copy(self.geometry.position)
+
         # gain height to the "transport-to-structure" level
 
         # locate structure (and seed in particular), different ways of doing this:
@@ -673,8 +667,10 @@ class LocalKnowledgeAgent(Agent):
 
             # self.aprint("Current seed at {}".format(self.current_seed.grid_position))
             # self.aprint("Next seed intended for {}".format(self.next_seed_position))
+            # self.current_path.add_position([self.geometry.position[0], self.geometry.position[1], transport_level_z],
+            #                                optional_distance=70, axes=(0, 1))
             self.current_path.add_position([self.geometry.position[0], self.geometry.position[1], transport_level_z],
-                                           optional_distance=20)
+                                           optional_distance=(70, 70, 20))
             self.current_path.add_position([seed_location[0], seed_location[1], transport_level_z],
                                            optional_distance=30)
             self.current_path.add_position([seed_location[0], seed_location[1], other_transport_level_z])
@@ -786,8 +782,24 @@ class LocalKnowledgeAgent(Agent):
                         # if a seed is being carried, the transport phase continues to the designated seed position
                         seed_x = environment.offset_origin[0] + self.next_seed_position[0] * Block.SIZE
                         seed_y = environment.offset_origin[1] + self.next_seed_position[1] * Block.SIZE
+
+                        directions = [np.array([self.next_seed_position[0],
+                                                self.current_grid_position[1]]) - self.current_grid_position[:2],
+                                      np.array([self.current_grid_position[0],
+                                                self.next_seed_position[1]]) - self.current_grid_position[:2]]
+                        counts = self.count_in_direction(environment, directions, angle=np.pi / 2)
+                        if self.transport_avoid_others_enabled and counts[0] < counts[1]:
+                            first_location = [seed_x, self.geometry.position[1], self.geometry.position[2]]
+                        elif self.transport_avoid_others_enabled and counts[1] < counts[0]:
+                            first_location = [self.geometry.position[0], seed_y, self.geometry.position[2]]
+                        else:
+                            if random.random() < 0.5:
+                                first_location = [seed_x, self.geometry.position[1], self.geometry.position[2]]
+                            else:
+                                first_location = [self.geometry.position[0], seed_y, self.geometry.position[2]]
+
                         self.current_path = Path()
-                        self.current_path.add_position([self.geometry.position[0], seed_y, self.geometry.position[2]])
+                        self.current_path.add_position(first_location)
                         self.current_path.add_position([seed_x, seed_y, self.geometry.position[2]])
                         self.transporting_to_seed_site = True
                 else:
@@ -819,11 +831,25 @@ class LocalKnowledgeAgent(Agent):
                                 # simply move to the intended position for the carried seed
                                 seed_x = environment.offset_origin[0] + self.next_seed_position[0] * Block.SIZE
                                 seed_y = environment.offset_origin[1] + self.next_seed_position[1] * Block.SIZE
-                                seed_z = Block.SIZE * (self.current_structure_level + 1) + \
-                                         self.geometry.size[2] / 2 + self.required_spacing
+
+                                directions = [np.array([self.next_seed_position[0],
+                                                        self.current_grid_position[1]]) - self.current_grid_position[
+                                                                                          :2],
+                                              np.array([self.current_grid_position[0],
+                                                        self.next_seed_position[1]]) - self.current_grid_position[:2]]
+                                counts = self.count_in_direction(environment, directions, angle=np.pi / 2)
+                                if self.transport_avoid_others_enabled and counts[0] < counts[1]:
+                                    first_location = [seed_x, self.geometry.position[1], self.geometry.position[2]]
+                                elif self.transport_avoid_others_enabled and counts[1] < counts[0]:
+                                    first_location = [self.geometry.position[0], seed_y, self.geometry.position[2]]
+                                else:
+                                    if random.random() < 0.5:
+                                        first_location = [seed_x, self.geometry.position[1], self.geometry.position[2]]
+                                    else:
+                                        first_location = [self.geometry.position[0], seed_y, self.geometry.position[2]]
+
                                 self.current_path = Path()
-                                self.current_path.add_position(
-                                    [self.geometry.position[0], seed_y, self.geometry.position[2]])
+                                self.current_path.add_position(first_location)
                                 self.current_path.add_position([seed_x, seed_y, self.geometry.position[2]])
                                 self.transporting_to_seed_site = True
                             else:
@@ -850,9 +876,24 @@ class LocalKnowledgeAgent(Agent):
 
                         seed_x = environment.offset_origin[0] + seed_grid_location[0] * Block.SIZE
                         seed_y = environment.offset_origin[1] + seed_grid_location[1] * Block.SIZE
-                        seed_z = Block.SIZE * (self.current_structure_level + 1) + \
-                                 self.geometry.size[2] / 2 + self.required_spacing
+
+                        directions = [np.array([seed_grid_location[0],
+                                                self.current_grid_position[1]]) - self.current_grid_position[:2],
+                                      np.array([self.current_grid_position[0],
+                                                seed_grid_location[1]]) - self.current_grid_position[:2]]
+                        counts = self.count_in_direction(environment, directions, angle=np.pi / 2)
+                        if self.transport_avoid_others_enabled and counts[0] < counts[1]:
+                            first_location = [seed_x, self.geometry.position[1], self.geometry.position[2]]
+                        elif self.transport_avoid_others_enabled and counts[1] < counts[0]:
+                            first_location = [self.geometry.position[0], seed_y, self.geometry.position[2]]
+                        else:
+                            if random.random() < 0.5:
+                                first_location = [seed_x, self.geometry.position[1], self.geometry.position[2]]
+                            else:
+                                first_location = [self.geometry.position[0], seed_y, self.geometry.position[2]]
+
                         self.current_path = Path()
+                        self.current_path.add_position(first_location)
                         self.current_path.add_position([seed_x, seed_y, self.geometry.position[2]])
 
                 if self.check_component_finished(self.local_occupancy_map):
@@ -864,12 +905,17 @@ class LocalKnowledgeAgent(Agent):
         else:
             self.geometry.position = self.geometry.position + current_direction
 
+        self.per_task_distance_travelled[Task.TRANSPORT_BLOCK] += simple_distance(position_before,
+                                                                                    self.geometry.position)
+
     def move_to_perimeter(self, environment: env.map.Map):
+        position_before = np.copy(self.geometry.position)
+
         if self.current_path is None:
             # move to next block position in designated direction (which could be the shortest path or
             # just some direction chosen e.g. at the start, which is assumed here)
             directions = [np.array([1, 0, 0]), np.array([-1, 0, 0]), np.array([0, 1, 0]), np.array([0, -1, 0])]
-            counts = self.direction_agent_count(environment)
+            counts = self.count_in_direction(environment)
             # distances would probably be pretty good as well (?)
 
             if any([c != 0 for c in counts]):
@@ -948,7 +994,12 @@ class LocalKnowledgeAgent(Agent):
         else:
             self.geometry.position = self.geometry.position + current_direction
 
+        self.per_task_distance_travelled[Task.MOVE_TO_PERIMETER] += simple_distance(position_before,
+                                                                                    self.geometry.position)
+
     def survey_component(self, environment: env.map.Map):
+        position_before = np.copy(self.geometry.position)
+
         if self.current_visited_sites is None:
             self.current_visited_sites = []
 
@@ -1021,7 +1072,12 @@ class LocalKnowledgeAgent(Agent):
         else:
             self.geometry.position = self.geometry.position + current_direction
 
+        self.per_task_distance_travelled[Task.SURVEY_COMPONENT] += simple_distance(position_before,
+                                                                                    self.geometry.position)
+
     def find_next_component(self, environment: env.map.Map):
+        position_before = np.copy(self.geometry.position)
+
         if self.current_path is None:
             # TODO: include preference for inner, smaller, "emptier" components
 
@@ -1101,25 +1157,28 @@ class LocalKnowledgeAgent(Agent):
                             min_index = l_idx
                 order.append(min_index)
 
-            # TODO: change order to be something with central components first etc.
-            order = sorted(range(len(seed_locations)),
-                           key=lambda x: (simple_distance(seed_locations[x], environment.center),
-                                          simple_distance(seed_locations[x], self.geometry.position)))
-
-            # order this by number of agents over each component (?)
-            # candidate_component_count = [0] * len(candidate_components)
-            # for a in environment.agents:
-            #     for m_idx, m in enumerate(candidate_components):
-            #         closest_x = int((a.geometry.position[0] - environment.offset_origin[0]) / env.block.Block.SIZE)
-            #         closest_y = int((a.geometry.position[1] - environment.offset_origin[1]) / env.block.Block.SIZE)
-            #         if 0 <= closest_x < self.target_map.shape[2] and 0 <= closest_y < self.target_map.shape[1] \
-            #                 and any([self.component_target_map[z, closest_y, closest_x] == m
-            #                          for z in range(self.target_map.shape[0])]):
-            #             candidate_component_count[m_idx] += 1
-            #
-            # order = sorted(order, key=lambda x: candidate_component_count[x])
-            #
-            # self.aprint("Candidate component counts: {}".format(candidate_component_count))
+            if self.seeding_strategy == "distance_self":
+                order = sorted(range(len(seed_locations)),
+                               key=lambda x: (simple_distance(seed_locations[x], self.geometry.position),
+                                              simple_distance(seed_locations[x], environment.center)))
+            elif self.seeding_strategy == "distance_center":
+                order = sorted(range(len(seed_locations)),
+                               key=lambda x: (simple_distance(seed_locations[x], environment.center),
+                                              simple_distance(seed_locations[x], self.geometry.position)))
+            elif self.seeding_strategy == "agent_count":
+                # order this by number of agents over each component (?)
+                candidate_component_count = [0] * len(candidate_components)
+                for a in environment.agents:
+                    for m_idx, m in enumerate(candidate_components):
+                        closest_x = int((a.geometry.position[0] - environment.offset_origin[0]) / env.block.Block.SIZE)
+                        closest_y = int((a.geometry.position[1] - environment.offset_origin[1]) / env.block.Block.SIZE)
+                        if 0 <= closest_x < self.target_map.shape[2] and 0 <= closest_y < self.target_map.shape[1] \
+                                and any([self.component_target_map[z, closest_y, closest_x] == m
+                                         for z in range(self.target_map.shape[0])]):
+                            candidate_component_count[m_idx] += 1
+                order = sorted(range(len(seed_locations)),
+                               key=lambda x: (candidate_component_count[x],
+                                              simple_distance(seed_locations[x], environment.center)))
 
             # then plan a path to visit all seed locations as quickly as possible
             # while this may not be the best solution (NP-hardness, yay) it should not be terrible
@@ -1133,7 +1192,22 @@ class LocalKnowledgeAgent(Agent):
             self.current_path.add_position([self.geometry.position[0], self.geometry.position[1], search_z])
             self.current_path.inserted_sequentially[self.current_path.current_index] = False
 
-            first_site = np.array([self.geometry.position[0], seed_locations[0][1], search_z])
+            directions = [np.array([seed_locations[0][0],
+                                    self.geometry.position[1]]) - self.geometry.position[:2],
+                          np.array([self.geometry.position[0],
+                                    seed_locations[0][1]]) - self.geometry.position[:2]]
+            counts = self.count_in_direction(environment, directions, angle=np.pi / 2)
+            if self.transport_avoid_others_enabled and counts[0] < counts[1]:
+                first_site = [seed_locations[0][0], self.geometry.position[1], self.geometry.position[2]]
+            elif self.transport_avoid_others_enabled and counts[1] < counts[0]:
+                first_site = [self.geometry.position[0], seed_locations[0][1], self.geometry.position[2]]
+            else:
+                if random.random() < 0.5:
+                    first_site = [seed_locations[0][0], self.geometry.position[1], self.geometry.position[2]]
+                else:
+                    first_site = [self.geometry.position[0], seed_locations[0][1], self.geometry.position[2]]
+
+            # first_site = np.array([self.geometry.position[0], seed_locations[0][1], search_z])
             second_site = np.array([seed_locations[0][0], seed_locations[0][1], search_z])
             self.current_path.add_position(first_site)
             self.current_path.add_position(second_site)
@@ -1158,7 +1232,7 @@ class LocalKnowledgeAgent(Agent):
                 ret = False
 
             if self.current_path.current_index != 0 and not can_skip and not ret:
-                self.aprint("self.current_seed_grid_position_index increaseed")
+                self.aprint("self.current_seed_grid_position_index increased")
                 self.current_seed_grid_position_index += 1
 
             if not can_skip and not ret:
@@ -1196,10 +1270,6 @@ class LocalKnowledgeAgent(Agent):
                                 self.current_component_marker = self.component_target_map[current_seed_position[2],
                                                                                           current_seed_position[1],
                                                                                           current_seed_position[0]]
-
-                                if self.id == 2 and self.current_component_marker == 8:
-                                    self.aprint("The fateful encounter")
-                                    self.aprint("")
                                 self.current_seed = environment.block_at_position(current_seed_position)
                                 # self.current_task = Task.FIND_ATTACHMENT_SITE
                                 self.current_task = Task.MOVE_TO_PERIMETER
@@ -1267,33 +1337,47 @@ class LocalKnowledgeAgent(Agent):
                         if not self.current_block_type_seed:
                             # TODO: if every block is supposed to be returned once there is an opportunity for
                             # getting a seed, then this has to be changed here
-                            self.aprint("RETURNING CURRENT (NORMAL) BLOCK TO GET SEED")
-                            self.current_block_type_seed = False
-                            self.current_task = Task.RETURN_BLOCK
-                            self.task_history.append(self.current_task)
-                            self.current_path = None
-                            # if self.current_seed_grid_position_index + 1 > len(self.current_seed_grid_positions):
-                            #     self.aprint("RETURNING CURRENT (NORMAL) BLOCK SINCE THERE ARE NO SEEDS YET")
-                            #     if self.current_block is None:
-                            #         self.current_block_type_seed = True
-                            #     self.current_task = Task.RETURN_BLOCK
-                            #     self.task_history.append(self.current_task)
-                            #     self.current_path = None
-                            # else:
-                            #     self.aprint("MORE SEED POSITIONS TO CHECK OUT: {}"
-                            #            .format(self.current_seed_grid_positions))
-                            #     self.aprint("PATH (with index {} at location {}): {}".format(
-                            #         self.current_path.current_index, self.geometry.position,
-                            #         self.current_path.positions))
-                            #
-                            #     next_x = environment.offset_origin[0] + Block.SIZE * \
-                            #              self.current_seed_grid_positions[self.current_seed_grid_position_index][0]
-                            #     next_y = environment.offset_origin[1] + Block.SIZE * \
-                            #              self.current_seed_grid_positions[self.current_seed_grid_position_index][1]
-                            #     first_site = np.array([self.geometry.position[0], next_y, self.geometry.position[2]])
-                            #     second_site = np.array([next_x, next_y, self.geometry.position[2]])
-                            #     self.current_path.add_position(first_site)
-                            #     self.current_path.add_position(second_site)
+                            if self.seed_if_possible_enabled:
+                                self.aprint("RETURNING CURRENT (NORMAL) BLOCK TO GET SEED")
+                                self.current_block_type_seed = False
+                                self.current_task = Task.RETURN_BLOCK
+                                self.task_history.append(self.current_task)
+                                self.current_path = None
+                            else:
+                                if self.current_seed_grid_position_index + 1 > len(self.current_seed_grid_positions):
+                                    self.aprint("RETURNING CURRENT (NORMAL) BLOCK SINCE THERE ARE NO SEEDS YET")
+                                    if self.current_block is None:
+                                        self.current_block_type_seed = True
+                                    self.current_task = Task.RETURN_BLOCK
+                                    self.task_history.append(self.current_task)
+                                    self.current_path = None
+                                else:
+                                    self.aprint("MORE SEED POSITIONS TO CHECK OUT: {}"
+                                           .format(self.current_seed_grid_positions))
+
+                                    next_x = environment.offset_origin[0] + Block.SIZE * \
+                                        self.current_seed_grid_positions[self.current_seed_grid_position_index][0]
+                                    next_y = environment.offset_origin[1] + Block.SIZE * \
+                                        self.current_seed_grid_positions[self.current_seed_grid_position_index][1]
+
+                                    directions = [np.array([next_x, self.geometry.position[1]]) -
+                                                  self.geometry.position[:2],
+                                                  np.array([self.geometry.position[0], next_y]) -
+                                                  self.geometry.position[:2]]
+                                    counts = self.count_in_direction(environment, directions, angle=np.pi / 2)
+                                    if self.transport_avoid_others_enabled and counts[0] < counts[1]:
+                                        first_site = [next_x, self.geometry.position[1], self.geometry.position[2]]
+                                    elif self.transport_avoid_others_enabled and counts[1] < counts[0]:
+                                        first_site = [self.geometry.position[0], next_y, self.geometry.position[2]]
+                                    else:
+                                        if random.random() < 0.5:
+                                            first_site = [next_x, self.geometry.position[1], self.geometry.position[2]]
+                                        else:
+                                            first_site = [self.geometry.position[0], next_y, self.geometry.position[2]]
+
+                                    second_site = np.array([next_x, next_y, self.geometry.position[2]])
+                                    self.current_path.add_position(first_site)
+                                    self.current_path.add_position(second_site)
                         else:
                             # can place the seed here
                             self.current_task = Task.PLACE_BLOCK
@@ -1336,7 +1420,12 @@ class LocalKnowledgeAgent(Agent):
             #     self.update_local_occupancy_map(environment)
             self.geometry.position = self.geometry.position + current_direction
 
+        self.per_task_distance_travelled[Task.FIND_NEXT_COMPONENT] += simple_distance(position_before,
+                                                                                    self.geometry.position)
+
     def return_block(self, environment: env.map.Map):
+        position_before = np.copy(self.geometry.position)
+
         if self.current_path is None:
             off_construction_locations = [
                 (self.geometry.position[0], environment.offset_origin[1], self.geometry.position[2]),
@@ -1358,10 +1447,9 @@ class LocalKnowledgeAgent(Agent):
             stash_list = []
             for key, value in stashes.items():
                 distance = simple_distance(compared_location, key)
-                count = self.direction_agent_count(environment,
-                                                   [key - self.geometry.position[:2]],
-                                                   angle=np.pi / 2,
-                                                   max_vert_distance=100)[0]
+                count = self.count_in_direction(environment,
+                                                [key - self.geometry.position[:2]],
+                                                angle=np.pi / 2)[0]
                 count_at_stash = 0
                 for a in environment.agents:
                     if a is not self and simple_distance(a.geometry.position[:2], key) <= self.stash_min_distance:
@@ -1370,6 +1458,8 @@ class LocalKnowledgeAgent(Agent):
                 if distance < min_distance:
                     min_stash_location = key
                     min_distance = distance
+
+            self.current_stash_position = min_stash_location
 
             # stash locations sorted by some other measure but distance
             # stash_list = sorted(stash_list, key=lambda e: (e[3], e[1], e[2]))
@@ -1390,7 +1480,8 @@ class LocalKnowledgeAgent(Agent):
             self.current_path.add_position([min_stash_location[0], min_stash_location[1],
                                             Block.SIZE + self.geometry.size[2] / 2])
 
-        if simple_distance(self.geometry.position[:2], self.current_path.positions[-1][:2]) < 50:
+        if self.avoiding_crowded_stashes_enabled \
+                and simple_distance(self.geometry.position[:2], self.current_path.positions[-1][:2]) < 50:
             count_at_stash = 0
             for a in environment.agents:
                 if a is not self and simple_distance(
@@ -1410,6 +1501,7 @@ class LocalKnowledgeAgent(Agent):
                             min_stash_location = p
 
                 if min_stash_location is not None:
+                    self.current_stash_position = min_stash_location
                     return_z = self.geometry.position[2]
                     self.current_path = Path()
                     self.current_path.add_position([min_stash_location[0], min_stash_location[1], return_z],
@@ -1443,11 +1535,11 @@ class LocalKnowledgeAgent(Agent):
                 if self.current_block_type_seed:
                     self.aprint("Block color should be set to {}".format(Block.COLORS_SEEDS[0]))
                     self.current_block.color = Block.COLORS_SEEDS[0]
-                    environment.seed_stashes[tuple(self.current_block.geometry.position[:2])].append(self.current_block)
+                    environment.seed_stashes[self.current_stash_position].append(self.current_block)
                 else:
                     self.aprint("Block color should be set to white")
                     self.current_block.color = "#FFFFFF"
-                    environment.block_stashes[tuple(self.current_block.geometry.position[:2])].append(
+                    environment.block_stashes[self.current_stash_position].append(
                         self.current_block)
                 # self.aprint("RETURNING BLOCK TO STASH AT {}".format(tuple(self.current_block.geometry.position[:2])))
                 # self.aprint("STASHES: {}".format(stashes))
@@ -1470,10 +1562,16 @@ class LocalKnowledgeAgent(Agent):
                 self.task_history.append(self.current_task)
 
                 self.current_block_type_seed = not self.current_block_type_seed
+                self.returned_blocks += 1
         else:
             self.geometry.position = self.geometry.position + current_direction
 
+        self.per_task_distance_travelled[Task.RETURN_BLOCK] += simple_distance(position_before,
+                                                                                    self.geometry.position)
+
     def land(self, environment: env.map.Map):
+        position_before = np.copy(self.geometry.position)
+
         if self.current_path is None:
             # find some unoccupied location on the outside of the construction zone and land there
             start_x = environment.offset_origin[0] - self.geometry.size[0]
@@ -1527,6 +1625,8 @@ class LocalKnowledgeAgent(Agent):
                 self.current_path = None
         else:
             self.geometry.position = self.geometry.position + current_direction
+
+        self.per_task_distance_travelled[Task.LAND] += simple_distance(position_before, self.geometry.position)
 
     @abstractmethod
     def advance(self, environment: env.map.Map):
