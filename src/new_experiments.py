@@ -1,6 +1,7 @@
 import json
 import os
 import uuid
+import sys
 from pprint import pprint
 from agents.agent import Task
 from agents.global_knowledge.ps_agent import GlobalPerimeterFollowingAgent
@@ -399,7 +400,7 @@ def extra_parameters(agent_type: str):
     return parameters
 
 
-def main():
+def main(map_name="block_4x4x4"):
     # one experiment is comprised of one map being tested
     # by default:
     # all agent types (saved in different sub-directories)
@@ -433,7 +434,6 @@ def main():
     #   - for every tested combination: save that file there
 
     agent_counts = [1, 2, 4, 8, 16]
-    map_name = "block_4x4x4"
     offset = 100
 
     # create a folder
@@ -512,5 +512,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1:
+        main(sys.argv[1])
+    else:
+        main()
 
