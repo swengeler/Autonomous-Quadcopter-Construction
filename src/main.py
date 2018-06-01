@@ -46,7 +46,7 @@ def main():
     target_map = component_balance_test
 
     target_map = np.load(
-        "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/components_4x4x2.npy").astype("int64")
+        "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/components_6x6x1.npy").astype("int64")
     # target_map = big_loop
     # target_map = scale_map(target_map, 2, (1, 2))
 
@@ -278,7 +278,6 @@ def main():
                         interval = new_interval
                     except queue.Empty:
                         pass
-            print("INTERVAL: {}".format(interval))
             time.sleep(interval)
     except KeyboardInterrupt:
         # submit_to_tkinter(stop_tk_thread)

@@ -303,13 +303,14 @@ def run_experiment(parameters):
             current_map = np.copy(environment.occupancy_map)
             np.place(current_map, current_map > 1, 1)
 
-            if (previous_map == current_map).sum() == 0:
+            if (previous_map == current_map).all():
                 no_change_counter += 1
             else:
                 no_change_counter = 0
 
-            if no_change_counter >= 2000 or steps > 10000000:
+            if no_change_counter >= 5000 or steps > 1000000:
                 got_stuck = True
+                break
 
             previous_map = current_map
 
@@ -321,6 +322,9 @@ def run_experiment(parameters):
                   .format(agent_count, steps, collisions / 2))
             if got_stuck:
                 print("Interrupted because simulation got stuck.")
+                print("State of the structure:")
+                print_map(environment.occupancy_map)
+
             if all([a.current_task == Task.FINISHED for a in agent_list]):
                 print("Finished construction with {} agents in {} steps ({} colliding)."
                       .format(agent_count, steps, collisions / 2))
