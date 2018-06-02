@@ -128,6 +128,7 @@ class GlobalKnowledgeAgent(Agent):
                 self.aprint("SWITCHING TO HOVER")
                 self.current_task = Task.HOVER_OVER_COMPONENT
                 self.task_history.append(self.current_task)
+                self.required_distance += 15
                 self.wait_for_seed = False
                 self.current_path = None
                 return
@@ -139,6 +140,7 @@ class GlobalKnowledgeAgent(Agent):
                 self.current_seed = intended_seed
                 self.current_task = Task.TRANSPORT_BLOCK
                 self.task_history.append(self.current_task)
+                self.required_distance -= 15
                 self.wait_for_seed = False
                 self.current_path = None
             elif self.current_task == Task.TRANSPORT_BLOCK \

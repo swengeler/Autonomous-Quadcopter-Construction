@@ -14,7 +14,7 @@ from structures import *
 from emergency_structures import emergency_structures
 from experiments import scale_map
 
-# random.seed(202)
+random.seed(202)
 
 request_queue = queue.Queue()
 return_queue = queue.Queue()
