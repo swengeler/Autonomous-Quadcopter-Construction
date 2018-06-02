@@ -41,6 +41,20 @@ def create_combined_maps():
         np.save(SAVE_DIRECTORY + "combined_map_{}.npy".format(i), combined_map, allow_pickle=False)
 
 
+def create_pyramid_maps():
+    base_side_length = 4
+    max_side_length = 16
+    for i in range(base_side_length, max_side_length + 1, 2):
+        center = int(i / 2) - 1
+        height = int((i - 2) / 2) + 1
+        pyramid_map = np.zeros((height, i, i))
+        for j in range(height):
+            side_length = 2 ** (height - j)
+            offset = int((i - side_length) / 2)
+            pyramid_map[height, offset:(offset + side_length), offset:(offset + side_length)] = 1
+        pyramid_map[0, center, center] = 2
+
+
 def main():
     # create_hole_scale_maps()
     create_combined_maps()

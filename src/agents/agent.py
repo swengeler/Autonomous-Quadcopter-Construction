@@ -658,18 +658,47 @@ class Agent:
         return at_loop_corner, loop_corner_attachable
 
     def split_into_components(self):
-        def flood_fill(layer, i, j, marker):
+        def component_fill(layer, i, j, marker):
             if layer[i, j] == 1:
                 layer[i, j] = marker
 
                 if i > 0:
-                    flood_fill(layer, i - 1, j, marker)
+                    component_fill(layer, i - 1, j, marker)
                 if i < layer.shape[0] - 1:
-                    flood_fill(layer, i + 1, j, marker)
+                    component_fill(layer, i + 1, j, marker)
                 if j > 0:
-                    flood_fill(layer, i, j - 1, marker)
+                    component_fill(layer, i, j - 1, marker)
                 if j < layer.shape[1] - 1:
-                    flood_fill(layer, i, j + 1, marker)
+                    component_fill(layer, i, j + 1, marker)
+
+        def component_fill_iterative(layer, i, j, marker):
+            if layer[i, j] == 1:
+                layer[i, j] = marker
+
+                wave_front = []
+                if i > 0:
+                    wave_front.append((i - 1, j))
+                if i < layer.shape[0] - 1:
+                    wave_front.append((i + 1, j))
+                if j > 0:
+                    wave_front.append((i, j - 1))
+                if j < layer.shape[1] - 1:
+                    wave_front.append((i, j + 1))
+                while len(wave_front) > 0:
+                    new_wave_front = []
+                    for i2, j2 in wave_front:
+                        if layer[i2, j2] == 1:
+                            layer[i2, j2] = marker
+
+                            if i2 > 0:
+                                new_wave_front.append((i2 - 1, j2))
+                            if i2 < layer.shape[0] - 1:
+                                new_wave_front.append((i2 + 1, j2))
+                            if j2 > 0:
+                                new_wave_front.append((i2, j2 - 1))
+                            if j2 < layer.shape[1] - 1:
+                                new_wave_front.append((i2, j2 + 1))
+                    wave_front = new_wave_front
 
         # go through the target map layer by layer and split each one into disconnected components
         # how to store these components? could be separate target map, using numbers to denote each component
@@ -681,7 +710,7 @@ class Agent:
             for y in range(self.component_target_map.shape[1]):
                 for x in range(self.component_target_map.shape[2]):
                     if self.component_target_map[z, y, x] == 1:
-                        flood_fill(self.component_target_map[z], y, x, component_marker)
+                        component_fill_iterative(self.component_target_map[z], y, x, component_marker)
                         component_marker += 1
         return self.component_target_map
 
@@ -826,17 +855,46 @@ class Agent:
 
     def find_closing_corners(self):
         # for each layer, check whether there are any holes, i.e. 0's that - when flood-filled - only connect to 1's
-        def flood_fill(layer, i, j, marker):
+        def hole_fill(layer, i, j, marker):
             if layer[i, j] == 0:
                 layer[i, j] = marker
                 if i > 0:
-                    flood_fill(layer, i - 1, j, marker)
+                    hole_fill(layer, i - 1, j, marker)
                 if i < layer.shape[0] - 1:
-                    flood_fill(layer, i + 1, j, marker)
+                    hole_fill(layer, i + 1, j, marker)
                 if j > 0:
-                    flood_fill(layer, i, j - 1, marker)
+                    hole_fill(layer, i, j - 1, marker)
                 if j < layer.shape[1] - 1:
-                    flood_fill(layer, i, j + 1, marker)
+                    hole_fill(layer, i, j + 1, marker)
+
+        def hole_fill_iterative(layer, i, j, marker):
+            if layer[i, j] == 0:
+                layer[i, j] = marker
+
+                wave_front = []
+                if i > 0:
+                    wave_front.append((i - 1, j))
+                if i < layer.shape[0] - 1:
+                    wave_front.append((i + 1, j))
+                if j > 0:
+                    wave_front.append((i, j - 1))
+                if j < layer.shape[1] - 1:
+                    wave_front.append((i, j + 1))
+                while len(wave_front) > 0:
+                    new_wave_front = []
+                    for i2, j2 in wave_front:
+                        if layer[i2, j2] == 0:
+                            layer[i2, j2] = marker
+
+                            if i2 > 0:
+                                new_wave_front.append((i2 - 1, j2))
+                            if i2 < layer.shape[0] - 1:
+                                new_wave_front.append((i2 + 1, j2))
+                            if j2 > 0:
+                                new_wave_front.append((i2, j2 - 1))
+                            if j2 < layer.shape[1] - 1:
+                                new_wave_front.append((i2, j2 + 1))
+                    wave_front = new_wave_front
 
         hole_map = np.copy(self.target_map)
         np.place(hole_map, hole_map > 1, 1)
@@ -848,7 +906,7 @@ class Agent:
             for y in range(hole_map.shape[1]):
                 for x in range(hole_map.shape[2]):
                     if hole_map[z, y, x] == 0:
-                        flood_fill(hole_map[z], y, x, hole_marker)
+                        hole_fill_iterative(hole_map[z], y, x, hole_marker)
                         valid_markers[z].append(hole_marker)
                         hole_marker += 1
 
@@ -879,6 +937,40 @@ class Agent:
             elif layer[i, j] != marker:
                 c_list.append((z, i, j))
 
+        def boundary_search_iterative(layer, z, i, j, marker):
+            visited = []
+            c_list = []
+            if layer[i, j] == marker:
+                visited.append((i, j))
+                wave_front = []
+                if i > 0:
+                    wave_front.append((i - 1, j))
+                if i < layer.shape[0] - 1:
+                    wave_front.append((i + 1, j))
+                if j > 0:
+                    wave_front.append((i, j - 1))
+                if j < layer.shape[1] - 1:
+                    wave_front.append((i, j + 1))
+                while len(wave_front) > 0:
+                    new_wave_front = []
+                    for i2, j2 in wave_front:
+                        if (i2, j2) not in visited and layer[i2, j2] == marker:
+                            visited.append((i2, j2))
+                            if i2 > 0:
+                                new_wave_front.append((i2 - 1, j2))
+                            if i2 < layer.shape[0] - 1:
+                                new_wave_front.append((i2 + 1, j2))
+                            if j2 > 0:
+                                new_wave_front.append((i2, j2 - 1))
+                            if j2 < layer.shape[1] - 1:
+                                new_wave_front.append((i2, j2 + 1))
+                        elif layer[i2, j2] != marker:
+                            c_list.append((z, i2, j2))
+                    wave_front = new_wave_front
+            elif layer[i, j] != marker:
+                c_list.append((z, i, j))
+            return c_list
+
         hole_boundaries = []
         removable_holes = {}
         for z in range(hole_map.shape[0]):
@@ -886,7 +978,8 @@ class Agent:
             for m in valid_markers[z]:
                 coord_list = []
                 locations = np.where(hole_map == m)
-                boundary_search(hole_map[z], z, locations[1][0], locations[2][0], m, None, coord_list)
+                # boundary_search(hole_map[z], z, locations[1][0], locations[2][0], m, None, coord_list)
+                coord_list = boundary_search_iterative(hole_map[z], z, locations[1][0], locations[2][0], m)
                 first_component_marker = self.component_target_map[z, coord_list[0][1], coord_list[0][2]]
                 for _, y, x in coord_list:
                     current_marker = self.component_target_map[z, y, x]
