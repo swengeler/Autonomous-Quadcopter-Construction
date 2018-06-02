@@ -13,8 +13,11 @@ from env.util import *
 from geom.shape import *
 from structures import *
 
-LOAD_DIRECTORY_NAME = "/home/simon/maps/"
-SAVE_DIRECTORY_NAME = "/home/simon/results/"
+# LOAD_DIRECTORY_NAME = "/home/simon/maps/"
+# SAVE_DIRECTORY_NAME = "/home/simon/repeated_results/"
+
+LOAD_DIRECTORY_NAME = "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/"
+SAVE_DIRECTORY_NAME = "/home/simon/repeated_results/"
 
 OFFSET_STRUCTURE = 400.0
 INTERVAL = 0.0000001
@@ -27,15 +30,15 @@ AGENT_TYPES = {
     "GlobalShortestPathAgent": GlobalShortestPathAgent
 }
 
-VALUES = {  # where the first is the default one
-    "waiting_on_perimeter_enabled": [False],
-    "avoiding_crowded_stashes_enabled": [True, False],
-    "transport_avoid_others_enabled": [True, False],
-    "seed_if_possible_enabled": [True, False],
-    "seeding_strategy": ["distance_center", "distance_self", "agent_count"],
-    "component_ordering": ["center", "percentage", "agents", "distance"],
-    "attachment_site_order": ["shortest_path", "prioritise", "shortest_travel_path", "agent_count"],
-    "attachment_site_ordering": ["shortest_path", "agent_count"]
+DEFAULT_VALUES = {  # where the first is the default one
+    "waiting_on_perimeter_enabled": False,
+    "avoiding_crowded_stashes_enabled": True,
+    "transport_avoid_others_enabled": True,
+    "seed_if_possible_enabled": True,
+    "seeding_strategy": "distance_center",
+    "component_ordering": "center",
+    "attachment_site_order": "shortest_path",
+    "attachment_site_ordering": "shortest_path"
 }
 
 
@@ -195,195 +198,195 @@ def run_experiment(parameters):
     completed_components = []
     started_layers = []
     completed_layers = []
-    try:
-        while True:
-            for a in agent_list:
-                a.advance(environment)
-            steps += 1
+    while True:
+        for a in agent_list:
+            a.advance(environment)
+        steps += 1
 
-            # agents over construction zone/components
-            agents_over_construction_area.append(int(environment.count_over_construction_area()))
+        # agents over construction zone/components
+        agents_over_construction_area.append(int(environment.count_over_construction_area()))
 
-            # agents over component and component completion
-            for cm in component_markers:
-                agents_over_components[cm].append(int(environment.count_over_component(cm)))
-                if cm not in started_components and environment.component_started(cm):
-                    started_components.append(cm)
-                    component_completion[cm] = {"start": steps, "finish": steps}
-                if cm not in completed_components and cm in started_components and environment.component_finished(cm):
-                    completed_components.append(cm)
-                    component_completion[cm]["finish"] = steps
+        # agents over component and component completion
+        for cm in component_markers:
+            agents_over_components[cm].append(int(environment.count_over_component(cm)))
+            if cm not in started_components and environment.component_started(cm):
+                started_components.append(cm)
+                component_completion[cm] = {"start": steps, "finish": steps}
+            if cm not in completed_components and cm in started_components and environment.component_finished(cm):
+                completed_components.append(cm)
+                component_completion[cm]["finish"] = steps
 
-            # layer completion
-            if current_layer < target_map.shape[2] and current_layer not in started_layers \
-                    and environment.layer_started(current_layer):
-                layer_completion[current_layer] = {"start": steps, "finish": steps}
-            if current_layer < target_map.shape[2] and current_layer not in completed_layers \
-                    and current_layer in started_layers and environment.layer_finished(current_layer):
-                layer_completion[current_layer]["finish"] = steps
-                current_layer += 1
+        # layer completion
+        if current_layer < target_map.shape[2] and current_layer not in started_layers \
+                and environment.layer_started(current_layer):
+            layer_completion[current_layer] = {"start": steps, "finish": steps}
+        if current_layer < target_map.shape[2] and current_layer not in completed_layers \
+                and current_layer in started_layers and environment.layer_finished(current_layer):
+            layer_completion[current_layer]["finish"] = steps
+            current_layer += 1
 
-            if not structure_finished and current_layer >= target_map.shape[2]:
-                structure_finished_count = steps
-                structure_finished = True
-                current_layer -= 1
+        if not structure_finished and current_layer >= target_map.shape[2]:
+            structure_finished_count = steps
+            structure_finished = True
+            current_layer -= 1
 
-            if steps % 5000 == 0:
-                print("Simulation steps: {}".format(steps))
+        if steps % 5000 == 0:
+            print("Simulation steps: {}".format(steps))
 
-            if got_stuck or all([a.current_task == Task.FINISHED for a in agent_list]):
-                print("Finished construction with {} agents in {} steps ({} colliding)."
-                      .format(agent_count, steps, collisions / 2))
-
-                # meta information
-                results["parameters"] = parameters
-                results["finished_successfully"] = finished_successfully
-                results["got_stuck"] = got_stuck
-
-                # outside agents statistics
-                results["step_count"] = steps
-                results["collision_count"] = collisions
-                results["agents_over_construction_area"] = agents_over_construction_area
-                results["component_completion"] = component_completion
-                results["layer_completion"] = layer_completion
-                results["structure_completion"] = structure_finished_count
-                results["highest_layer"] = int(environment.highest_block_z)
-
-                # inside agents statistics
-                results["total_step_counts"] = [a.step_count for a in agent_list]
-                results["returned_block_counts"] = [a.returned_blocks for a in agent_list]
-                results["stuck_counts"] = [a.stuck_count for a in agent_list]
-                results["attachment_frequency_count"] = [a.attachment_frequency_count for a in agent_list]
-                results["components_seeded"] = [a.components_seeded for a in agent_list]
-                results["components_attached"] = [a.components_attached for a in agent_list]
-                results["per_search_attachment_site_count"] = [a.per_search_attachment_site_count for a in agent_list]
-                results["task_stats"] = {}
-                for t in list(agent_list[0].per_task_step_count.keys()):
-                    step_counts = [a.per_task_step_count[t] for a in agent_list]
-                    step_count = {
-                        "mean": float(np.mean(step_counts)),
-                        "std": float(np.std(step_counts)),
-                        "min": int(np.min(step_counts)),
-                        "max": int(np.max(step_counts))
-                    }
-                    collision_avoidance_counts = [a.per_task_collision_avoidance_count[t] for a in agent_list]
-                    collision_avoidance_count = {
-                        "mean": float(np.mean(collision_avoidance_counts)),
-                        "std": float(np.std(collision_avoidance_counts)),
-                        "min": int(np.min(collision_avoidance_counts)),
-                        "max": int(np.max(collision_avoidance_counts))
-                    }
-                    distances_travelled = [a.per_task_distance_travelled[t] for a in agent_list]
-                    distance_travelled = {
-                        "mean": float(np.mean(distances_travelled)),
-                        "std": float(np.std(distances_travelled)),
-                        "min": int(np.min(distances_travelled)),
-                        "max": int(np.max(distances_travelled))
-                    }
-
-                    task_results = {
-                        "step_count": step_count,
-                        "collision_avoidance_count": collision_avoidance_count,
-                        "distance_travelled": distance_travelled
-                    }
-
-                    results["task_stats"][t.name] = task_results
-                break
-            if len(agent_list) > 1:
-                for a1 in agent_list:
-                    for a2 in agent_list:
-                        if a1 is not a2 and a1.overlaps(a2) \
-                                and not a1.current_task == Task.FINISHED and not a2.current_task == Task.FINISHED:
-                            collisions += 1
-                            # print("Agent {} ({}) and {} ({}) colliding.".format(a1.id, a1.current_task,
-                            #                                                     a2.id, a2.current_task))
-                            collision_pairs.append((a1.current_task, a2.current_task))
-
-            # checking whether the occupancy map has been updated/blocks have been placed
-            current_map = np.copy(environment.occupancy_map)
-            np.place(current_map, current_map > 1, 1)
-
-            if (previous_map == current_map).all():
-                no_change_counter += 1
-            else:
-                no_change_counter = 0
-
-            if no_change_counter >= 5000 or steps > 1000000:
-                got_stuck = True
-                break
-
-            previous_map = current_map
-
-            # time.sleep(INTERVAL)
-    except KeyboardInterrupt:
-        if not finished_successfully:
-            logger.info("Simulation interrupted.")
-            print("Interrupted construction with {} agents in {} steps ({} colliding)."
+        if got_stuck or all([a.current_task == Task.FINISHED for a in agent_list]):
+            print("Finished construction with {} agents in {} steps ({} colliding)."
                   .format(agent_count, steps, collisions / 2))
-            if got_stuck:
-                print("Interrupted because simulation got stuck.")
-                print("State of the structure:")
-                print_map(environment.occupancy_map)
 
-            if got_stuck or all([a.current_task == Task.FINISHED for a in agent_list]):
-                print("Finished construction with {} agents in {} steps ({} colliding)."
-                      .format(agent_count, steps, collisions / 2))
+            if all([a.current_task == Task.FINISHED for a in agent_list]):
+                finished_successfully = True
 
-                # meta information
-                results["parameters"] = parameters
-                results["finished_successfully"] = finished_successfully
-                results["got_stuck"] = got_stuck
+            # meta information
+            results["parameters"] = parameters
+            results["finished_successfully"] = finished_successfully
+            results["got_stuck"] = got_stuck
 
-                # outside agents statistics
-                results["step_count"] = steps
-                results["collision_count"] = collisions
-                results["agents_over_construction_area"] = agents_over_construction_area
-                results["component_completion"] = component_completion
-                results["layer_completion"] = layer_completion
-                results["structure_completion"] = structure_finished_count
-                results["highest_layer"] = int(environment.highest_block_z)
+            # outside agents statistics
+            results["step_count"] = steps
+            results["collision_count"] = collisions
+            results["agents_over_construction_area"] = agents_over_construction_area
+            results["component_completion"] = component_completion
+            results["layer_completion"] = layer_completion
+            results["structure_completion"] = structure_finished_count
+            results["highest_layer"] = int(environment.highest_block_z)
 
-                # inside agents statistics
-                results["total_step_counts"] = [a.step_count for a in agent_list]
-                results["returned_block_counts"] = [a.returned_blocks for a in agent_list]
-                results["stuck_counts"] = [a.stuck_count for a in agent_list]
-                results["attachment_frequency_count"] = [a.attachment_frequency_count for a in agent_list]
-                results["components_seeded"] = [a.components_seeded for a in agent_list]
-                results["components_attached"] = [a.components_attached for a in agent_list]
-                results["per_search_attachment_site_count"] = [a.per_search_attachment_site_count for a in agent_list]
-                results["task_stats"] = {}
-                for t in list(agent_list[0].per_task_step_count.keys()):
-                    step_counts = [a.per_task_step_count[t] for a in agent_list]
-                    step_count = {
-                        "mean": float(np.mean(step_counts)),
-                        "std": float(np.std(step_counts)),
-                        "min": int(np.min(step_counts)),
-                        "max": int(np.max(step_counts))
-                    }
-                    collision_avoidance_counts = [a.per_task_collision_avoidance_count[t] for a in agent_list]
-                    collision_avoidance_count = {
-                        "mean": float(np.mean(collision_avoidance_counts)),
-                        "std": float(np.std(collision_avoidance_counts)),
-                        "min": int(np.min(collision_avoidance_counts)),
-                        "max": int(np.max(collision_avoidance_counts))
-                    }
-                    distances_travelled = [a.per_task_distance_travelled[t] for a in agent_list]
-                    distance_travelled = {
-                        "mean": float(np.mean(distances_travelled)),
-                        "std": float(np.std(distances_travelled)),
-                        "min": int(np.min(distances_travelled)),
-                        "max": int(np.max(distances_travelled))
-                    }
+            # inside agents statistics
+            results["total_step_counts"] = [a.step_count for a in agent_list]
+            results["returned_block_counts"] = [a.returned_blocks for a in agent_list]
+            results["stuck_counts"] = [a.stuck_count for a in agent_list]
+            results["attachment_frequency_count"] = [a.attachment_frequency_count for a in agent_list]
+            results["components_seeded"] = [a.components_seeded for a in agent_list]
+            results["components_attached"] = [a.components_attached for a in agent_list]
+            results["per_search_attachment_site_count"] = [a.per_search_attachment_site_count for a in agent_list]
+            results["task_stats"] = {}
+            for t in list(agent_list[0].per_task_step_count.keys()):
+                step_counts = [a.per_task_step_count[t] for a in agent_list]
+                step_count = {
+                    "mean": float(np.mean(step_counts)),
+                    "std": float(np.std(step_counts)),
+                    "min": int(np.min(step_counts)),
+                    "max": int(np.max(step_counts))
+                }
+                collision_avoidance_counts = [a.per_task_collision_avoidance_count[t] for a in agent_list]
+                collision_avoidance_count = {
+                    "mean": float(np.mean(collision_avoidance_counts)),
+                    "std": float(np.std(collision_avoidance_counts)),
+                    "min": int(np.min(collision_avoidance_counts)),
+                    "max": int(np.max(collision_avoidance_counts))
+                }
+                distances_travelled = [a.per_task_distance_travelled[t] for a in agent_list]
+                distance_travelled = {
+                    "mean": float(np.mean(distances_travelled)),
+                    "std": float(np.std(distances_travelled)),
+                    "min": int(np.min(distances_travelled)),
+                    "max": int(np.max(distances_travelled))
+                }
 
-                    task_results = {
-                        "step_count": step_count,
-                        "collision_avoidance_count": collision_avoidance_count,
-                        "distance_travelled": distance_travelled
-                    }
+                task_results = {
+                    "step_count": step_count,
+                    "collision_avoidance_count": collision_avoidance_count,
+                    "distance_travelled": distance_travelled
+                }
 
-                    results["task_stats"][t.name] = task_results
+                results["task_stats"][t.name] = task_results
+            break
+        if len(agent_list) > 1:
+            for a1 in agent_list:
+                for a2 in agent_list:
+                    if a1 is not a2 and a1.overlaps(a2) \
+                            and not a1.current_task == Task.FINISHED and not a2.current_task == Task.FINISHED:
+                        collisions += 1
+                        # print("Agent {} ({}) and {} ({}) colliding.".format(a1.id, a1.current_task,
+                        #                                                     a2.id, a2.current_task))
+                        collision_pairs.append((a1.current_task, a2.current_task))
+
+        # checking whether the occupancy map has been updated/blocks have been placed
+        current_map = np.copy(environment.occupancy_map)
+        np.place(current_map, current_map > 1, 1)
+
+        if (previous_map == current_map).all():
+            no_change_counter += 1
         else:
-            logger.info("Simulation finished successfully.")
+            no_change_counter = 0
+
+        if no_change_counter >= 5000 or steps > 1000000:
+            got_stuck = True
+            break
+
+        previous_map = current_map
+
+    if not finished_successfully:
+        logger.info("Simulation interrupted.")
+        print("Interrupted construction with {} agents in {} steps ({} colliding)."
+              .format(agent_count, steps, collisions / 2))
+        if got_stuck:
+            print("Interrupted because simulation got stuck.")
+            print("State of the structure:")
+            print_map(environment.occupancy_map)
+
+        if got_stuck or all([a.current_task == Task.FINISHED for a in agent_list]):
+            print("Finished construction with {} agents in {} steps ({} colliding)."
+                  .format(agent_count, steps, collisions / 2))
+
+            # meta information
+            results["parameters"] = parameters
+            results["finished_successfully"] = finished_successfully
+            results["got_stuck"] = got_stuck
+
+            # outside agents statistics
+            results["step_count"] = steps
+            results["collision_count"] = collisions
+            results["agents_over_construction_area"] = agents_over_construction_area
+            results["component_completion"] = component_completion
+            results["layer_completion"] = layer_completion
+            results["structure_completion"] = structure_finished_count
+            results["highest_layer"] = int(environment.highest_block_z)
+
+            # inside agents statistics
+            results["total_step_counts"] = [a.step_count for a in agent_list]
+            results["returned_block_counts"] = [a.returned_blocks for a in agent_list]
+            results["stuck_counts"] = [a.stuck_count for a in agent_list]
+            results["attachment_frequency_count"] = [a.attachment_frequency_count for a in agent_list]
+            results["components_seeded"] = [a.components_seeded for a in agent_list]
+            results["components_attached"] = [a.components_attached for a in agent_list]
+            results["per_search_attachment_site_count"] = [a.per_search_attachment_site_count for a in agent_list]
+            results["task_stats"] = {}
+            for t in list(agent_list[0].per_task_step_count.keys()):
+                step_counts = [a.per_task_step_count[t] for a in agent_list]
+                step_count = {
+                    "mean": float(np.mean(step_counts)),
+                    "std": float(np.std(step_counts)),
+                    "min": int(np.min(step_counts)),
+                    "max": int(np.max(step_counts))
+                }
+                collision_avoidance_counts = [a.per_task_collision_avoidance_count[t] for a in agent_list]
+                collision_avoidance_count = {
+                    "mean": float(np.mean(collision_avoidance_counts)),
+                    "std": float(np.std(collision_avoidance_counts)),
+                    "min": int(np.min(collision_avoidance_counts)),
+                    "max": int(np.max(collision_avoidance_counts))
+                }
+                distances_travelled = [a.per_task_distance_travelled[t] for a in agent_list]
+                distance_travelled = {
+                    "mean": float(np.mean(distances_travelled)),
+                    "std": float(np.std(distances_travelled)),
+                    "min": int(np.min(distances_travelled)),
+                    "max": int(np.max(distances_travelled))
+                }
+
+                task_results = {
+                    "step_count": step_count,
+                    "collision_avoidance_count": collision_avoidance_count,
+                    "distance_travelled": distance_travelled
+                }
+
+                results["task_stats"][t.name] = task_results
+    else:
+        logger.info("Simulation finished successfully.")
 
     return results
 
@@ -404,41 +407,23 @@ def extra_parameters(agent_type: str):
     return parameters
 
 
+def abbreviation(agent_type: str):
+    if agent_type == "LocalShortestPathAgent":
+        return "LSP"
+    if agent_type == "LocalPerimeterFollowingAgent":
+        return "LPF"
+    if agent_type == "GlobalShortestPathAgent":
+        return "GSP"
+    if agent_type == "GlobalPerimeterFollowingAgent":
+        return "GPF"
+    return "NONE"
+
+
 def main(map_name="block_4x4x4"):
-    # one experiment is comprised of one map being tested
-    # by default:
-    # all agent types (saved in different sub-directories)
-    # agent counts: 1, 2, 4, 8, 16
-    # ten independent runs with all defaults
-    # ten independent runs for each value (except dropout for now) with rest defaults
-    # per run: save stuff
-
-    # PARAMETERS THAT CAN BE CHANGED:
-    # ALL AGENTS: waiting_on_perimeter_enabled, avoiding_crowded_stashes_enabled, transport_avoid_others_enabled
-    # LOCAL AGENTS: seed_if_possible_enabled, seeding_strategy
-    # GLOBAL AGENTS: component_ordering, (dropping_out_enabled)
-    # LocalShortestPathAgent: attachment_site_order
-    # GlobalShortestPathAgent: attachment_site_ordering
-
-    # all needed parameters
-    # target_map (name), agent_count, agent_type, (offset_stashes)
-    # "waiting_on_perimeter_enabled": [False, True],
-    # "avoiding_crowded_stashes_enabled": [False, True],
-    # "transport_avoid_others_enabled": [False, True],
-    # "seed_if_possible_enabled": [False, True],
-    # "seeding_strategy": ["distance_self", "distance_center", "agent_count"],
-    # "component_ordering": ["center", "percentage", "agents", "distance"],
-    # "attachment_site_order": ["shortest_path", "prioritise", "shortest_travel_path", "agent_count"],
-    # "attachment_site_ordering": ["shortest_path", "agent_count"]
-
-    # for every map variation:
-    # - create 1 folder
-    # - for every agent type:
-    #   - create 1 folder
-    #   - for every tested combination: save that file there
-
-    agent_counts = [1, 2, 4, 8, 16]
+    # repeat the experiment 10 times (independent runs) for the "best" parameters for each agent type
+    agent_counts = [1, 2, 4, 8, 12, 16]
     offset = 100
+    nr_repeated_runs = 10
 
     # create a folder
     if not os.path.exists(SAVE_DIRECTORY_NAME + map_name):
@@ -447,38 +432,30 @@ def main(map_name="block_4x4x4"):
     parameters = []
     for agent_type in AGENT_TYPES:
         for agent_count in agent_counts:
-            temp = {
-                "target_map": map_name,
-                "agent_count": agent_count,
-                "agent_type": agent_type,
-                "offset_stashes": offset
-            }
-            temp.update({k: VALUES[k][0] for k in extra_parameters(agent_type)})
-            parameters.append(temp)
-            for parameter in extra_parameters(agent_type):
-                for other_value in VALUES[parameter][1:]:
-                    temp = {
-                        "target_map": map_name,
-                        "agent_count": agent_count,
-                        "agent_type": agent_type,
-                        "offset_stashes": offset
-                    }
-                    temp.update({k: VALUES[k][0] for k in extra_parameters(agent_type) if k != parameter})
-                    temp[parameter] = other_value
-                    parameters.append(temp)
+            for i in range(nr_repeated_runs):
+                temp = {
+                    "target_map": map_name,
+                    "agent_count": agent_count,
+                    "agent_type": agent_type,
+                    "offset_stashes": offset,
+                    "run": i
+                }
+                temp.update({k: DEFAULT_VALUES[k] for k in extra_parameters(agent_type)})
+                parameters.append(temp)
 
     runs_completed = 0
-    for p in parameters:
+    start_runs_at = 0
+    for p in parameters[start_runs_at:]:
         results = run_experiment(p)
         try:
-            file_name = "{}_{}.json".format(map_name, uuid.uuid4())
+            file_name = "{}_{}_{}_{}.json".format(map_name, abbreviation(p["agent_type"]), p["agent_count"], p["run"])
             absolute_file_name = SAVE_DIRECTORY_NAME + map_name + "/" + file_name
             with open(absolute_file_name, "w") as file:
                 json.dump(results, file)
             runs_completed += 1
-            print("Successfully saved results for run with parameters:")
-            pprint(p)
-            print("RUNS COMPLETED: {}/{}\n\n".format(runs_completed, len(parameters)))
+            print("Successfully saved results for run {} with {} agents.".format(p["run"], p["agent_count"]))
+            print("RUNS COMPLETED: {}/{} (out of total: {}/{})\n\n".format(
+                runs_completed, len(parameters) - start_runs_at, start_runs_at + runs_completed, len(parameters)))
         except KeyboardInterrupt:
             print("Cancelled run with the following parameters:")
             pprint(p)
