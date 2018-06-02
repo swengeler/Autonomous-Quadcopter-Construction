@@ -967,7 +967,7 @@ class GlobalKnowledgeAgent(Agent):
                         self.recheck_task(environment)
                     else:
                         self.current_task = Task.MOVE_TO_PERIMETER
-                    self.task_history.append(self.current_task)
+                        self.task_history.append(self.current_task)
                 else:
                     self.aprint("REACHED OLD SEED AND NOW TRANSPORTING TO NEW SEED SITE")
                     # if a seed is being carried, the transport phase continues to the designated seed position

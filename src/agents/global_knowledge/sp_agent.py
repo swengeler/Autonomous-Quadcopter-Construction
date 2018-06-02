@@ -163,12 +163,20 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
                     self.current_seed = environment.block_at_position(self.component_seed_location(
                         self.current_component_marker))
                     if self.current_seed is None:
+                        self.current_seed = previous
                         self.current_component_marker = self.component_target_map[self.current_seed.grid_position[2],
                                                                                   self.current_seed.grid_position[1],
                                                                                   self.current_seed.grid_position[0]]
-                        self.current_task = Task.TRANSPORT_BLOCK
-                    else:
-                        self.recheck_task(environment)
+                    self.aprint("Setting new seed to {} with marker {}"
+                                .format(self.current_seed.grid_position,
+                                        self.component_target_map[self.current_seed.grid_position[2],
+                                                                  self.current_seed.grid_position[1],
+                                                                  self.current_seed.grid_position[0]]),
+                                override_global_printing_enabled=True)
+                    self.aprint("Setting new marker to {}".format(self.current_component_marker),
+                                override_global_printing_enabled=True)
+                    self.current_task = Task.TRANSPORT_BLOCK
+                    self.transport_block(environment)
                     return
                 else:
                     raise Exception
