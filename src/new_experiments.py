@@ -468,7 +468,8 @@ def main(map_name="block_4x4x4"):
                     parameters.append(temp)
 
     runs_completed = 0
-    for p in parameters:
+    start_runs_at = 0
+    for p in parameters[start_runs_at:]:
         results = run_experiment(p)
         try:
             file_name = "{}_{}.json".format(map_name, uuid.uuid4())
@@ -478,7 +479,8 @@ def main(map_name="block_4x4x4"):
             runs_completed += 1
             print("Successfully saved results for run with parameters:")
             pprint(p)
-            print("RUNS COMPLETED: {}/{}\n\n".format(runs_completed, len(parameters)))
+            print("RUNS COMPLETED: {}/{} (out of total: {}/{})\n\n".format(
+                runs_completed, len(parameters) - start_runs_at, start_runs_at + runs_completed, len(parameters)))
         except KeyboardInterrupt:
             print("Cancelled run with the following parameters:")
             pprint(p)
@@ -487,33 +489,6 @@ def main(map_name="block_4x4x4"):
             print("Error in run with the following parameters:")
             pprint(p)
             raise e
-
-    print(len(parameters))
-    pprint(parameters[0])
-
-    # map_name = "block_5x5x10"
-    # target_map = block_5x5x10
-    # agent_type = LocalShortestPathAgent
-    # agent_counts = [4, 6, 8, 12, 16]
-    # for ac in agent_counts:
-    #     total_results = {"agent_count": ac, "map_name": map_name}
-    #     for restricted_count in range(2, ac + 1, 2):
-    #         results = run_experiment(target_map, ac, agent_type, restricted_count)
-    #         total_results[restricted_count] = {}
-    #         total_results[restricted_count]["step_count"] = results["step_count"]
-    #         total_results[restricted_count]["collisions"] = results["collisions"]
-    #         total_results[restricted_count]["task_counts"] = results["task_counts"]
-    #     try:
-    #         file_name = "ar_{}_{}_agents.json".format(total_results["map_name"], total_results["agent_count"])
-    #         absolute_file_name = SAVE_DIRECTORY_NAME + file_name
-    #         with open(absolute_file_name, "w") as file:
-    #             json.dump(total_results, file)
-    #         print("Successfully saved results for run with {} agent(s).\n".format(ac))
-    #     except KeyboardInterrupt:
-    #         print("Cancelled run with {} agent(s).".format(ac))
-    #     except Exception as e:
-    #         print("Error in run with {} agent(s).".format(ac))
-    #         raise e
 
 
 if __name__ == "__main__":

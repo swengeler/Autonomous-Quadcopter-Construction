@@ -242,7 +242,7 @@ class Agent:
         total_ff_vector = np.array([0.0, 0.0, 0.0])
         if self.collision_possible:
             for a in environment.agents:
-                if self is not a and self.collision_potential(a) and self.collision_potential_visible(a):
+                if self is not a and self.collision_potential(a) and self.collision_potential_visible(a, react_only):
                     # position_difference = a.geometry.position - self.geometry.position
                     # position_signed_angle = np.arctan2(position_difference[1], position_difference[0]) - \
                     #                         np.arctan2(original_direction[1], original_direction[0])
@@ -254,7 +254,8 @@ class Agent:
                     if not react_only:
                         force_field_vector *= 100 / simple_distance(self.geometry.position, a.geometry.position)
                     else:
-                        force_field_vector *= 100 / simple_distance(self.geometry.position, a.geometry.position)
+                        force_field_vector *= 200 / simple_distance(self.geometry.position, a.geometry.position)
+                        force_field_vector[2] /= 2
 
                     current_direction += force_field_vector
                     total_ff_vector += force_field_vector
@@ -314,7 +315,7 @@ class Agent:
                 return True
         return False
 
-    def collision_potential_visible(self, other):
+    def collision_potential_visible(self, other, view_above=False):
         # check whether other agent is within view, i.e. below this agent or in view of one of the cameras
         # get list of agents for which there is collision potential/danger
         self_corner_points = self.geometry.corner_points_2d()
@@ -336,7 +337,7 @@ class Agent:
             other_max_x = min(other_x)
             other_min_y = min(other_y)
             other_max_y = min(other_y)
-            if other.geometry.position[2] <= self.geometry.position[2] \
+            if view_above or other.geometry.position[2] <= self.geometry.position[2] \
                     or (other_min_x >= self_max_x and other_min_y >= self_max_y) \
                     or (other_min_x >= self_max_x and other_max_y <= self_min_y) \
                     or (other_max_x <= self_min_x and other_min_y >= self_max_y) \
