@@ -144,18 +144,31 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
                 self.aprint("Current grid position: {}".format(self.current_grid_position),
                             override_global_printing_enabled=True)
                 self.aprint("Shortest path: {}".format(sp), override_global_printing_enabled=True)
-                self.aprint("Intended attachment site: {}".format(attachment_sites[0]))
-                self.aprint("Current component marker: {}".format(self.current_component_marker))
+                self.aprint("Intended attachment site: {}".format(attachment_sites[0]),
+                            override_global_printing_enabled=True)
+                self.aprint("Current component marker: {}".format(self.current_component_marker),
+                            override_global_printing_enabled=True)
                 self.aprint("Current seed at {} and seed's component marker: {}"
                             .format(self.current_seed.grid_position,
                                     self.component_target_map[self.current_seed.grid_position[2],
                                                               self.current_seed.grid_position[1],
-                                                              self.current_seed.grid_position[0]]))
+                                                              self.current_seed.grid_position[0]]),
+                            override_global_printing_enabled=True)
                 self.aprint("Attachment map:", override_global_printing_enabled=True)
                 self.aprint(attachment_map, print_as_map=True, override_global_printing_enabled=True)
-                if self.current_component_marker != self.component_target_map[self.current_seed.grid_position[2], self.current_seed.grid_position[1], self.current_seed.grid_position[0]]:
-                    self.current_seed = environment.block_at_position(self.component_seed_location(self.current_component_marker))
-                    self.recheck_task(environment)
+                if self.current_component_marker != self.component_target_map[self.current_seed.grid_position[2],
+                                                                              self.current_seed.grid_position[1],
+                                                                              self.current_seed.grid_position[0]]:
+                    previous = self.current_seed
+                    self.current_seed = environment.block_at_position(self.component_seed_location(
+                        self.current_component_marker))
+                    if self.current_seed is None:
+                        self.current_component_marker = self.component_target_map[self.current_seed.grid_position[2],
+                                                                                  self.current_seed.grid_position[1],
+                                                                                  self.current_seed.grid_position[0]]
+                        self.current_task = Task.TRANSPORT_BLOCK
+                    else:
+                        self.recheck_task(environment)
                     return
                 else:
                     raise Exception
