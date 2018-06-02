@@ -13,11 +13,11 @@ from env.util import *
 from geom.shape import *
 from structures import *
 
-# LOAD_DIRECTORY_NAME = "/home/simon/maps/"
-# SAVE_DIRECTORY_NAME = "/home/simon/repeated_results/"
-
-LOAD_DIRECTORY_NAME = "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/"
+LOAD_DIRECTORY_NAME = "/home/simon/maps/"
 SAVE_DIRECTORY_NAME = "/home/simon/repeated_results/"
+
+# LOAD_DIRECTORY_NAME = "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/"
+# SAVE_DIRECTORY_NAME = "/home/simon/repeated_results/"
 
 OFFSET_STRUCTURE = 400.0
 INTERVAL = 0.0000001
