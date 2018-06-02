@@ -156,9 +156,13 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
                             override_global_printing_enabled=True)
                 self.aprint("Attachment map:", override_global_printing_enabled=True)
                 self.aprint(attachment_map, print_as_map=True, override_global_printing_enabled=True)
-                if self.current_component_marker != self.component_target_map[self.current_seed.grid_position[2],
-                                                                              self.current_seed.grid_position[1],
-                                                                              self.current_seed.grid_position[0]]:
+                # if self.current_component_marker != self.component_target_map[self.current_seed.grid_position[2],
+                #                                                               self.current_seed.grid_position[1],
+                #                                                               self.current_seed.grid_position[0]]:
+                if check_map(self.component_target_map, self.current_seed.grid_position,
+                             lambda x: x != self.current_component_marker) \
+                        or check_map(self.component_target_map, self.current_grid_position,
+                                     lambda x: x != self.current_component_marker):
                     previous = self.current_seed
                     self.current_seed = environment.block_at_position(self.component_seed_location(
                         self.current_component_marker))
@@ -480,10 +484,10 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
                     and sum([simple_distance(self.geometry.position, x) for x in self.position_queue]) < 70 \
                     and self.current_path is not None:
                 self.stuck_count += 1
-                self.current_path.add_position([self.geometry.position[0],
-                                                self.geometry.position[1],
-                                                self.geometry.position[2] + self.geometry.size[2] * 2],
-                                               self.current_path.current_index)
+                self.current_path.add_position(
+                    [self.geometry.position[0] + self.geometry.size[0] * (random.random() - 0.5),
+                     self.geometry.position[1] + self.geometry.size[1] * (random.random() - 0.5),
+                     self.geometry.position[2] + self.geometry.size[2] * 2], self.current_path.current_index)
 
         # self.collision_queue.append(collision_danger)
         if len(self.collision_queue) == self.collision_queue.maxlen:

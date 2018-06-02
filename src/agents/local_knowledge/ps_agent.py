@@ -372,10 +372,10 @@ class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
                     and sum([simple_distance(self.geometry.position, x) for x in self.position_queue]) < 70 \
                     and self.current_path is not None:
                 self.stuck_count += 1
-                self.current_path.add_position([self.geometry.position[0],
-                                                self.geometry.position[1],
-                                                self.geometry.position[2] + self.geometry.size[2] * 2],
-                                               self.current_path.current_index)
+                self.current_path.add_position(
+                    [self.geometry.position[0] + self.geometry.size[0] * (random.random() - 0.5),
+                     self.geometry.position[1] + self.geometry.size[1] * (random.random() - 0.5),
+                     self.geometry.position[2] + self.geometry.size[2] * 2], self.current_path.current_index)
 
         self.position_queue.append(self.geometry.position.copy())
 
