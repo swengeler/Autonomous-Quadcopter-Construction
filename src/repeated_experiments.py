@@ -233,12 +233,10 @@ def run_experiment(parameters):
         if steps % 5000 == 0:
             print("Simulation steps: {}".format(steps))
 
-        if got_stuck or all([a.current_task == Task.FINISHED for a in agent_list]):
+        if all([a.current_task == Task.FINISHED for a in agent_list]):
+            finished_successfully = True
             print("Finished construction with {} agents in {} steps ({} colliding)."
                   .format(agent_count, steps, collisions / 2))
-
-            if all([a.current_task == Task.FINISHED for a in agent_list]):
-                finished_successfully = True
 
             # meta information
             results["parameters"] = parameters
@@ -320,7 +318,7 @@ def run_experiment(parameters):
         previous_map = current_map
 
     if not finished_successfully:
-        logger.info("Simulation interrupted.")
+        logger.info("Simulation did not finish successfully.")
         print("Interrupted construction with {} agents in {} steps ({} colliding)."
               .format(agent_count, steps, collisions / 2))
         if got_stuck:
@@ -328,63 +326,59 @@ def run_experiment(parameters):
             print("State of the structure:")
             print_map(environment.occupancy_map)
 
-        if got_stuck or all([a.current_task == Task.FINISHED for a in agent_list]):
-            print("Finished construction with {} agents in {} steps ({} colliding)."
-                  .format(agent_count, steps, collisions / 2))
+        # meta information
+        results["parameters"] = parameters
+        results["finished_successfully"] = finished_successfully
+        results["got_stuck"] = got_stuck
 
-            # meta information
-            results["parameters"] = parameters
-            results["finished_successfully"] = finished_successfully
-            results["got_stuck"] = got_stuck
+        # outside agents statistics
+        results["step_count"] = steps
+        results["collision_count"] = collisions
+        results["agents_over_construction_area"] = agents_over_construction_area
+        results["component_completion"] = component_completion
+        results["layer_completion"] = layer_completion
+        results["structure_completion"] = structure_finished_count
+        results["highest_layer"] = int(environment.highest_block_z)
 
-            # outside agents statistics
-            results["step_count"] = steps
-            results["collision_count"] = collisions
-            results["agents_over_construction_area"] = agents_over_construction_area
-            results["component_completion"] = component_completion
-            results["layer_completion"] = layer_completion
-            results["structure_completion"] = structure_finished_count
-            results["highest_layer"] = int(environment.highest_block_z)
+        # inside agents statistics
+        results["total_step_counts"] = [a.step_count for a in agent_list]
+        results["returned_block_counts"] = [a.returned_blocks for a in agent_list]
+        results["stuck_counts"] = [a.stuck_count for a in agent_list]
+        results["attachment_frequency_count"] = [a.attachment_frequency_count for a in agent_list]
+        results["components_seeded"] = [a.components_seeded for a in agent_list]
+        results["components_attached"] = [a.components_attached for a in agent_list]
+        results["per_search_attachment_site_count"] = [a.per_search_attachment_site_count for a in agent_list]
+        results["task_stats"] = {}
+        for t in list(agent_list[0].per_task_step_count.keys()):
+            step_counts = [a.per_task_step_count[t] for a in agent_list]
+            step_count = {
+                "mean": float(np.mean(step_counts)),
+                "std": float(np.std(step_counts)),
+                "min": int(np.min(step_counts)),
+                "max": int(np.max(step_counts))
+            }
+            collision_avoidance_counts = [a.per_task_collision_avoidance_count[t] for a in agent_list]
+            collision_avoidance_count = {
+                "mean": float(np.mean(collision_avoidance_counts)),
+                "std": float(np.std(collision_avoidance_counts)),
+                "min": int(np.min(collision_avoidance_counts)),
+                "max": int(np.max(collision_avoidance_counts))
+            }
+            distances_travelled = [a.per_task_distance_travelled[t] for a in agent_list]
+            distance_travelled = {
+                "mean": float(np.mean(distances_travelled)),
+                "std": float(np.std(distances_travelled)),
+                "min": int(np.min(distances_travelled)),
+                "max": int(np.max(distances_travelled))
+            }
 
-            # inside agents statistics
-            results["total_step_counts"] = [a.step_count for a in agent_list]
-            results["returned_block_counts"] = [a.returned_blocks for a in agent_list]
-            results["stuck_counts"] = [a.stuck_count for a in agent_list]
-            results["attachment_frequency_count"] = [a.attachment_frequency_count for a in agent_list]
-            results["components_seeded"] = [a.components_seeded for a in agent_list]
-            results["components_attached"] = [a.components_attached for a in agent_list]
-            results["per_search_attachment_site_count"] = [a.per_search_attachment_site_count for a in agent_list]
-            results["task_stats"] = {}
-            for t in list(agent_list[0].per_task_step_count.keys()):
-                step_counts = [a.per_task_step_count[t] for a in agent_list]
-                step_count = {
-                    "mean": float(np.mean(step_counts)),
-                    "std": float(np.std(step_counts)),
-                    "min": int(np.min(step_counts)),
-                    "max": int(np.max(step_counts))
-                }
-                collision_avoidance_counts = [a.per_task_collision_avoidance_count[t] for a in agent_list]
-                collision_avoidance_count = {
-                    "mean": float(np.mean(collision_avoidance_counts)),
-                    "std": float(np.std(collision_avoidance_counts)),
-                    "min": int(np.min(collision_avoidance_counts)),
-                    "max": int(np.max(collision_avoidance_counts))
-                }
-                distances_travelled = [a.per_task_distance_travelled[t] for a in agent_list]
-                distance_travelled = {
-                    "mean": float(np.mean(distances_travelled)),
-                    "std": float(np.std(distances_travelled)),
-                    "min": int(np.min(distances_travelled)),
-                    "max": int(np.max(distances_travelled))
-                }
+            task_results = {
+                "step_count": step_count,
+                "collision_avoidance_count": collision_avoidance_count,
+                "distance_travelled": distance_travelled
+            }
 
-                task_results = {
-                    "step_count": step_count,
-                    "collision_avoidance_count": collision_avoidance_count,
-                    "distance_travelled": distance_travelled
-                }
-
-                results["task_stats"][t.name] = task_results
+            results["task_stats"][t.name] = task_results
     else:
         logger.info("Simulation finished successfully.")
 
@@ -419,7 +413,7 @@ def abbreviation(agent_type: str):
     return "NONE"
 
 
-def main(map_name="block_4x4x4"):
+def main(map_name="block_4x4x4", start=0):
     # repeat the experiment 10 times (independent runs) for the "best" parameters for each agent type
     agent_counts = [1, 2, 4, 8, 12, 16]
     offset = 100
@@ -444,7 +438,7 @@ def main(map_name="block_4x4x4"):
                 parameters.append(temp)
 
     runs_completed = 0
-    start_runs_at = 0
+    start_runs_at = start
     for p in parameters[start_runs_at:]:
         results = run_experiment(p)
         try:
@@ -467,7 +461,9 @@ def main(map_name="block_4x4x4"):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
+    if len(sys.argv) > 2:
+        main(sys.argv[1], int(sys.argv[2]))
+    elif len(sys.argv) > 1:
         main(sys.argv[1])
     else:
         main()

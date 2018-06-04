@@ -288,6 +288,8 @@ class Agent:
         return next_position, current_direction
 
     def collision_potential(self, other):
+        if self.current_task == Task.FINISHED or other.current_task == Task.FINISHED:
+            return False
         # check whether self and other have other geometries attached
         # find midpoint of collective geometries
         # compute minimum required distance to not physically collide

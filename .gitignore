@@ -49,3 +49,7 @@ fabric.properties
 
 # Editor-based Rest Client
 .idea/httpRequests
+
+# Data
+res/results
+res/repeated_results

@@ -26,8 +26,7 @@ def main():
     logger = logging.getLogger(__name__)
 
     # setting global parameters
-    interval = 0.05
-    interval = 0
+    interval = 0.0005
     paused = False
 
     # creating the target map
@@ -47,7 +46,7 @@ def main():
     target_map = component_balance_test
 
     target_map = np.load(
-        "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/plate_32x32.npy").astype("int64")
+        "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/perim_8.npy").astype("int64")
     # target_map = big_loop
     # target_map = scale_map(target_map, 2, (1, 2))
 
@@ -132,7 +131,7 @@ def main():
             processed.append(b)
 
     # creating the agent_list
-    agent_count = 1
+    agent_count = 16
     agent_type = GlobalShortestPathAgent
     agent_list = [agent_type([50, 60, 7.5], [40, 40, 15], target_map, 10.0) for _ in range(0, agent_count)]
     for i in range(len(agent_list)):
