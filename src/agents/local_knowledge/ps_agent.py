@@ -55,29 +55,29 @@ class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
                 # check whether location is somewhere NORTH-EAST of any closing corner, i.e. the block should not be
                 # placed there before closing that loop (NE because currently all closing corners are located there)
                 allowable_region_attachable = True
-                # if not at_loop_corner:
-                #     closing_corners = self.closing_corners[self.current_structure_level][self.current_component_marker]
-                #     for i in range(len(closing_corners)):
-                #         x, y, z = closing_corners[i]
-                #         orientation = self.closing_corner_orientations[self.current_structure_level][
-                #             self.current_component_marker][i]
-                #         if not environment.check_occupancy_map(np.array([x, y, z])):
-                #             if orientation == "NW":
-                #                 if x >= self.current_grid_position[0] and y <= self.current_grid_position[1]:
-                #                     allowable_region_attachable = False
-                #                     break
-                #             elif orientation == "NE":
-                #                 if x <= self.current_grid_position[0] and y <= self.current_grid_position[1]:
-                #                     allowable_region_attachable = False
-                #                     break
-                #             elif orientation == "SW":
-                #                 if x >= self.current_grid_position[0] and y >= self.current_grid_position[1]:
-                #                     allowable_region_attachable = False
-                #                     break
-                #             elif orientation == "SE":
-                #                 if x <= self.current_grid_position[0] and y >= self.current_grid_position[1]:
-                #                     allowable_region_attachable = False
-                #                     break
+                if not at_loop_corner:
+                    closing_corners = self.closing_corners[self.current_structure_level][self.current_component_marker]
+                    for i in range(len(closing_corners)):
+                        x, y, z = closing_corners[i]
+                        orientation = self.closing_corner_orientations[self.current_structure_level][
+                            self.current_component_marker][i]
+                        if not environment.check_occupancy_map(np.array([x, y, z])):
+                            if orientation == "NW":
+                                if x >= self.current_grid_position[0] and y <= self.current_grid_position[1]:
+                                    allowable_region_attachable = False
+                                    break
+                            elif orientation == "NE":
+                                if x <= self.current_grid_position[0] and y <= self.current_grid_position[1]:
+                                    allowable_region_attachable = False
+                                    break
+                            elif orientation == "SW":
+                                if x >= self.current_grid_position[0] and y >= self.current_grid_position[1]:
+                                    allowable_region_attachable = False
+                                    break
+                            elif orientation == "SE":
+                                if x <= self.current_grid_position[0] and y >= self.current_grid_position[1]:
+                                    allowable_region_attachable = False
+                                    break
 
                 current_site_tuple = (tuple(self.current_grid_position), tuple(self.current_grid_direction))
                 if current_site_tuple in self.current_visited_sites:

@@ -100,11 +100,95 @@ def show_all_agent_performance(data):
     plt.show()
 
 
+def show_plate_scaling(agent_type, mode="performance", map_stem="plate"):
+    if mode == "all":
+        f, ax = plt.subplots(1, 3)
+    else:
+        f, ax = plt.subplots()
+    for filename in os.listdir(LOAD_DIRECTORY):
+        if filename.startswith(map_stem) and filename != "plate_64x2":
+            # size = int(filename[6:filename.index("x")])
+            data = load_single_map_data(filename)
+            agent_counts = {}
+            step_counts = {}
+            not_completed = {}
+            for d in data:
+                if d["parameters"]["agent_type"] == agent_type:
+                    agent_count = d["parameters"]["agent_count"]
+                    step_count = d["step_count"]
+                    nc = False
+                    if d["got_stuck"]:
+                        # print("Structure was not finished with {} {}s because they got stuck.".format(agent_count, at))
+                        nc = True
+                    elif d["highest_layer"] not in d["layer_completion"].keys():
+                        # print("Structure was not finished with {} {}s for some other reason.".format(agent_count, at))
+                        nc = True
+                    if agent_count not in agent_counts:
+                        agent_counts[agent_count] = []
+                        step_counts[agent_count] = []
+                        not_completed[agent_count] = []
+                    agent_counts[agent_count].append(agent_count)
+                    step_counts[agent_count].append(step_count)
+                    not_completed[agent_count].append(nc)
+
+            all_x = []
+            all_y = []
+            all_conf = []
+            for count in agent_counts:
+                all_x.append(count)
+                avg = np.mean(step_counts[count])
+                all_y.append(avg)
+                std = np.std(step_counts[count])
+                t_bounds = scs.t.interval(0.95, len(step_counts[count]) - 1)
+                size = t_bounds[1] * std / np.sqrt(len(step_counts[count]))
+                all_conf.append(size)
+            order = sorted(range(len(all_x)), key=lambda i: all_x[i])
+            all_x = [all_x[i] for i in order]
+            all_y = [all_y[i] for i in order]
+            all_conf = [all_conf[i] for i in order]
+
+            speedup = []
+            for i in range(len(all_x)):
+                s = all_y[0] / all_y[i]
+                speedup.append(s)
+
+            efficiency = []
+            for i in range(len(all_x)):
+                e = speedup[i] / all_x[i]
+                efficiency.append(e)
+
+            if mode == "performance":
+                ax.errorbar(all_x, all_y, yerr=all_conf, label=filename)
+            elif mode == "efficiency":
+                ax.plot(all_x, efficiency, label=filename)
+            elif mode == "speedup":
+                ax.plot(all_x, speedup, label=filename)
+            else:
+                ax[0].errorbar(all_x, all_y, yerr=all_conf, label=filename)
+                ax[1].plot(all_x, speedup, label=filename)
+                ax[2].plot(all_x, efficiency, label=filename)
+    if mode == "all":
+        for a in ax:
+            a.set_ylim(ymin=0)
+            # a.legend()
+        ax[0].set_title("performance")
+        ax[1].set_title("speedup")
+        ax[2].set_title("efficiency")
+    else:
+        ax.set_ylim(ymin=0)
+        ax.set_title("{} {} ({})".format(agent_type, mode, map_stem))
+        # ax.legend()
+    plt.legend()
+    plt.suptitle("{} ({})".format(agent_type, map_stem))
+    plt.show()
+
+
 def main():
     map_name = "components_6x6x1"
-    data = load_single_map_data(map_name)
-    show_all_agent_performance(data)
+    # data = load_single_map_data(map_name)
+    # show_all_agent_performance(data)
     # show_scaling_performance(data, parameters)
+    show_plate_scaling("GlobalPerimeterFollowingAgent", "all", "hourglass_map")
 
 
 if __name__ == "__main__":

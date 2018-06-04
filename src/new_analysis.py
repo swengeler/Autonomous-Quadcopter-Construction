@@ -104,6 +104,10 @@ def show_all_agent_performance(data, parameter_list):
     plt.show()
 
 
+def compare_parameters(parameter_list):
+    pass
+
+
 def main():
     map_name = "components_1x1x36"
     data = load_single_map_data(map_name)
