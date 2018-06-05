@@ -2,7 +2,7 @@ import numpy as np
 from deprecated_experiments import scale_map
 from geom.util import simple_distance
 
-SAVE_DIRECTORY = "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/"
+SAVE_DIRECTORY = "/home/simon/PycharmProjects/LowFidelitySimulation/res/new_experiment_maps/"
 
 PYRAMID_SINGLE = 0
 PYRAMID_DIAMOND = 1
@@ -127,12 +127,49 @@ def create_hole_size_maps():
         np.save(SAVE_DIRECTORY + "hole_size_{}".format(i), copy, allow_pickle=False)
 
 
+def create_block_size_maps():
+    sizes = [(4, 4, 4), (6, 5, 5), (8, 7, 7), (9, 8, 8), (10, 9, 9), (10, 10, 10)]
+    pad_to_size = [(8, 8), (12, 12), (16, 16), (20, 20), (24, 24), (28, 28), (32, 32)]
+    padding = True
+    for s_idx, s in enumerate(sizes):
+        if padding:
+            width = pad_to_size[s_idx][1]
+            height = pad_to_size[s_idx][0]
+        else:
+            width = s[2]
+            height = s[1]
+        center_x = int(width / 2) - 1
+        center_y = int(height / 2) - 1
+
+        if padding:
+            block_map = np.zeros((s[0], pad_to_size[s_idx][0], pad_to_size[s_idx][1]))
+            offset_x = int((pad_to_size[s_idx][1] - s[2]) / 2)
+            offset_y = int((pad_to_size[s_idx][0] - s[1]) / 2)
+            block_map[:, offset_y:(offset_y + s[1]), offset_x:(offset_x + s[2])] = 1
+        else:
+            block_map = np.ones(s)
+
+        block_map[0, center_y, center_x] = 2
+        np.save(SAVE_DIRECTORY + "block_{}x{}x{}{}".format(s[2], s[1], s[0], "_padded.npy" if padding else ".npy"),
+                block_map, allow_pickle=False)
+
+
+def create_blocks_8x8x():
+    heights = [2, 3, 4, 6, 8]
+    for h in heights:
+        block_map = np.ones((h, 8, 8))
+        block_map[0, 3, 3] = 1
+        np.save(SAVE_DIRECTORY + "block_{}x{}x{}.npy".format(8, 8, h), block_map, allow_pickle=False)
+
+
 def main():
     # create_hole_scale_maps()
     # create_combined_maps()
     # create_pyramid_maps(PYRAMID_HOURGLASS)
     # create_hole_maps()
-    create_hole_size_maps()
+    # create_hole_size_maps()
+    # create_block_size_maps()
+    create_blocks_8x8x()
 
 
 if __name__ == "__main__":

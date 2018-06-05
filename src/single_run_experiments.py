@@ -1,5 +1,6 @@
 import json
 import os
+import uuid
 import sys
 from pprint import pprint
 from agents.agent import Task
@@ -12,11 +13,11 @@ from env.util import *
 from geom.shape import *
 from structures import *
 
-LOAD_DIRECTORY_NAME = "/home/simon/maps/"
-SAVE_DIRECTORY_NAME = "/home/simon/new_results/"
+# LOAD_DIRECTORY_NAME = "/home/simon/maps/"
+# SAVE_DIRECTORY_NAME = "/home/simon/single_run_results/"
 
-# LOAD_DIRECTORY_NAME = "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/"
-# SAVE_DIRECTORY_NAME = "/home/simon/PycharmProjects/LowFidelitySimulation/res/new_results/"
+LOAD_DIRECTORY_NAME = "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/"
+SAVE_DIRECTORY_NAME = "/home/simon/PycharmProjects/LowFidelitySimulation/res/single_run_results/"
 
 OFFSET_STRUCTURE = 400.0
 INTERVAL = 0.0000001
@@ -31,11 +32,11 @@ AGENT_TYPES = {
 
 VALUES = {  # where the first is the default one
     "waiting_on_perimeter_enabled": [False, True],
-    "avoiding_crowded_stashes_enabled": [True, True],
-    "transport_avoid_others_enabled": [True, True],
-    "seed_if_possible_enabled": [True, True],
-    "seeding_strategy": ["distance_center", "distance_self", "agent_count"],
-    "component_ordering": ["center", "distance", "percentage", "agents"],
+    "avoiding_crowded_stashes_enabled": [False, True],
+    "transport_avoid_others_enabled": [False, True],
+    "seed_if_possible_enabled": [False, True],
+    "seeding_strategy": ["distance_self", "distance_center", "agent_count"],
+    "component_ordering": ["distance", "center", "percentage", "agents"],
     "attachment_site_order": ["shortest_path", "prioritise", "shortest_travel_path", "agent_count"],
     "attachment_site_ordering": ["shortest_path", "agent_count"]
 }
@@ -420,7 +421,7 @@ def extra_parameters(agent_type: str):
     return parameters
 
 
-def short_form(agent_type: str):
+def abbreviation(agent_type: str):
     if agent_type == "LocalShortestPathAgent":
         return "LSP"
     if agent_type == "LocalPerimeterFollowingAgent":
@@ -444,27 +445,7 @@ def long_form(agent_type_abbreviation: str):
     return "NONE"
 
 
-def parameters_defaults_for_all(map_name, number_runs, agent_counts, offset):
-    parameters = []
-    for run in range(number_runs):
-        for agent_count in agent_counts:
-            for agent_type in AGENT_TYPES:
-                temp = {
-                    "target_map": map_name,
-                    "agent_count": agent_count,
-                    "agent_type": agent_type,
-                    "offset_stashes": offset,
-                    "experiment_name": "defaults",
-                    "run": run
-                }
-                temp.update({k: VALUES[k][0] for k in extra_parameters(agent_type)})
-                parameters.append(temp)
-    return parameters
-
-
 def main(map_name="block_4x4x4"):
-    experiment_options = ["all_defaults"]
-
     # repeat the experiment 10 times (independent runs) for the "best" parameters for each agent type
     agent_counts = [1, 2, 4, 8, 12, 16]
     offset = 100
@@ -473,41 +454,49 @@ def main(map_name="block_4x4x4"):
     if not os.path.exists(SAVE_DIRECTORY_NAME + map_name):
         os.makedirs(SAVE_DIRECTORY_NAME + map_name)
 
-    # type
-    print("Please specify the experiment you want to run: ")
-    for c_idx, c in enumerate(experiment_options):
-        print("[{}]: {}".format(c_idx, c))
-    experiment_choice = input("Please specify a number to choose between parameters: ")
-    if len(experiment_choice) == 0:
-        experiment_choice = experiment_options.index("all_defaults")
-    else:
-        experiment_choice = int(experiment_choice)
-
-    # runs
     number_runs = int(input("Please enter the number of repeated runs: "))
-
-    # name
-    if experiment_options[experiment_choice] != "all_defaults":
-        experiment_name = input("\nPlease enter a name for the experiment: ")
-    else:
-        experiment_name = "defaults"
+    agent_type = long_form(input("Please enter the agent type (LSP, LPF, GSP, GPF): "))
+    extra = extra_parameters(agent_type)
+    extra_params = {}
+    for e in extra:
+        print("\nThe choices for parameter {} are:".format(e))
+        for c_idx, c in enumerate(VALUES[e]):
+            print("[{}]: {}".format(c_idx, c))
+        choice = input("Please specify a number to choose between parameters: ")
+        if len(choice) == 0:
+            extra_params[e] = VALUES[e][0]
+        else:
+            choice = int(choice)
+            extra_params[e] = VALUES[e][choice]
+    experiment_name = input("\nPlease enter a name for the experiment: ")
+    experiment_description = input("\nPlease enter a short description for the experiment: ")
     print()
 
-    directory_name = SAVE_DIRECTORY_NAME + map_name + "/" + "{}".format(experiment_name)
+    directory_name = SAVE_DIRECTORY_NAME + map_name + "/" + "{}_{}".format(abbreviation(agent_type), experiment_name)
     if not os.path.exists(directory_name):
         os.makedirs(directory_name)
 
-    if experiment_options[experiment_choice] == "all_defaults":
-        parameters = parameters_defaults_for_all(map_name, number_runs, agent_counts, offset)
-    else:
-        parameters = []
+    parameters = []
+    for run in range(number_runs):
+        for agent_count in agent_counts:
+            temp = {
+                "target_map": map_name,
+                "agent_count": agent_count,
+                "agent_type": agent_type,
+                "offset_stashes": offset,
+                "experiment_name": experiment_name,
+                "experiment_description": experiment_description,
+                "run": run
+            }
+            temp.update({k: extra_params[k] for k in extra_params})
+            parameters.append(temp)
 
     runs_completed = 0
     start_runs_at = 0
     for p in parameters[start_runs_at:]:
         results = run_experiment(p)
         try:
-            file_name = "{}_{}_{}.json".format(p["agent_type"], p["agent_count"], p["run"])
+            file_name = "{}_{}.json".format(p["agent_count"], p["run"])
             absolute_file_name = directory_name + "/" + file_name
             with open(absolute_file_name, "w") as file:
                 json.dump(results, file)
