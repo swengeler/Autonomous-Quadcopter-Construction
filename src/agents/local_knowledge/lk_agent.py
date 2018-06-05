@@ -954,6 +954,8 @@ class LocalKnowledgeAgent(Agent):
             if not ret:
                 self.current_grid_position += self.current_grid_direction
 
+                self.current_blocks_per_attachment += 1
+
                 self.update_local_occupancy_map(environment)
 
                 # TODO: need to update local_occupancy_map during find_attachment_site and recognise when sites
@@ -971,6 +973,9 @@ class LocalKnowledgeAgent(Agent):
                     # if the result is True, then we know that there is a hole and it is closed already
                 except (IndexError, KeyError):
                     result = False
+
+                if not self.current_block_type_seed:
+                    self.current_blocks_per_attachment += 1
 
                 if environment.block_below(self.geometry.position, self.current_structure_level) is None and \
                         (check_map(self.hole_map, self.current_grid_position, lambda x: x < 2) or not result):

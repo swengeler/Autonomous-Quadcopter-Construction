@@ -12,9 +12,9 @@ from geom.shape import *
 from graphics.graphics_2d import Graphics2D
 from structures import *
 from emergency_structures import emergency_structures
-from experiments import scale_map
+from deprecated_experiments import scale_map
 
-random.seed(202)
+random.seed(205)
 
 request_queue = queue.Queue()
 return_queue = queue.Queue()
@@ -26,7 +26,7 @@ def main():
     logger = logging.getLogger(__name__)
 
     # setting global parameters
-    interval = 0.0005
+    interval = 0.05
     paused = False
 
     # creating the target map
@@ -46,7 +46,7 @@ def main():
     target_map = component_balance_test
 
     target_map = np.load(
-        "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/perim_8.npy").astype("int64")
+        "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/no_spacing_comps_4.npy").astype("int64")
     # target_map = big_loop
     # target_map = scale_map(target_map, 2, (1, 2))
 
@@ -136,10 +136,14 @@ def main():
     agent_list = [agent_type([50, 60, 7.5], [40, 40, 15], target_map, 10.0) for _ in range(0, agent_count)]
     for i in range(len(agent_list)):
         agent_list[i].id = i
-        agent_list[i].avoiding_crowded_stashes_enabled = True
-        agent_list[i].transport_avoid_others_enabled = True
+        agent_list[i].avoiding_crowded_stashes_enabled = False
+        agent_list[i].transport_avoid_others_enabled = False
+        agent_list[i].transport_avoid_others_enabled = False
         # agent_list[i].dropping_out_enabled = True
         # agent_list[i].printing_enabled = False
+        agent_list[i].seed_if_possible_enabled = True
+        agent_list[i].seeding_strategy = "distance_self"
+        agent_list[i].seeding_strategy = "shortest_path"
 
     processed_counter = 0
     while len(processed) != block_count + agent_count:
@@ -182,6 +186,12 @@ def main():
     # threading.Thread(target=tk_main_loop, args=(environment.environment_extent[0])).start()
     graphics = Graphics2D(environment, request_queue, return_queue, ["top", "front"], interval * 1000, render=True)
     graphics.run()
+
+    # stuck stuff
+    no_change_counter = 0
+    max_no_change_counter = 0
+    previous_map = np.copy(environment.occupancy_map)
+    np.place(previous_map, previous_map > 1, 1)
 
     # running the main loop of the simulation
     steps = 0
@@ -261,6 +271,17 @@ def main():
                                 # paused = True
                 # print("CURRENT MAP:")
                 # print_map(environment.occupancy_map)
+
+                current_map = np.copy(environment.occupancy_map)
+                np.place(current_map, current_map > 1, 1)
+                if (previous_map == current_map).all():
+                    no_change_counter += 1
+                else:
+                    no_change_counter = 0
+                if no_change_counter > max_no_change_counter:
+                    max_no_change_counter = no_change_counter
+                previous_map = current_map
+
             # submit_to_tkinter(update_window, environment)
             request_queue.put(Graphics2D.UPDATE_REQUEST)
             try:
@@ -314,6 +335,8 @@ def main():
             print("\nCollision data:\n{}".format(collision_pairs))
         else:
             logger.info("Simulation finished successfully.")
+
+    print("\nMaximum steps without change: {}".format(max_no_change_counter))
 
 
 if __name__ == "__main__":

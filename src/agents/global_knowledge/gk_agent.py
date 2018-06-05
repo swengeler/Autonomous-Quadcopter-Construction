@@ -99,13 +99,6 @@ class GlobalKnowledgeAgent(Agent):
         return [candidate_components[i] for i in order]
 
     def recheck_task(self, environment: env.map.Map):
-        # TODO: choose components better
-        # couple of options here:
-        # - closest
-        # - least crowded
-        # - innermost
-        # - smallest percentage wise (if already seeded)
-
         changed_task = False
         if self.check_structure_finished(environment.occupancy_map) \
                 or (self.current_block is None
@@ -315,10 +308,12 @@ class GlobalKnowledgeAgent(Agent):
                 # component is finished already, therefore try switching to other seeded component
                 unseeded = self.unseeded_component_markers(environment.occupancy_map)
                 if len(unfinished) != 0:
+                    previous_component_marker = self.current_component_marker
                     # there are still other unfinished components left
                     if len(unfinished) == len(unseeded):
                         # all of these components have not been seeded yet, therefore should fetch a seed for one
-                        unseeded = self.order_components(environment.occupancy_map, environment, unseeded, self.component_ordering)
+                        unseeded = self.order_components(
+                            environment.occupancy_map, environment, unseeded, self.component_ordering)
                         self.current_component_marker = unseeded[0]
                         self.next_seed_position = self.component_seed_location(self.current_component_marker)
                         self.current_block_type_seed = False
@@ -328,7 +323,8 @@ class GlobalKnowledgeAgent(Agent):
                         changed_task = True
                     elif len(unseeded) == 0:
                         # there are no unseeded components left, therefore have free choice, but need to go there first
-                        unfinished = self.order_components(environment.occupancy_map, environment, unfinished, self.component_ordering)
+                        unfinished = self.order_components(
+                            environment.occupancy_map, environment, unfinished, self.component_ordering)
                         self.current_component_marker = unfinished[0]
                         self.current_seed = environment.block_at_position(
                             self.component_seed_location(self.current_component_marker))
@@ -339,7 +335,8 @@ class GlobalKnowledgeAgent(Agent):
                     else:
                         # some components are seeded, others not, since already carrying block, go for a seeded one
                         seeded = [c for c in unfinished if c not in unseeded]
-                        seeded = self.order_components(environment.occupancy_map, environment, seeded, self.component_ordering)
+                        seeded = self.order_components(
+                            environment.occupancy_map, environment, seeded, self.component_ordering)
                         self.current_component_marker = seeded[0]
                         self.current_seed = environment.block_at_position(
                             self.component_seed_location(self.current_component_marker))
@@ -347,6 +344,9 @@ class GlobalKnowledgeAgent(Agent):
                         self.task_history.append(self.current_task)
                         self.current_path = None
                         changed_task = True
+                    self.sp_search_count.append(
+                        (self.current_sp_search_count, int(previous_component_marker), self.current_task.name))
+                    self.current_sp_search_count = 0
                 else:
                     # all components on this layer are completed
                     self.current_structure_level += 1
@@ -1044,6 +1044,9 @@ class GlobalKnowledgeAgent(Agent):
                         self.current_grid_position[0]]]] != 0)
                 except (IndexError, KeyError):
                     result = False
+
+                if not self.current_block_type_seed:
+                    self.current_blocks_per_attachment += 1
 
                 if environment.block_below(self.geometry.position, self.current_structure_level) is None and \
                         (check_map(self.hole_map, self.current_grid_position, lambda x: x < 2) or not result):

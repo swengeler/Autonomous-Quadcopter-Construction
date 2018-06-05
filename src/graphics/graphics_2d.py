@@ -275,7 +275,7 @@ class Graphics2D:
                         height=(self.map.environment_extent[1] + 2 * self.padding[1]),
                         background="#a7a9bc")
             # cv.pack(side=LEFT)
-            cv.grid(row=0, column=0)
+            cv.grid(row=1, column=0)
             self.canvases["top"] = cv
         if "front" in self.views:
             # m = self.master if len(self.master.children) == 0 else Toplevel(master=self.master)
@@ -285,7 +285,7 @@ class Graphics2D:
                         height=(self.map.environment_extent[2] + 2 * self.padding[1]),
                         background="#a7a9bc")
             # cv.pack(side=LEFT)
-            cv.grid(row=0, column=1)
+            cv.grid(row=1, column=1)
             self.canvases["front"] = cv
         if "side" in self.views:
             # m = self.master if len(self.master.children) == 0 else Toplevel(master=self.master)
@@ -295,7 +295,7 @@ class Graphics2D:
                         height=(self.map.environment_extent[2] + 2 * self.padding[1]),
                         background="#a7a9bc")
             # cv.pack(side=LEFT)
-            cv.grid(row=0, column=2)
+            cv.grid(row=1, column=2)
             self.canvases["side"] = cv
 
         def callback_pause_play():
@@ -303,11 +303,11 @@ class Graphics2D:
 
         b = Button(self.master, text="Pause/play", command=callback_pause_play)
         # b.pack(side=BOTTOM)
-        b.grid(row=1, column=0)
+        b.grid(row=0, column=0)
 
         f = Frame(self.master)
 
-        f.grid(row=1, column=1)
+        f.grid(row=0, column=1)
         l = Label(f, text="Interval (s): ")
         l.pack(side=LEFT)
         e = Entry(f, width=5)

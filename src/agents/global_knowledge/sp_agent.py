@@ -197,6 +197,8 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
             self.current_shortest_path = sp
             self.current_sp_index = 0
 
+            self.current_sp_search_count += 1
+
         attachment_sites = legal_attachment_sites(self.component_target_map[self.current_structure_level],
                                                   environment.occupancy_map[self.current_structure_level],
                                                   component_marker=self.current_component_marker)
@@ -327,12 +329,6 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
 
             # block should now be placed in the environment's occupancy matrix
             if not ret:
-                if self.current_block.is_seed:
-                    self.current_seed = self.current_block
-                    self.components_seeded.append(int(self.current_component_marker))
-                elif self.current_component_marker not in self.components_attached:
-                    self.components_attached.append(int(self.current_component_marker))
-
                 if self.current_block.geometry.position[2] > (self.current_grid_position[2] + 1.0) * Block.SIZE:
                     self.logger.error("BLOCK PLACED IN AIR ({}, {}, {})".format(
                         self.current_grid_position, self.id, self.current_block.geometry.position))
@@ -340,6 +336,18 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
                         np.array([self.geometry.position[0], self.geometry.position[1],
                                   (self.current_grid_position[2] + 1) * Block.SIZE + self.geometry.size[2] / 2]))
                     return
+
+                if self.current_block.is_seed:
+                    self.current_seed = self.current_block
+                    self.components_seeded.append(int(self.current_component_marker))
+                    self.seeded_blocks += 1
+                else:
+                    self.sp_search_count.append(
+                        (self.current_sp_search_count, int(self.current_component_marker), self.current_task.name))
+                    self.current_sp_search_count = 0
+                    if self.current_component_marker not in self.components_attached:
+                        self.components_attached.append(int(self.current_component_marker))
+                    self.attached_blocks += 1
 
                 if self.rejoining_swarm:
                     self.rejoining_swarm = False
@@ -501,4 +509,24 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
         self.drop_out_statistics["wait_for_rejoining"].append(self.wait_for_rejoining)
         self.drop_out_statistics["rejoining_swarm"].append(self.rejoining_swarm)
 
-        # updating statistics
+        # the steps done per layer and component
+        if int(self.current_structure_level) not in self.steps_per_layer:
+            self.steps_per_layer[int(self.current_structure_level)] = [[0, 0], [0, 0]]
+        self.steps_per_layer[int(self.current_structure_level)][
+            0 if self.current_block_type_seed else 1][0 if self.current_block is not None else 0] += 1
+        if int(self.current_component_marker) not in self.steps_per_component:
+            self.steps_per_component[int(self.current_component_marker)] = [[0, 0], [0, 0]]
+        self.steps_per_component[int(self.current_component_marker)][
+            0 if self.current_block_type_seed else 1][0 if self.current_block is not None else 0] += 1
+
+        # the delay between a component actually being finished and the agent realising that it is
+        if self.check_component_finished(environment.occupancy_map):
+            if int(self.current_component_marker) not in self.complete_to_switch_delay:
+                self.complete_to_switch_delay[int(self.current_component_marker)] = 0
+            self.current_component_switch_marker = self.current_component_marker
+
+        if self.current_component_switch_marker != -1:
+            if self.check_component_finished(self.local_occupancy_map, self.current_component_switch_marker):
+                self.current_component_switch_marker = -1
+            else:
+                self.complete_to_switch_delay[int(self.current_component_marker)] += 1

@@ -104,21 +104,60 @@ def show_all_agent_performance(data, parameter_list):
     plt.show()
 
 
-def compare_parameters(parameter_list):
-    pass
+def compare_parameters(data, parameter_list, descriptions=None):
+    p_count = 0
+    f, ax = plt.subplots()
+    for a_type, p in parameter_list:
+        agent_counts = []
+        step_counts = []
+        for d in data:
+            if d["parameters"]["agent_type"] == a_type:
+                print("Hello")
+                if all([d["parameters"][k] == p[k] for k in p]):
+                    agent_counts.append(d["parameters"]["agent_count"])
+                    step_counts.append(d["step_count"])
+        order = sorted(range(len(agent_counts)), key=lambda i: agent_counts[i])
+        agent_counts = [agent_counts[i] for i in order]
+        step_counts = [step_counts[i] for i in order]
+        label = descriptions[p_count] if descriptions is not None else "Parameter set {}".format(p_count)
+        ax.plot(agent_counts, step_counts, label=label)
+        p_count += 1
+    ax.set_ylim(ymin=0)
+    ax.legend()
+    plt.show()
 
 
 def main():
-    map_name = "components_1x1x36"
+    map_name = "spacing_4"
     data = load_single_map_data(map_name)
+    print(len(data))
 
     parameter_list = []
     for agent_type in AGENT_TYPES:
         parameters = {"agent_type": agent_type}
         parameters.update({k: VALUES[k][0] for k in extra_parameters(agent_type)})
         parameter_list.append(parameters)
-    show_all_agent_performance(data, parameter_list)
+    # show_all_agent_performance(data, parameter_list)
     # show_scaling_performance(data, parameters)
+    a1 = a2 = "LocalPerimeterFollowingAgent"
+    p1 = {
+        "waiting_on_perimeter_enabled": False,
+        "avoiding_crowded_stashes_enabled": True,
+        "transport_avoid_others_enabled": True,
+        "seed_if_possible_enabled": True,
+        "seeding_strategy": "distance_center"
+    }
+    p2 = {
+        "waiting_on_perimeter_enabled": False,
+        "avoiding_crowded_stashes_enabled": True,
+        "transport_avoid_others_enabled": True,
+        "seed_if_possible_enabled": True,
+        "seeding_strategy": "agent_count"
+    }
+    params = [(a1, p1), (a2, p2)]
+    # descriptions = ["Seeding when possible", "Completing first"]
+    descriptions = ["Seed closest to center", "Seed with fewest agents"]
+    compare_parameters(data, params, descriptions=descriptions)
 
 
 if __name__ == "__main__":

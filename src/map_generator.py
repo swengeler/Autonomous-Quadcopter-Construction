@@ -1,5 +1,5 @@
 import numpy as np
-from experiments import scale_map
+from deprecated_experiments import scale_map
 from geom.util import simple_distance
 
 SAVE_DIRECTORY = "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/"

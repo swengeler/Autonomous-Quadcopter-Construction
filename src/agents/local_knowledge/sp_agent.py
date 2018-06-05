@@ -33,6 +33,10 @@ class LocalShortestPathAgent(LocalKnowledgeAgent):
 
             if self.check_component_finished(self.local_occupancy_map, self.current_component_marker):
                 self.aprint("Component {} finished, moving on".format(self.current_component_marker))
+                self.sp_search_count.append(
+                    (self.current_sp_search_count, int(self.current_component_marker), self.current_task.name))
+                self.current_sp_search_count = 0
+                self.current_task = Task.FIND_NEXT_COMPONENT
                 self.find_next_component(environment)
                 return
 
@@ -291,6 +295,8 @@ class LocalShortestPathAgent(LocalKnowledgeAgent):
             self.current_shortest_path = sp
             self.current_sp_index = 0
 
+            self.current_sp_search_count += 1
+
         next_position, current_direction = self.move(environment)
         if simple_distance(self.geometry.position, next_position) <= Agent.MOVEMENT_PER_STEP:
             self.geometry.position = next_position
@@ -307,11 +313,14 @@ class LocalShortestPathAgent(LocalKnowledgeAgent):
                         self.local_occupancy_map[layer][self.target_map[layer] != 0] = 1
                     self.current_structure_level = block_below.grid_position[2]
 
+                    self.sp_search_count.append(
+                        (self.current_sp_search_count, int(self.current_component_marker), self.current_task.name))
+                    self.current_sp_search_count = 0
+
                     self.current_task = Task.FIND_NEXT_COMPONENT
                     self.task_history.append(self.current_task)
                     self.current_grid_position = block_below.grid_position
                     self.current_path = None
-
                     return
 
                 # have reached next point on shortest path to attachment site
@@ -327,9 +336,6 @@ class LocalShortestPathAgent(LocalKnowledgeAgent):
                         [current_spc[0], current_spc[1], self.current_structure_level])
                     self.aprint("REACHED {} ON SHORTEST PATH ({})".format(current_spc, self.current_shortest_path))
                     self.aprint("Own position: {}".format(self.geometry.position))
-                    if self.id == 4 and self.current_component_marker == 15:
-                        self.aprint("WHAT THE ACTUAL FUCK IS GOING ON HERE")
-                        self.aprint("")
                 self.update_local_occupancy_map(environment)
                 self.aprint("GRID POSITION: {}".format(self.current_grid_position))
                 if self.current_sp_index >= len(self.current_shortest_path) - 1:
@@ -438,6 +444,9 @@ class LocalShortestPathAgent(LocalKnowledgeAgent):
                     self.task_history.append(self.current_task)
                     self.current_visited_sites = None
                     self.current_path = None
+                    self.sp_search_count.append(
+                        (self.current_sp_search_count, int(self.current_component_marker), self.current_task.name))
+                    self.current_sp_search_count = 0
         else:
             block_below = environment.block_below(self.geometry.position)
             # also need to check whether block is in shortest path
@@ -508,13 +517,6 @@ class LocalShortestPathAgent(LocalKnowledgeAgent):
 
             # block should now be placed in the environment's occupancy matrix
             if not ret:
-                if self.current_block.is_seed:
-                    self.current_seed = self.current_block
-                    self.next_seed_position = None
-                    self.components_seeded.append(int(self.current_component_marker))
-                elif self.current_component_marker not in self.components_attached:
-                    self.components_attached.append(int(self.current_component_marker))
-
                 if self.current_block.geometry.position[2] > (self.current_grid_position[2] + 1.0) * Block.SIZE:
                     self.logger.error("BLOCK PLACED IN AIR ({}, {}, {})".format(
                         self.current_grid_position, self.id, self.current_block.geometry.position))
@@ -522,6 +524,19 @@ class LocalShortestPathAgent(LocalKnowledgeAgent):
                         np.array([self.geometry.position[0], self.geometry.position[1],
                                   (self.current_grid_position[2] + 1) * Block.SIZE + self.geometry.size[2] / 2]))
                     return
+
+                if self.current_block.is_seed:
+                    self.current_seed = self.current_block
+                    self.next_seed_position = None
+                    self.components_seeded.append(int(self.current_component_marker))
+                    self.seeded_blocks += 1
+                else:
+                    self.sp_search_count.append(
+                        (self.current_sp_search_count, int(self.current_component_marker), self.current_task.name))
+                    self.current_sp_search_count = 0
+                    if self.current_component_marker not in self.components_attached:
+                        self.components_attached.append(int(self.current_component_marker))
+                    self.attached_blocks += 1
 
                 if self.rejoining_swarm:
                     self.rejoining_swarm = False
@@ -619,9 +634,6 @@ class LocalShortestPathAgent(LocalKnowledgeAgent):
 
         self.agent_statistics.step(environment)
 
-        if self.current_task == Task.AVOID_COLLISION:
-            self.avoid_collision(environment)
-
         if self.current_task == Task.FETCH_BLOCK:
             self.fetch_block(environment)
         elif self.current_task == Task.PICK_UP_BLOCK:
@@ -674,22 +686,33 @@ class LocalShortestPathAgent(LocalKnowledgeAgent):
 
         self.position_queue.append(self.geometry.position.copy())
 
-        collision_danger = False
-        if self.collision_possible and self.current_task not in [Task.AVOID_COLLISION, Task.LAND, Task.FINISHED]:
-            for a in environment.agents:
-                if self is not a and self.collision_potential(a):
-                    self.previous_task = self.current_task
-                    # self.current_task = Task.AVOID_COLLISION
-                    # self.task_history.append(self.current_task)
-                    collision_danger = True
-                    # self.collision_count += 1
-                    break
-
         self.step_count += 1
         self.count_since_last_attachment += 1
         self.drop_out_statistics["drop_out_of_swarm"].append(self.drop_out_of_swarm)
         self.drop_out_statistics["wait_for_rejoining"].append(self.wait_for_rejoining)
         self.drop_out_statistics["rejoining_swarm"].append(self.rejoining_swarm)
+
+        # the steps done per layer and component
+        if int(self.current_structure_level) not in self.steps_per_layer:
+            self.steps_per_layer[int(self.current_structure_level)] = [[0, 0], [0, 0]]
+        self.steps_per_layer[int(self.current_structure_level)][
+            0 if self.current_block_type_seed else 1][0 if self.current_block is not None else 0] += 1
+        if int(self.current_component_marker) not in self.steps_per_component:
+            self.steps_per_component[int(self.current_component_marker)] = [[0, 0], [0, 0]]
+        self.steps_per_component[int(self.current_component_marker)][
+            0 if self.current_block_type_seed else 1][0 if self.current_block is not None else 0] += 1
+
+        # the delay between a component actually being finished and the agent realising that it is
+        if self.check_component_finished(environment.occupancy_map):
+            if int(self.current_component_marker) not in self.complete_to_switch_delay:
+                self.complete_to_switch_delay[int(self.current_component_marker)] = 0
+            self.current_component_switch_marker = self.current_component_marker
+
+        if self.current_component_switch_marker != -1:
+            if self.check_component_finished(self.local_occupancy_map, self.current_component_switch_marker):
+                self.current_component_switch_marker = -1
+            else:
+                self.complete_to_switch_delay[int(self.current_component_marker)] += 1
 
         # self.collision_queue.append(collision_danger)
         if len(self.collision_queue) == self.collision_queue.maxlen:

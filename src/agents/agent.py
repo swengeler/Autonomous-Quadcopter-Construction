@@ -148,6 +148,8 @@ class Agent:
         # performance metrics
         self.step_count = 0  # happens in advance method
         self.stuck_count = 0
+        self.seeded_blocks = 0
+        self.attached_blocks = 0
         self.returned_blocks = 0
         self.per_task_step_count = dict([(task, 0) for task in Task])  # happens in move method
         self.per_task_collision_avoidance_count = dict([(task, 0) for task in Task])  # happens in move method
@@ -164,6 +166,38 @@ class Agent:
             "wait_for_rejoining": [],
             "rejoining_swarm": []
         }
+        # store tuples declaring whether it ended in finding an attachment site,
+        # moving to a different component and finding one there or whether it was returned
+        # start counting (i.e. resetting to 0) when attaching a block
+        self.sp_search_count = []
+        self.current_sp_search_count = 0
+
+        # components visited/actually considered as targets until some block attached at the final choice,
+        # can again be reset when block is placed
+        self.next_component_count = []
+        self.current_next_component_count = 0
+
+        # time to go from all agents trying to seed to all trying to attach (global vs local)
+        # -> should be at level of main loop though: count from end of old layer to all agents having attached once?
+        #    probably good if they attached anything, the point would be that they actually figured out their component
+
+        # steps per layer/component (with normal attachment and seeding)
+        # what if trying to seed/attach to component and then switching to other?
+        # -> count for first until "realisation", then switch
+        self.steps_per_layer = {}
+        self.steps_per_component = {}
+
+        # per attachment (with both algorithms), count total blocks travelled per attachment/decision to return
+        # separated in components: start counter when attachment site stuff is called and keep counting
+        self.blocks_per_attachment = []
+        self.current_blocks_per_attachment = 0
+        self.steps_per_attachment = []
+        self.current_steps_per_attachment = 0
+
+        # time difference between component being completed (can be checked globally) and them actually switching to
+        # different component -> yay, this one should be easy-ish
+        self.complete_to_switch_delay = {}
+        self.current_component_switch_marker = -1
 
         self.backup_grid_position = None
         self.previous_task = Task.FETCH_BLOCK
@@ -255,7 +289,7 @@ class Agent:
                         force_field_vector *= 100 / simple_distance(self.geometry.position, a.geometry.position)
                     else:
                         force_field_vector *= 200 / simple_distance(self.geometry.position, a.geometry.position)
-                        force_field_vector[2] /= 2
+                        force_field_vector[2] = 0
 
                     current_direction += force_field_vector
                     total_ff_vector += force_field_vector

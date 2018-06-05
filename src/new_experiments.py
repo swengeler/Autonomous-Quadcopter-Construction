@@ -143,8 +143,9 @@ def run_experiment(parameters):
         candidate_x = random.uniform(0.0, environment.environment_extent[0])
         candidate_y = random.uniform(0.0, environment.environment_extent[1])
         candidate_box = GeomBox([candidate_x, candidate_y, agent_list[processed_counter].geometry.size[2] / 2],
-                                agent_list[processed_counter].geometry.size * 4, 0.0)
-        if all([not candidate_box.overlaps(p.geometry) for p in processed]):
+                                agent_list[processed_counter].geometry.size, 0.0)
+        if all([simple_distance(p.geometry.position, (candidate_x, candidate_y))
+                > agent_list[processed_counter].required_distance + 10 for p in processed]):
             if candidate_box.position[0] - candidate_box.size[0] > \
                     Block.SIZE * target_map.shape[2] + environment.offset_origin[0] \
                     or candidate_box.position[0] + candidate_box.size[0] < environment.offset_origin[0] \
@@ -152,7 +153,6 @@ def run_experiment(parameters):
                     Block.SIZE * target_map.shape[1] + environment.offset_origin[1] \
                     or candidate_box.position[1] + candidate_box.size[1] < environment.offset_origin[1]:
                 agent_list[processed_counter].geometry.set_to_match(candidate_box)
-                agent_list[processed_counter].geometry.size = agent_list[processed_counter].geometry.size / 4
                 processed.append(agent_list[processed_counter])
                 processed_counter += 1
 
