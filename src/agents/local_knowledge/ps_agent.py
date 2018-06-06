@@ -431,7 +431,7 @@ class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
             if self.check_component_finished(self.local_occupancy_map, self.current_component_switch_marker):
                 self.current_component_switch_marker = -1
             else:
-                self.complete_to_switch_delay[int(self.current_component_marker)] += 1
+                self.complete_to_switch_delay[int(self.current_component_switch_marker)] += 1
 
         # if len(self.collision_queue) == self.collision_queue.maxlen:
         #     self.aprint("Proportion of collision danger to other movement: {}"

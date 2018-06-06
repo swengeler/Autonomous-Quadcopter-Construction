@@ -703,7 +703,7 @@ class LocalShortestPathAgent(LocalKnowledgeAgent):
             0 if self.current_block_type_seed else 1][0 if self.current_block is not None else 0] += 1
 
         # the delay between a component actually being finished and the agent realising that it is
-        if self.check_component_finished(environment.occupancy_map):
+        if self.check_component_finished(environment.occupancy_map, self.current_component_marker):
             if int(self.current_component_marker) not in self.complete_to_switch_delay:
                 self.complete_to_switch_delay[int(self.current_component_marker)] = 0
             self.current_component_switch_marker = self.current_component_marker
@@ -712,7 +712,7 @@ class LocalShortestPathAgent(LocalKnowledgeAgent):
             if self.check_component_finished(self.local_occupancy_map, self.current_component_switch_marker):
                 self.current_component_switch_marker = -1
             else:
-                self.complete_to_switch_delay[int(self.current_component_marker)] += 1
+                self.complete_to_switch_delay[int(self.current_component_switch_marker)] += 1
 
         # self.collision_queue.append(collision_danger)
         if len(self.collision_queue) == self.collision_queue.maxlen:

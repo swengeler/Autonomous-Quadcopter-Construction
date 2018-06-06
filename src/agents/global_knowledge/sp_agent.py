@@ -529,4 +529,4 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
             if self.check_component_finished(self.local_occupancy_map, self.current_component_switch_marker):
                 self.current_component_switch_marker = -1
             else:
-                self.complete_to_switch_delay[int(self.current_component_marker)] += 1
+                self.complete_to_switch_delay[int(self.current_component_switch_marker)] += 1
