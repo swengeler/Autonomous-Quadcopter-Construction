@@ -12,11 +12,11 @@ from env.util import *
 from geom.shape import *
 from structures import *
 
-# LOAD_DIRECTORY_NAME = "/home/simon/maps/"
-# SAVE_DIRECTORY_NAME = "/home/simon/new_results/"
+LOAD_DIRECTORY_NAME = "/home/simon/maps/"
+SAVE_DIRECTORY_NAME = "/home/simon/new_results/"
 
-LOAD_DIRECTORY_NAME = "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/"
-SAVE_DIRECTORY_NAME = "/home/simon/PycharmProjects/LowFidelitySimulation/res/new_results/"
+# LOAD_DIRECTORY_NAME = "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/"
+# SAVE_DIRECTORY_NAME = "/home/simon/PycharmProjects/LowFidelitySimulation/res/new_results/"
 
 OFFSET_STRUCTURE = 400.0
 INTERVAL = 0.0000001
@@ -31,9 +31,9 @@ AGENT_TYPES = {
 
 VALUES = {  # where the first is the default one
     "waiting_on_perimeter_enabled": [False, True],
-    "avoiding_crowded_stashes_enabled": [True, True],
-    "transport_avoid_others_enabled": [True, True],
-    "seed_if_possible_enabled": [True, True],
+    "avoiding_crowded_stashes_enabled": [True, False],
+    "transport_avoid_others_enabled": [True, False],
+    "seed_if_possible_enabled": [True, False],
     "seeding_strategy": ["distance_center", "distance_self", "agent_count"],
     "component_ordering": ["center", "distance", "percentage", "agents"],
     "attachment_site_order": ["shortest_path", "prioritise", "shortest_travel_path", "agent_count"],
