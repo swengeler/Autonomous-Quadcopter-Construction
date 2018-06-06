@@ -12,11 +12,11 @@ from env.util import *
 from geom.shape import *
 from structures import *
 
-LOAD_DIRECTORY_NAME = "/home/simon/maps/"
-SAVE_DIRECTORY_NAME = "/home/simon/new_results/"
+# LOAD_DIRECTORY_NAME = "/home/simon/maps/"
+# SAVE_DIRECTORY_NAME = "/home/simon/new_results/"
 
-# LOAD_DIRECTORY_NAME = "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/"
-# SAVE_DIRECTORY_NAME = "/home/simon/PycharmProjects/LowFidelitySimulation/res/new_results/"
+LOAD_DIRECTORY_NAME = "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/"
+SAVE_DIRECTORY_NAME = "/home/simon/PycharmProjects/LowFidelitySimulation/res/new_results/"
 
 OFFSET_STRUCTURE = 400.0
 INTERVAL = 0.0000001
@@ -463,7 +463,7 @@ def parameters_defaults_for_all(map_name, number_runs, agent_counts, offset):
 
 
 def main(map_name="block_4x4x4"):
-    experiment_options = ["all_defaults"]
+    experiment_options = ["all_defaults", "all_adjust_parameters", "one_adjust_parameters"]
 
     # repeat the experiment 10 times (independent runs) for the "best" parameters for each agent type
     agent_counts = [1, 2, 4, 8, 12, 16]
@@ -487,10 +487,10 @@ def main(map_name="block_4x4x4"):
     number_runs = int(input("Please enter the number of repeated runs: "))
 
     # name
-    if experiment_options[experiment_choice] != "all_defaults":
-        experiment_name = input("\nPlease enter a name for the experiment: ")
-    else:
+    if experiment_options[experiment_choice] == "all_defaults":
         experiment_name = "defaults"
+    else:
+        experiment_name = input("\nPlease enter a name for the experiment: ")
     print()
 
     directory_name = SAVE_DIRECTORY_NAME + map_name + "/" + "{}".format(experiment_name)
@@ -499,6 +499,62 @@ def main(map_name="block_4x4x4"):
 
     if experiment_options[experiment_choice] == "all_defaults":
         parameters = parameters_defaults_for_all(map_name, number_runs, agent_counts, offset)
+    elif experiment_options[experiment_choice] == "all_adjust_parameters":
+        extra = extra_parameters("all")
+        extra_params = {}
+        for e in extra:
+            print("\nThe choices for parameter {} are:".format(e))
+            for c_idx, c in enumerate(VALUES[e]):
+                print("[{}]: {}".format(c_idx, c))
+            choice = input("Please specify a number to choose between parameters: ")
+            if len(choice) == 0:
+                extra_params[e] = VALUES[e][0]
+            else:
+                choice = int(choice)
+                extra_params[e] = VALUES[e][choice]
+
+        parameters = []
+        for run in range(number_runs):
+            for agent_count in agent_counts:
+                for agent_type in AGENT_TYPES:
+                    temp = {
+                        "target_map": map_name,
+                        "agent_count": agent_count,
+                        "agent_type": agent_type,
+                        "offset_stashes": offset,
+                        "experiment_name": experiment_name,
+                        "run": run
+                    }
+                    temp.update(extra_params)
+                    parameters.append(temp)
+    elif experiment_options[experiment_choice] == "one_adjust_parameters":
+        agent_type = long_form(input("Please enter the agent type (LSP, LPF, GSP, GPF): "))
+        extra = extra_parameters(agent_type)
+        extra_params = {}
+        for e in extra:
+            print("\nThe choices for parameter {} are:".format(e))
+            for c_idx, c in enumerate(VALUES[e]):
+                print("[{}]: {}".format(c_idx, c))
+            choice = input("Please specify a number to choose between parameters: ")
+            if len(choice) == 0:
+                extra_params[e] = VALUES[e][0]
+            else:
+                choice = int(choice)
+                extra_params[e] = VALUES[e][choice]
+
+        parameters = []
+        for run in range(number_runs):
+            for agent_count in agent_counts:
+                temp = {
+                    "target_map": map_name,
+                    "agent_count": agent_count,
+                    "agent_type": agent_type,
+                    "offset_stashes": offset,
+                    "experiment_name": experiment_name,
+                    "run": run
+                }
+                temp.update(extra_params)
+                parameters.append(temp)
     else:
         parameters = []
 

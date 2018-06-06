@@ -158,8 +158,13 @@ def create_blocks_8x8x():
     heights = [2, 3, 4, 6, 8]
     for h in heights:
         block_map = np.ones((h, 8, 8))
-        block_map[0, 3, 3] = 1
+        block_map[0, 3, 3] = 2
         np.save(SAVE_DIRECTORY + "block_{}x{}x{}.npy".format(8, 8, h), block_map, allow_pickle=False)
+
+
+def create_components_3x3x3():
+
+    pass
 
 
 def main():
