@@ -162,9 +162,30 @@ def create_blocks_8x8x():
         np.save(SAVE_DIRECTORY + "block_{}x{}x{}.npy".format(8, 8, h), block_map, allow_pickle=False)
 
 
-def create_components_3x3x3():
-
-    pass
+def create_component_map():
+    component_size = 2
+    component_number = (4, 4)
+    component_spacing = 1
+    height = 4
+    component_map = np.zeros(
+        (height, component_size * component_number[1] + component_spacing * (component_number[1] - 1),
+         component_size * component_number[0] + component_spacing * (component_number[0] - 1)))
+    for x in range(component_number[0]):
+        for y in range(component_number[1]):
+            x_start = x * (component_spacing + component_size)
+            x_end = x_start + component_size
+            y_start = y * (component_spacing + component_size)
+            y_end = y_start + component_size
+            component_map[:, y_start:y_end, x_start:x_end] = 1
+    center_x = int(component_map.shape[2] / 2)
+    center_y = int(component_map.shape[1] / 2)
+    coords = np.where(component_map[0] == 1)
+    coords = list(zip(coords[1], coords[0]))
+    coords = sorted(coords, key=lambda c: simple_distance(c, (center_x, center_y)))
+    component_map[0, coords[0][1], coords[0][0]] = 2
+    np.save(SAVE_DIRECTORY + "seed_comp_{}x{}_{}_{}.npy"
+            .format(component_number[0], component_number[1], component_size, component_spacing),
+            component_map, allow_pickle=False)
 
 
 def main():
@@ -174,7 +195,8 @@ def main():
     # create_hole_maps()
     # create_hole_size_maps()
     # create_block_size_maps()
-    create_blocks_8x8x()
+    # create_blocks_8x8x()
+    create_component_map()
 
 
 if __name__ == "__main__":

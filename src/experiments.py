@@ -15,8 +15,9 @@ from structures import *
 LOAD_DIRECTORY_NAME = "/home/simon/maps/"
 SAVE_DIRECTORY_NAME = "/home/simon/new_results/"
 
-# LOAD_DIRECTORY_NAME = "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/"
-# SAVE_DIRECTORY_NAME = "/home/simon/PycharmProjects/LowFidelitySimulation/res/new_results/"
+LOAD_DIRECTORY_NAME_ALT_1 = "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/"
+LOAD_DIRECTORY_NAME_ALT_2 = "/home/simon/PycharmProjects/LowFidelitySimulation/res/new_experiment_maps/"
+SAVE_DIRECTORY_NAME_ALT = "/home/simon/PycharmProjects/LowFidelitySimulation/res/new_results/"
 
 OFFSET_STRUCTURE = 400.0
 INTERVAL = 0.0000001
@@ -463,7 +464,8 @@ def parameters_defaults_for_all(map_name, number_runs, agent_counts, offset):
 
 
 def main(map_name="block_4x4x4"):
-    experiment_options = ["all_defaults", "all_adjust_parameters", "one_adjust_parameters"]
+    experiment_options = ["all_defaults", "all_adjust_parameters", "one_adjust_parameters",
+                          "local_or_global_adjust_parameters"]
 
     # repeat the experiment 10 times (independent runs) for the "best" parameters for each agent type
     agent_counts = [1, 2, 4, 8, 12, 16]
@@ -555,6 +557,37 @@ def main(map_name="block_4x4x4"):
                 }
                 temp.update(extra_params)
                 parameters.append(temp)
+    elif experiment_options[experiment_choice] == "local_or_global_adjust_parameters":
+        family = input("Please enter the type (L, G): ")
+        agent_types = ["LocalShortestPathAgent", "LocalPerimeterFollowingAgent"] if "L" == family \
+            else ["GlobalShortestPathAgent", "GlobalPerimeterFollowingAgent"]
+        extra = extra_parameters("Local" if "L" == family else "Global")
+        extra_params = {}
+        for e in extra:
+            print("\nThe choices for parameter {} are:".format(e))
+            for c_idx, c in enumerate(VALUES[e]):
+                print("[{}]: {}".format(c_idx, c))
+            choice = input("Please specify a number to choose between parameters: ")
+            if len(choice) == 0:
+                extra_params[e] = VALUES[e][0]
+            else:
+                choice = int(choice)
+                extra_params[e] = VALUES[e][choice]
+
+        parameters = []
+        for run in range(number_runs):
+            for agent_count in agent_counts:
+                for agent_type in agent_types:
+                    temp = {
+                        "target_map": map_name,
+                        "agent_count": agent_count,
+                        "agent_type": agent_type,
+                        "offset_stashes": offset,
+                        "experiment_name": experiment_name,
+                        "run": run
+                    }
+                    temp.update(extra_params)
+                    parameters.append(temp)
     else:
         parameters = []
 
@@ -583,6 +616,12 @@ def main(map_name="block_4x4x4"):
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
+        if len(sys.argv) > 2:
+            if int(sys.argv[2]) == 1:
+                LOAD_DIRECTORY_NAME = LOAD_DIRECTORY_NAME_ALT_1
+            elif int(sys.argv[2]) == 2:
+                LOAD_DIRECTORY_NAME = LOAD_DIRECTORY_NAME_ALT_2
+            SAVE_DIRECTORY_NAME = SAVE_DIRECTORY_NAME_ALT
         main(sys.argv[1])
     else:
         main()
