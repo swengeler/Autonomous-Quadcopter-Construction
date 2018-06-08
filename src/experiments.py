@@ -192,7 +192,7 @@ def run_experiment(parameters):
 
     # counts from start to completion of components/layers
     component_completion = dict([(cm, None) for cm in component_markers])
-    layer_completion = dict([(l, None) for l in range(target_map.shape[2])])
+    layer_completion = dict([(l, None) for l in range(target_map.shape[0])])
     current_layer = 0
     started_components = []
     completed_components = []
@@ -217,15 +217,15 @@ def run_experiment(parameters):
                 component_completion[cm]["finish"] = steps
 
         # layer completion
-        if current_layer < target_map.shape[2] and current_layer not in started_layers \
+        if current_layer < target_map.shape[0] and current_layer not in started_layers \
                 and environment.layer_started(current_layer):
             layer_completion[current_layer] = {"start": steps, "finish": steps}
-        if current_layer < target_map.shape[2] and current_layer not in completed_layers \
+        if current_layer < target_map.shape[0] and current_layer not in completed_layers \
                 and current_layer in started_layers and environment.layer_finished(current_layer):
             layer_completion[current_layer]["finish"] = steps
             current_layer += 1
 
-        if not structure_finished and current_layer >= target_map.shape[2]:
+        if not structure_finished and current_layer >= target_map.shape[0]:
             structure_finished_count = steps
             structure_finished = True
             current_layer -= 1

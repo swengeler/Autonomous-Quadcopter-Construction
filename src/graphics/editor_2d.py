@@ -237,9 +237,12 @@ class Editor2D(Tk):
         self.label_layer.grid(row=7, column=48, sticky=W)
 
         def show():
+            np.set_printoptions(threshold=np.nan)
             self.shift_activated = False
             self.layers = self.layers.astype(dtype="int64")
-            string_representation = "np." + repr(self.layers)
+            # string_representation = "np." + np.array2string(self.layers, threshold=np.nan)
+            string_representation = "np.{}".format(repr(self.layers))
+            np.set_printoptions(threshold=1000)
 
             new_window = Toplevel(self)
             new_window.resizable(False, False)
@@ -261,7 +264,7 @@ class Editor2D(Tk):
             scrollbar.grid(row=1, column=1, sticky="NSEW")
 
             text_window["yscrollcommand"] = scrollbar.set
-            text_window.insert(END, "np." + repr(self.layers))
+            text_window.insert(END, string_representation)
             text_window.focus_set()
 
         self.button_show = Button(self, text="Show", command=show)

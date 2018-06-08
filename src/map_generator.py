@@ -128,9 +128,9 @@ def create_hole_size_maps():
 
 
 def create_block_size_maps():
-    sizes = [(4, 4, 4), (6, 5, 5), (8, 7, 7), (9, 8, 8), (10, 9, 9), (10, 10, 10)]
+    sizes = [(4, 4, 4), (6, 5, 5), (7, 6, 6), (8, 7, 7), (9, 8, 8), (10, 9, 9), (10, 10, 10)]
     pad_to_size = [(8, 8), (12, 12), (16, 16), (20, 20), (24, 24), (28, 28), (32, 32)]
-    padding = True
+    padding = False
     for s_idx, s in enumerate(sizes):
         if padding:
             width = pad_to_size[s_idx][1]
@@ -194,9 +194,9 @@ def main():
     # create_pyramid_maps(PYRAMID_HOURGLASS)
     # create_hole_maps()
     # create_hole_size_maps()
-    # create_block_size_maps()
+    create_block_size_maps()
     # create_blocks_8x8x()
-    create_component_map()
+    # create_component_map()
 
 
 if __name__ == "__main__":

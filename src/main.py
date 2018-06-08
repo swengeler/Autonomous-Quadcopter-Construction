@@ -47,6 +47,7 @@ def main():
 
     target_map = np.load(
         "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/no_spacing_comps_4.npy").astype("int64")
+    target_map = test_3d
     # target_map = big_loop
     # target_map = scale_map(target_map, 2, (1, 2))
 
@@ -71,10 +72,9 @@ def main():
     Block.COLORS_SEEDS = hex_palette_seed
 
     # offset of the described target occupancy map to the origin (only in x/y directions)
-    offset_structure = 400
+    offset_structure = 200
     offset_stashes = 100
     offset_origin = (offset_structure, offset_structure)
-    environment_extent = [150.0, 200.0, 200.0]
     environment_extent = [offset_structure * 2 + target_map.shape[2] * Block.SIZE,
                           offset_structure * 2 + target_map.shape[1] * Block.SIZE,
                           offset_structure * 2 + target_map.shape[1] * Block.SIZE]
@@ -131,7 +131,7 @@ def main():
             processed.append(b)
 
     # creating the agent_list
-    agent_count = 16
+    agent_count = 2
     agent_type = GlobalShortestPathAgent
     agent_list = [agent_type([50, 60, 7.5], [40, 40, 15], target_map, 10.0) for _ in range(0, agent_count)]
     for i in range(len(agent_list)):
@@ -150,8 +150,9 @@ def main():
         candidate_x = random.uniform(0.0, environment.environment_extent[0])
         candidate_y = random.uniform(0.0, environment.environment_extent[1])
         candidate_box = GeomBox([candidate_x, candidate_y, agent_list[processed_counter].geometry.size[2] / 2],
-                                agent_list[processed_counter].geometry.size * 4, 0.0)
-        if all([not candidate_box.overlaps(p.geometry) for p in processed]):
+                                agent_list[processed_counter].geometry.size, 0.0)
+        if all([simple_distance(p.geometry.position, (candidate_x, candidate_y))
+                > agent_list[processed_counter].required_distance + 10 for p in processed]):
             if candidate_box.position[0] - candidate_box.size[0] > \
                     Block.SIZE * target_map.shape[2] + environment.offset_origin[0] \
                     or candidate_box.position[0] + candidate_box.size[0] < environment.offset_origin[0] \
@@ -159,7 +160,6 @@ def main():
                     Block.SIZE * target_map.shape[1] + environment.offset_origin[1] \
                     or candidate_box.position[1] + candidate_box.size[1] < environment.offset_origin[1]:
                 agent_list[processed_counter].geometry.set_to_match(candidate_box)
-                agent_list[processed_counter].geometry.size = agent_list[processed_counter].geometry.size / 4
                 processed.append(agent_list[processed_counter])
                 processed_counter += 1
 
