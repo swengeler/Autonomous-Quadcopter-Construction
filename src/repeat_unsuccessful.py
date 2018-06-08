@@ -80,7 +80,7 @@ def run_all_unfinished(unfinished, save_directory):
         results = run_experiment(p)
         if results["finished_successfully"]:
             try:
-                directory_name = save_directory + p["map_name"] + "/" + p["experiment_name"]
+                directory_name = save_directory + p["target_map"] + "/" + p["experiment_name"]
                 file_name = "{}_{}_{}.json".format(p["agent_type"], p["agent_count"], p["run"])
                 absolute_file_name = directory_name + "/" + file_name
                 with open(absolute_file_name, "w") as file:
