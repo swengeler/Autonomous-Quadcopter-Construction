@@ -1,3 +1,5 @@
+import random
+
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -67,51 +69,57 @@ def run_single_unfinished(single_unfinished, save_directory):
     return single_unfinished
 
 
-def run_all_unfinished(unfinished):
+def run_all_unfinished(unfinished, save_directory):
     parameter_list = []
     for u in unfinished:
         parameter_list.append(u["parameters"])
 
     runs_completed = 0
-    start_runs_at = 0
-    for p in parameter_list[start_runs_at:]:
+    new_unfinished = []
+    for p in parameter_list:
         results = run_experiment(p)
-        try:
-            directory_name = SAVE_DIRECTORY_NAME_ALT + p["map_name"] + "/" + p["experiment_name"]
-            file_name = "{}_{}_{}.json".format(p["agent_type"], p["agent_count"], p["run"])
-            absolute_file_name = directory_name + "/" + file_name
-            with open(absolute_file_name, "w") as file:
-                json.dump(results, file)
-            runs_completed += 1
-            print("Successfully saved results for run {} with {} agents.".format(p["run"], p["agent_count"]))
-            print("RUNS COMPLETED: {}/{} (out of total: {}/{})\n\n".format(
-                runs_completed, len(parameter_list) - start_runs_at, start_runs_at + runs_completed,
-                len(parameter_list)))
-        except KeyboardInterrupt:
-            print("Cancelled run with the following parameters:")
-            pprint(p)
-            break
-        except Exception as e:
-            print("Error in run with the following parameters:")
-            pprint(p)
-            raise e
+        if results["finished_successfully"]:
+            try:
+                directory_name = save_directory + p["map_name"] + "/" + p["experiment_name"]
+                file_name = "{}_{}_{}.json".format(p["agent_type"], p["agent_count"], p["run"])
+                absolute_file_name = directory_name + "/" + file_name
+                with open(absolute_file_name, "w") as file:
+                    json.dump(results, file)
+                with open("/home/simon/finished_experiments.txt", "a") as file:
+                    file.write(absolute_file_name + "\n")
+                print("Successfully saved results for run {}/{} with {} agents.".format(runs_completed,
+                                                                                        len(parameter_list),
+                                                                                        p["agent_count"]))
+            except KeyboardInterrupt:
+                print("Cancelled run with the following parameters:")
+                pprint(p)
+                break
+            except Exception as e:
+                print("Error in run with the following parameters:")
+                pprint(p)
+                raise e
+        else:
+            new_unfinished.append(unfinished[runs_completed])
+        runs_completed += 1
+
+    return new_unfinished
 
 
-def main(server=True):
+def main(number_parallel, number_self, server=True):
     root_directory = LOAD_DIRECTORY if server else LOAD_DIRECTORY_ALT
     save_directory = SAVE_DIRECTORY_NAME if server else SAVE_DIRECTORY_NAME_ALT
 
+    def split_into_chunks(l, n):
+        return [l[i::n] for i in range(n)]
+
     unfinished = load_unfinished_files(root_directory)
+    unfinished = split_into_chunks(unfinished, number_parallel)[number_self]
     run_counter = 0
     while len(unfinished) != 0:
-        pool = ThreadPool(8)
+        # pool = ThreadPool(8)
         print("STARTING RUN {} WITH {} EXPERIMENTS TO GO.".format(run_counter, len(unfinished)))
-        new_unfinished = pool.starmap(run_single_unfinished, zip(unfinished, itertools.repeat(save_directory)))
+        unfinished = run_all_unfinished(unfinished, save_directory)
         print("FINISHING RUN {} WITH {} EXPERIMENTS.\n".format(run_counter, len(unfinished)))
-        new_unfinished = [u for u in new_unfinished if u is not None]
-        finished = [u for u in unfinished if u not in new_unfinished]
-        unfinished = new_unfinished
-
         run_counter += 1
 
 
@@ -131,9 +139,9 @@ def save_file_names():
 
 if __name__ == "__main__":
     # save_file_names()
-    if len(sys.argv) > 1:
-        main(False)
+    if len(sys.argv) > 3:
+        main(int(sys.argv[1]), int(sys.argv[2]), False)
     else:
-        main()
+        main(int(sys.argv[1]), int(sys.argv[2]))
 
 
