@@ -193,9 +193,9 @@ def main(func, number_parallel, number_self, server=True):
         run_counter += 1
 
 
-def save_file_names():
-    root_directory = LOAD_DIRECTORY_ALT
-    save_directory = SAVE_DIRECTORY_NAME_ALT
+def save_file_names(server=False):
+    root_directory = LOAD_DIRECTORY if server else LOAD_DIRECTORY_ALT
+    save_directory = SAVE_DIRECTORY_NAME if server else SAVE_DIRECTORY_NAME_ALT
 
     unfinished = load_unfinished_files(root_directory)
     print(len(unfinished))
@@ -208,9 +208,9 @@ def save_file_names():
             file.write(absolute_file_name + "\n")
 
 
-def save_ordering_file_names():
-    root_directory = LOAD_DIRECTORY_ALT
-    save_directory = SAVE_DIRECTORY_NAME_ALT
+def save_ordering_file_names(server=False):
+    root_directory = LOAD_DIRECTORY if server else LOAD_DIRECTORY_ALT
+    save_directory = SAVE_DIRECTORY_NAME if server else SAVE_DIRECTORY_NAME_ALT
 
     unfinished = load_ordering_files(root_directory)
     for f in unfinished:
@@ -222,9 +222,9 @@ def save_ordering_file_names():
             file.write(absolute_file_name + "\n")
 
 
-def save_sp_file_names():
-    root_directory = LOAD_DIRECTORY_ALT
-    save_directory = SAVE_DIRECTORY_NAME_ALT
+def save_sp_file_names(server=False):
+    root_directory = LOAD_DIRECTORY if server else LOAD_DIRECTORY_ALT
+    save_directory = SAVE_DIRECTORY_NAME if server else SAVE_DIRECTORY_NAME_ALT
 
     unfinished = load_sp_files(root_directory)
     for f in unfinished:
@@ -246,11 +246,11 @@ if __name__ == "__main__":
     elif len(sys.argv) == 2:
         idx = int(sys.argv[1])
         if idx == 0:
-            save_file_names()
+            save_file_names(True)
         elif idx == 1:
-            save_sp_file_names()
+            save_sp_file_names(True)
         elif idx == 2:
-            save_ordering_file_names()
+            save_ordering_file_names(True)
     else:
         main(int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]))
 
