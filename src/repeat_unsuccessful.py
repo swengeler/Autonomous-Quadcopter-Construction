@@ -218,7 +218,7 @@ def save_ordering_file_names(server=False):
         file_name = "{}_{}_{}.json".format(
             f["parameters"]["agent_type"], f["parameters"]["agent_count"], f["parameters"]["run"])
         absolute_file_name = directory_name + "/" + file_name
-        with open("/home/simon/PycharmProjects/unfinished_ordering_experiments.txt", "a") as file:
+        with open("/home/simon/unfinished_ordering_experiments.txt", "a") as file:
             file.write(absolute_file_name + "\n")
 
 
@@ -232,11 +232,8 @@ def save_sp_file_names(server=False):
         file_name = "{}_{}_{}.json".format(
             f["parameters"]["agent_type"], f["parameters"]["agent_count"], f["parameters"]["run"])
         absolute_file_name = directory_name + "/" + file_name
-        with open("/home/simon/PycharmProjects/unfinished_sp_experiments.txt", "a") as file:
+        with open("/home/simon/unfinished_sp_experiments.txt", "a") as file:
             file.write(absolute_file_name + "\n")
-
-    while True:
-        pass
 
 
 if __name__ == "__main__":
