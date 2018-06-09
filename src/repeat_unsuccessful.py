@@ -178,9 +178,14 @@ def main(func, number_parallel, number_self, server=True):
     elif func == 2:
         file_name = "/home/simon/unfinished_ordering_experiments.txt"
 
+    with open("/home/simon/finished_experiments.txt") as f:
+        finished_file_list = f.readlines()
+    finished_file_list = [x.strip() for x in finished_file_list]
+
     with open(file_name) as f:
         file_list = f.readlines()
     file_list = [x.strip() for x in file_list]
+    file_list = [x for x in file_list if x not in finished_file_list]
 
     file_list = split_into_chunks(file_list, number_parallel)[number_self]
     unfinished = load_specified_files(file_list)

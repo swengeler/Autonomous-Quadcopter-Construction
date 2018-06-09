@@ -49,6 +49,7 @@ def main():
         "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/no_spacing_comps_4.npy").astype("int64")
     target_map = np.load(
         "/home/simon/PycharmProjects/LowFidelitySimulation/res/new_experiment_maps/component_1x1.npy").astype("int64")
+    target_map = test_3d
     # target_map = big_loop
     # target_map = scale_map(target_map, 2, (1, 2))
 
@@ -73,7 +74,7 @@ def main():
     Block.COLORS_SEEDS = hex_palette_seed
 
     # offset of the described target occupancy map to the origin (only in x/y directions)
-    offset_structure = 400
+    offset_structure = 300
     offset_stashes = 100
     offset_origin = (offset_structure, offset_structure)
     environment_extent = [offset_structure * 2 + target_map.shape[2] * Block.SIZE,
@@ -132,7 +133,7 @@ def main():
             processed.append(b)
 
     # creating the agent_list
-    agent_count = 16
+    agent_count = 1
     agent_type = LocalShortestPathAgent
     agent_list = [agent_type([50, 60, 7.5], [40, 40, 15], target_map, 10.0) for _ in range(0, agent_count)]
     for i in range(len(agent_list)):
