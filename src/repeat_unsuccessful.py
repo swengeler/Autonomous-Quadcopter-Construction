@@ -81,6 +81,25 @@ def load_sp_files(root_directory):
     return data
 
 
+def load_specified_files(file_list):
+    data = []
+    total_count = 0
+    for file_name in file_list:
+        try:
+            with open(file_name) as f:
+                d = json.load(f)
+                if d:
+                    data.append(d)
+                    if len(data) % 10 == 0:
+                        print("Appended {} files to list.".format(len(data)))
+                else:
+                    print("File {} is empty.".format(file_name))
+                total_count += 1
+        except ValueError as e:
+            print("Loading of file {} failed. Error message: '{}'".format(file_name, e))
+    return data
+
+
 def run_single_unfinished(single_unfinished, save_directory):
     if single_unfinished is None:
         return None
@@ -153,14 +172,18 @@ def main(func, number_parallel, number_self, server=True):
     def split_into_chunks(l, n):
         return [l[i::n] for i in range(n)]
 
-    execute = load_unfinished_files
+    file_name = "/home/simon/unfinished_experiments.txt"
     if func == 1:
-        execute = load_sp_files
+        file_name = "/home/simon/unfinished_sp_experiments.txt"
     elif func == 2:
-        execute = load_ordering_files
+        file_name = "/home/simon/unfinished_ordering_experiments.txt"
 
-    unfinished = execute(root_directory)
-    unfinished = split_into_chunks(unfinished, number_parallel)[number_self]
+    with open(file_name) as f:
+        file_list = f.readlines()
+    file_list = [x.strip() for x in file_list]
+
+    file_list = split_into_chunks(file_list, number_parallel)[number_self]
+    unfinished = load_specified_files(file_list)
     run_counter = 0
     while len(unfinished) != 0:
         # pool = ThreadPool(8)
@@ -212,11 +235,22 @@ def save_sp_file_names():
         with open("/home/simon/PycharmProjects/unfinished_sp_experiments.txt", "a") as file:
             file.write(absolute_file_name + "\n")
 
+    while True:
+        pass
+
 
 if __name__ == "__main__":
-    # save_ordering_file_names()
+    # save_sp_file_names()
     if len(sys.argv) > 4:
         main(int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), False)
+    elif len(sys.argv) == 2:
+        idx = int(sys.argv[1])
+        if idx == 0:
+            save_file_names()
+        elif idx == 1:
+            save_sp_file_names()
+        elif idx == 2:
+            save_ordering_file_names()
     else:
         main(int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]))
 
