@@ -145,6 +145,8 @@ class Agent:
         self.avoiding_crowded_stashes_enabled = False
         self.transport_avoid_others_enabled = False
 
+        self.order_only_one_metric = False
+
         # performance metrics
         self.step_count = 0  # happens in advance method
         self.stuck_count = 0

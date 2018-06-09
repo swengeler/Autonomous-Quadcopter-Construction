@@ -34,6 +34,7 @@ VALUES = {  # where the first is the default one
     "waiting_on_perimeter_enabled": [False, True],
     "avoiding_crowded_stashes_enabled": [True, False],
     "transport_avoid_others_enabled": [True, False],
+    "order_only_one_metric": [False, True],
     "seed_if_possible_enabled": [True, False],
     "seeding_strategy": ["distance_center", "distance_self", "agent_count"],
     "component_ordering": ["center", "distance", "percentage", "agents"],
@@ -129,6 +130,8 @@ def run_experiment(parameters):
         agent_list[i].waiting_on_perimeter_enabled = parameters["waiting_on_perimeter_enabled"]
         agent_list[i].avoiding_crowded_stashes_enabled = parameters["avoiding_crowded_stashes_enabled"]
         agent_list[i].transport_avoid_others_enabled = parameters["transport_avoid_others_enabled"]
+        if "order_only_one_metric" in parameters:
+            agent_list[i].order_only_one_metric = parameters["order_only_one_metric"]
         if "seed_if_possible_enabled" in parameters:
             agent_list[i].seed_if_possible_enabled = parameters["seed_if_possible_enabled"]
         if "seeding_strategy" in parameters:

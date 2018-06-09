@@ -107,9 +107,15 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
 
             # order = sorted(range(len(shortest_paths)), key=lambda i: len(shortest_paths[i]))
             if self.attachment_site_ordering == "shortest_path":
-                order = sorted(range(len(shortest_paths)), key=lambda i: (len(shortest_paths[i]), counts[i]))
+                if self.order_only_one_metric:
+                    order = sorted(range(len(shortest_paths)), key=lambda i: (len(shortest_paths[i])))
+                else:
+                    order = sorted(range(len(shortest_paths)), key=lambda i: (len(shortest_paths[i]), counts[i]))
             elif self.attachment_site_ordering == "agent_count":
-                order = sorted(range(len(shortest_paths)), key=lambda i: (counts[i], len(shortest_paths[i])))
+                if self.order_only_one_metric:
+                    order = sorted(range(len(shortest_paths)), key=lambda i: (counts[i]))
+                else:
+                    order = sorted(range(len(shortest_paths)), key=lambda i: (counts[i], len(shortest_paths[i])))
             else:
                 order = sorted(range(len(shortest_paths)), key=lambda i: random.random())
 

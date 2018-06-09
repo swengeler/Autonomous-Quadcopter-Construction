@@ -1085,8 +1085,6 @@ class LocalKnowledgeAgent(Agent):
         position_before = np.copy(self.geometry.position)
 
         if self.current_path is None:
-            # TODO: include preference for inner, smaller, "emptier" components
-
             # need two different things depending on whether the agent has a block or not
             # first check whether we know that the current layer is already completed
 
@@ -1164,13 +1162,21 @@ class LocalKnowledgeAgent(Agent):
                 order.append(min_index)
 
             if self.seeding_strategy == "distance_self":
-                order = sorted(range(len(seed_locations)),
-                               key=lambda x: (simple_distance(seed_locations[x], self.geometry.position),
-                                              simple_distance(seed_locations[x], environment.center)))
+                if self.order_only_one_metric:
+                    order = sorted(range(len(seed_locations)),
+                                   key=lambda x: (simple_distance(seed_locations[x], self.geometry.position)))
+                else:
+                    order = sorted(range(len(seed_locations)),
+                                   key=lambda x: (simple_distance(seed_locations[x], self.geometry.position),
+                                                  simple_distance(seed_locations[x], environment.center)))
             elif self.seeding_strategy == "distance_center":
-                order = sorted(range(len(seed_locations)),
-                               key=lambda x: (simple_distance(seed_locations[x], environment.center),
-                                              simple_distance(seed_locations[x], self.geometry.position)))
+                if self.order_only_one_metric:
+                    order = sorted(range(len(seed_locations)),
+                                   key=lambda x: (simple_distance(seed_locations[x], environment.center)))
+                else:
+                    order = sorted(range(len(seed_locations)),
+                                   key=lambda x: (simple_distance(seed_locations[x], environment.center),
+                                                  simple_distance(seed_locations[x], self.geometry.position)))
             elif self.seeding_strategy == "agent_count":
                 # order this by number of agents over each component (?)
                 candidate_component_count = [0] * len(candidate_components)
@@ -1182,9 +1188,12 @@ class LocalKnowledgeAgent(Agent):
                                 and any([self.component_target_map[z, closest_y, closest_x] == m
                                          for z in range(self.target_map.shape[0])]):
                             candidate_component_count[m_idx] += 1
-                order = sorted(range(len(seed_locations)),
-                               key=lambda x: (candidate_component_count[x],
-                                              simple_distance(seed_locations[x], environment.center)))
+                if self.order_only_one_metric:
+                    order = sorted(range(len(seed_locations)), key=lambda x: (candidate_component_count[x]))
+                else:
+                    order = sorted(range(len(seed_locations)),
+                                   key=lambda x: (candidate_component_count[x],
+                                                  simple_distance(seed_locations[x], environment.center)))
 
             # then plan a path to visit all seed locations as quickly as possible
             # while this may not be the best solution (NP-hardness, yay) it should not be terrible

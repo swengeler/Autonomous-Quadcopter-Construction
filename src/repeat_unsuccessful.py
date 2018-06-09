@@ -1,19 +1,8 @@
-import random
-
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-import pandas as pd
-import scipy.stats as scs
-import sys
 import json
 import os
-import itertools
-from multiprocessing.dummy import Pool as ThreadPool
+import sys
 from pprint import pprint
-from matplotlib.colors import ListedColormap
-from agents.agent import Task
-from experiments import AGENT_TYPES, VALUES, extra_parameters, run_experiment, SAVE_DIRECTORY_NAME_ALT, SAVE_DIRECTORY_NAME
+from experiments import run_experiment, SAVE_DIRECTORY_NAME_ALT, SAVE_DIRECTORY_NAME
 from analysis import LOAD_DIRECTORY as LOAD_DIRECTORY_ALT
 
 
@@ -42,11 +31,63 @@ def load_unfinished_files(root_directory):
     return data
 
 
+def load_ordering_files(root_directory):
+    data = []
+    total_count = 0
+    for directory_name, _, file_list in os.walk(root_directory):
+        if "sp_" in directory_name or "ordering_" in directory_name or "seed_" in directory_name:
+            for file_name in file_list:
+                try:
+                    with open(directory_name + "/" + file_name) as f:
+                        d = json.load(f)
+                        if d:
+                            if d["finished_successfully"] and d["parameters"]["agent_type"] != "LocalShortestPathAgent":
+                                if "order_only_one_metric" not in d["parameters"]:
+                                    d["parameters"]["order_only_one_metric"] = True
+                                data.append(d)
+                                if len(data) % 100 == 0:
+                                    print("Appended {} files to list.".format(len(data)))
+                        else:
+                            print("File {} is empty.".format(file_name))
+                        total_count += 1
+                except ValueError as e:
+                    print("Loading of file {} failed. Error message: '{}'".format(file_name, e))
+    print("Loaded {} unfinished out of {} total files.".format(len(data), total_count))
+    return data
+
+
+def load_sp_files(root_directory):
+    data = []
+    total_count = 0
+    for directory_name, _, file_list in os.walk(root_directory):
+        for file_name in file_list:
+            try:
+                with open(directory_name + "/" + file_name) as f:
+                    d = json.load(f)
+                    if d:
+                        if d["finished_successfully"] and d["parameters"]["agent_type"] == "LocalShortestPathAgent":
+                            if "sp_" in directory_name or "ordering_" in directory_name or "seed_" in directory_name:
+                                if "order_only_one_metric" not in d["parameters"]:
+                                    d["parameters"]["order_only_one_metric"] = True
+                            data.append(d)
+                            if len(data) % 100 == 0:
+                                print("Appended {} files to list.".format(len(data)))
+                    else:
+                        print("File {} is empty.".format(file_name))
+                    total_count += 1
+            except ValueError as e:
+                print("Loading of file {} failed. Error message: '{}'".format(file_name, e))
+    print("Loaded {} unfinished out of {} total files.".format(len(data), total_count))
+    return data
+
+
 def run_single_unfinished(single_unfinished, save_directory):
     if single_unfinished is None:
         return None
 
     p = single_unfinished["parameters"]
+    if "order_only_one_metric" not in p:
+        p["order_only_one_metric"] = True
     results = run_experiment(p)
     if results["finished_successfully"]:
         try:
@@ -105,14 +146,20 @@ def run_all_unfinished(unfinished, save_directory):
     return new_unfinished
 
 
-def main(number_parallel, number_self, server=True):
+def main(func, number_parallel, number_self, server=True):
     root_directory = LOAD_DIRECTORY if server else LOAD_DIRECTORY_ALT
     save_directory = SAVE_DIRECTORY_NAME if server else SAVE_DIRECTORY_NAME_ALT
 
     def split_into_chunks(l, n):
         return [l[i::n] for i in range(n)]
 
-    unfinished = load_unfinished_files(root_directory)
+    execute = load_unfinished_files
+    if func == 1:
+        execute = load_sp_files
+    elif func == 2:
+        execute = load_ordering_files
+
+    unfinished = execute(root_directory)
     unfinished = split_into_chunks(unfinished, number_parallel)[number_self]
     run_counter = 0
     while len(unfinished) != 0:
@@ -128,6 +175,7 @@ def save_file_names():
     save_directory = SAVE_DIRECTORY_NAME_ALT
 
     unfinished = load_unfinished_files(root_directory)
+    print(len(unfinished))
     for f in unfinished:
         directory_name = save_directory + f["parameters"]["target_map"] + "/" + f["parameters"]["experiment_name"]
         file_name = "{}_{}_{}.json".format(
@@ -137,11 +185,39 @@ def save_file_names():
             file.write(absolute_file_name + "\n")
 
 
+def save_ordering_file_names():
+    root_directory = LOAD_DIRECTORY_ALT
+    save_directory = SAVE_DIRECTORY_NAME_ALT
+
+    unfinished = load_ordering_files(root_directory)
+    for f in unfinished:
+        directory_name = save_directory + f["parameters"]["target_map"] + "/" + f["parameters"]["experiment_name"]
+        file_name = "{}_{}_{}.json".format(
+            f["parameters"]["agent_type"], f["parameters"]["agent_count"], f["parameters"]["run"])
+        absolute_file_name = directory_name + "/" + file_name
+        with open("/home/simon/PycharmProjects/unfinished_ordering_experiments.txt", "a") as file:
+            file.write(absolute_file_name + "\n")
+
+
+def save_sp_file_names():
+    root_directory = LOAD_DIRECTORY_ALT
+    save_directory = SAVE_DIRECTORY_NAME_ALT
+
+    unfinished = load_sp_files(root_directory)
+    for f in unfinished:
+        directory_name = save_directory + f["parameters"]["target_map"] + "/" + f["parameters"]["experiment_name"]
+        file_name = "{}_{}_{}.json".format(
+            f["parameters"]["agent_type"], f["parameters"]["agent_count"], f["parameters"]["run"])
+        absolute_file_name = directory_name + "/" + file_name
+        with open("/home/simon/PycharmProjects/unfinished_sp_experiments.txt", "a") as file:
+            file.write(absolute_file_name + "\n")
+
+
 if __name__ == "__main__":
-    # save_file_names()
-    if len(sys.argv) > 3:
-        main(int(sys.argv[1]), int(sys.argv[2]), False)
+    # save_ordering_file_names()
+    if len(sys.argv) > 4:
+        main(int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), False)
     else:
-        main(int(sys.argv[1]), int(sys.argv[2]))
+        main(int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]))
 
 

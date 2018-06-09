@@ -42,9 +42,13 @@ class GlobalKnowledgeAgent(Agent):
                                             environment.offset_origin[1] + temp[1] * Block.SIZE,
                                             (temp[2] + 0.5) * Block.SIZE]))
 
-        order_by_distance = sorted(range(len(candidate_components)),
-                                   key=lambda i: (simple_distance(seed_locations[i], self.geometry.position),
-                                                  simple_distance(seed_locations[i], environment.center)))
+        if self.order_only_one_metric:
+            order_by_distance = sorted(range(len(candidate_components)),
+                                       key=lambda i: (simple_distance(seed_locations[i], self.geometry.position)))
+        else:
+            order_by_distance = sorted(range(len(candidate_components)),
+                                       key=lambda i: (simple_distance(seed_locations[i], self.geometry.position),
+                                                      simple_distance(seed_locations[i], environment.center)))
         # order_by_hor_vert = sorted(range(len(candidate_components)),
         #                            key=lambda i: (abs(self.current_grid_position[0] - seed_grid_locations[i][0]) +
         #                                           abs(self.current_grid_position[1] - seed_grid_locations[i][1]),
@@ -62,16 +66,24 @@ class GlobalKnowledgeAgent(Agent):
                             and any([self.component_target_map[z, closest_y, closest_x] == m
                                      for z in range(self.target_map.shape[0])]):
                         candidate_component_count[m_idx] += 1
-        order_by_agent_count = sorted(range(len(candidate_components)),
-                                      key=lambda i: (candidate_component_count[i],
-                                                     simple_distance(seed_locations[i], environment.center),
-                                                     simple_distance(seed_locations[i], self.geometry.position)))
+        if self.order_only_one_metric:
+            order_by_agent_count = sorted(range(len(candidate_components)),
+                                          key=lambda i: (candidate_component_count[i]))
+        else:
+            order_by_agent_count = sorted(range(len(candidate_components)),
+                                          key=lambda i: (candidate_component_count[i],
+                                                         simple_distance(seed_locations[i], environment.center),
+                                                         simple_distance(seed_locations[i], self.geometry.position)))
 
         # third option: sort by distance to the center of the construction area (to keep outside spaces open)
         # if the distances are the same, then a good option would be to also take one's own distance into account
-        order_by_center_distance = sorted(range(len(candidate_components)),
-                                          key=lambda i: (simple_distance(seed_locations[i], environment.center),
-                                                         simple_distance(seed_locations[i], self.geometry.position)))
+        if self.order_only_one_metric:
+            order_by_center_distance = sorted(range(len(candidate_components)),
+                                              key=lambda i: (simple_distance(seed_locations[i], environment.center)))
+        else:
+            order_by_center_distance = sorted(range(len(candidate_components)),
+                                              key=lambda i: (simple_distance(seed_locations[i], environment.center),
+                                                             simple_distance(seed_locations[i], self.geometry.position)))
 
         # fourth option: sort by the number of blocks already placed compared to how many should be placed
         # again, it probably makes sense to sort this by some other criteria as well
@@ -81,10 +93,14 @@ class GlobalKnowledgeAgent(Agent):
             total_count = len(coords[0])
             occupied_count = np.count_nonzero(compared_map[coords] != 0)
             percentage_occupied.append(occupied_count / total_count)
-        order_by_percentage = sorted(range(len(candidate_components)),
-                                     key=lambda i: (percentage_occupied[i],
-                                                    simple_distance(seed_locations[i], environment.center),
-                                                    simple_distance(seed_locations[i], self.geometry.position)))
+        if self.order_only_one_metric:
+            order_by_percentage = sorted(range(len(candidate_components)),
+                                         key=lambda i: (percentage_occupied[i]))
+        else:
+            order_by_percentage = sorted(range(len(candidate_components)),
+                                         key=lambda i: (percentage_occupied[i],
+                                                        simple_distance(seed_locations[i], environment.center),
+                                                        simple_distance(seed_locations[i], self.geometry.position)))
 
         if order == "center":
             order = order_by_center_distance

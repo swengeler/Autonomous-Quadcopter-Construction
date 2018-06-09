@@ -187,8 +187,6 @@ class LocalShortestPathAgent(LocalKnowledgeAgent):
             # find the closest corner or protruding site
             # if there are none then take the closest most CCW site
 
-            self.attachment_site_order = "prioritise"  # others are "shortest_path", "shortest_travel_path", "agent_count"
-
             if self.attachment_site_order == "prioritise":
                 if len(corner_sites) != 0:
                     attachment_sites = [(s,) for s in corner_sites]
@@ -225,7 +223,8 @@ class LocalShortestPathAgent(LocalKnowledgeAgent):
                 occupancy_map_copy[y, x] = 0
                 shortest_paths.append(sp)
 
-            if self.attachment_site_order in ["prioritise", "shortest_path"] or self.attachment_site_order == "shortest_travel_path" and len(most_ccw_sites) == 0:
+            if self.attachment_site_order in ["prioritise", "shortest_path"] \
+                    or self.attachment_site_order == "shortest_travel_path" and len(most_ccw_sites) == 0:
                 sorted_indices = sorted(range(len(attachment_sites)), key=lambda i: len(shortest_paths[i]))
             elif self.attachment_site_order == "shortest_travel_path":
                 sorted_indices = sorted(range(len(attachment_sites)),
@@ -235,7 +234,11 @@ class LocalShortestPathAgent(LocalKnowledgeAgent):
                 directions = [np.array([s[0][0] - self.current_grid_position[0],
                                         s[0][1] - self.current_grid_position[1]]) for s in attachment_sites]
                 counts = self.count_in_direction(environment, directions=directions, angle=np.pi / 2)
-                sorted_indices = sorted(range(len(attachment_sites)), key=lambda i: (counts[i], len(shortest_paths[i])))
+                if self.order_only_one_metric:
+                    sorted_indices = sorted(range(len(attachment_sites)), key=lambda i: (counts[i]))
+                else:
+                    sorted_indices = sorted(range(len(attachment_sites)),
+                                            key=lambda i: (counts[i], len(shortest_paths[i])))
             else:
                 sorted_indices = sorted(range(len(attachment_sites)), key=lambda i: random.random())
 
