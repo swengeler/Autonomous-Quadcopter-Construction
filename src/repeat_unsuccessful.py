@@ -178,15 +178,16 @@ def main(func, number_parallel, number_self, server=True):
     elif func == 2:
         file_name = "/home/simon/unfinished_ordering_experiments.txt"
 
-    with open("/home/simon/finished_experiments.txt") as f:
-        finished_file_list = f.readlines()
-    finished_file_list = [x.strip() for x in finished_file_list]
-
+    finished_file_list = []
     try:
+        with open("/home/simon/finished_experiments.txt") as f:
+            finished_file_list = f.readlines()
+        finished_file_list = [x.strip() for x in finished_file_list]
+
         with open("/home/simon/latter_half.txt") as f:
             latter_half_list = f.readlines()
         finished_file_list.extend([x.strip() for x in latter_half_list])
-    except IOError:
+    except FileNotFoundError:
         pass
 
     with open(file_name) as f:
