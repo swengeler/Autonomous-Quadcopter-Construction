@@ -858,7 +858,8 @@ class GlobalKnowledgeAgent(Agent):
                                            optional_distance=30)
             self.current_path.add_position([seed_location[0], seed_location[1], other_transport_level_z])
 
-        if self.waiting_on_perimeter_enabled and not environment.check_over_construction_area(self.geometry.position):
+        if self.waiting_on_perimeter_enabled and not self.current_block_type_seed \
+                and not environment.check_over_construction_area(self.geometry.position):
             # not over construction area yet
             if environment.distance_to_construction_area(self.geometry.position) <= self.geometry.size[0] * 2:
                 # check whether close enough to construction area to warrant looking entering

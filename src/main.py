@@ -47,7 +47,8 @@ def main():
 
     target_map = np.load(
         "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/no_spacing_comps_4.npy").astype("int64")
-    target_map = test_3d
+    target_map = np.load(
+        "/home/simon/PycharmProjects/LowFidelitySimulation/res/new_experiment_maps/component_1x1.npy").astype("int64")
     # target_map = big_loop
     # target_map = scale_map(target_map, 2, (1, 2))
 
@@ -72,7 +73,7 @@ def main():
     Block.COLORS_SEEDS = hex_palette_seed
 
     # offset of the described target occupancy map to the origin (only in x/y directions)
-    offset_structure = 200
+    offset_structure = 400
     offset_stashes = 100
     offset_origin = (offset_structure, offset_structure)
     environment_extent = [offset_structure * 2 + target_map.shape[2] * Block.SIZE,
@@ -131,14 +132,14 @@ def main():
             processed.append(b)
 
     # creating the agent_list
-    agent_count = 2
-    agent_type = GlobalShortestPathAgent
+    agent_count = 16
+    agent_type = LocalShortestPathAgent
     agent_list = [agent_type([50, 60, 7.5], [40, 40, 15], target_map, 10.0) for _ in range(0, agent_count)]
     for i in range(len(agent_list)):
         agent_list[i].id = i
-        agent_list[i].avoiding_crowded_stashes_enabled = False
-        agent_list[i].transport_avoid_others_enabled = False
-        agent_list[i].transport_avoid_others_enabled = False
+        agent_list[i].waiting_on_perimeter_enabled = True
+        agent_list[i].avoiding_crowded_stashes_enabled = True
+        agent_list[i].transport_avoid_others_enabled = True
         # agent_list[i].dropping_out_enabled = True
         # agent_list[i].printing_enabled = False
         agent_list[i].seed_if_possible_enabled = True

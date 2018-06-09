@@ -676,7 +676,8 @@ class LocalKnowledgeAgent(Agent):
             self.current_path.add_position([seed_location[0], seed_location[1], other_transport_level_z])
 
         # TODO: if not over structure already, check whether close enough to wait
-        if self.waiting_on_perimeter_enabled and not environment.check_over_construction_area(self.geometry.position):
+        if self.waiting_on_perimeter_enabled and not self.current_block_type_seed \
+                and not environment.check_over_construction_area(self.geometry.position):
             # not over construction area yet
             if environment.distance_to_construction_area(self.geometry.position) <= self.geometry.size[0] * 2:
                 if self.area_density_restricted and environment.density_over_construction_area() > 1:
