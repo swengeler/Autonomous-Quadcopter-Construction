@@ -1164,7 +1164,7 @@ class LocalKnowledgeAgent(Agent):
             if self.seeding_strategy == "distance_self":
                 if self.order_only_one_metric:
                     order = sorted(range(len(seed_locations)),
-                                   key=lambda x: (simple_distance(seed_locations[x], self.geometry.position)))
+                                   key=lambda x: (simple_distance(seed_locations[x], self.geometry.position), random.random()))
                 else:
                     order = sorted(range(len(seed_locations)),
                                    key=lambda x: (simple_distance(seed_locations[x], self.geometry.position),
@@ -1172,7 +1172,7 @@ class LocalKnowledgeAgent(Agent):
             elif self.seeding_strategy == "distance_center":
                 if self.order_only_one_metric:
                     order = sorted(range(len(seed_locations)),
-                                   key=lambda x: (simple_distance(seed_locations[x], environment.center)))
+                                   key=lambda x: (simple_distance(seed_locations[x], environment.center), random.random()))
                 else:
                     order = sorted(range(len(seed_locations)),
                                    key=lambda x: (simple_distance(seed_locations[x], environment.center),
@@ -1189,7 +1189,7 @@ class LocalKnowledgeAgent(Agent):
                                          for z in range(self.target_map.shape[0])]):
                             candidate_component_count[m_idx] += 1
                 if self.order_only_one_metric:
-                    order = sorted(range(len(seed_locations)), key=lambda x: (candidate_component_count[x]))
+                    order = sorted(range(len(seed_locations)), key=lambda x: (candidate_component_count[x], random.random()))
                 else:
                     order = sorted(range(len(seed_locations)),
                                    key=lambda x: (candidate_component_count[x],

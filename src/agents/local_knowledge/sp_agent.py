@@ -235,7 +235,7 @@ class LocalShortestPathAgent(LocalKnowledgeAgent):
                                         s[0][1] - self.current_grid_position[1]]) for s in attachment_sites]
                 counts = self.count_in_direction(environment, directions=directions, angle=np.pi / 2)
                 if self.order_only_one_metric:
-                    sorted_indices = sorted(range(len(attachment_sites)), key=lambda i: (counts[i]))
+                    sorted_indices = sorted(range(len(attachment_sites)), key=lambda i: (counts[i], random.random()))
                 else:
                     sorted_indices = sorted(range(len(attachment_sites)),
                                             key=lambda i: (counts[i], len(shortest_paths[i])))

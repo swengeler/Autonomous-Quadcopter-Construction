@@ -44,7 +44,7 @@ class GlobalKnowledgeAgent(Agent):
 
         if self.order_only_one_metric:
             order_by_distance = sorted(range(len(candidate_components)),
-                                       key=lambda i: (simple_distance(seed_locations[i], self.geometry.position)))
+                                       key=lambda i: (simple_distance(seed_locations[i], self.geometry.position), random.random()))
         else:
             order_by_distance = sorted(range(len(candidate_components)),
                                        key=lambda i: (simple_distance(seed_locations[i], self.geometry.position),
@@ -68,7 +68,7 @@ class GlobalKnowledgeAgent(Agent):
                         candidate_component_count[m_idx] += 1
         if self.order_only_one_metric:
             order_by_agent_count = sorted(range(len(candidate_components)),
-                                          key=lambda i: (candidate_component_count[i]))
+                                          key=lambda i: (candidate_component_count[i], random.random()))
         else:
             order_by_agent_count = sorted(range(len(candidate_components)),
                                           key=lambda i: (candidate_component_count[i],
@@ -79,7 +79,7 @@ class GlobalKnowledgeAgent(Agent):
         # if the distances are the same, then a good option would be to also take one's own distance into account
         if self.order_only_one_metric:
             order_by_center_distance = sorted(range(len(candidate_components)),
-                                              key=lambda i: (simple_distance(seed_locations[i], environment.center)))
+                                              key=lambda i: (simple_distance(seed_locations[i], environment.center), random.random()))
         else:
             order_by_center_distance = sorted(range(len(candidate_components)),
                                               key=lambda i: (simple_distance(seed_locations[i], environment.center),
@@ -95,7 +95,7 @@ class GlobalKnowledgeAgent(Agent):
             percentage_occupied.append(occupied_count / total_count)
         if self.order_only_one_metric:
             order_by_percentage = sorted(range(len(candidate_components)),
-                                         key=lambda i: (percentage_occupied[i]))
+                                         key=lambda i: (percentage_occupied[i], random.random()))
         else:
             order_by_percentage = sorted(range(len(candidate_components)),
                                          key=lambda i: (percentage_occupied[i],
