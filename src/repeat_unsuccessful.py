@@ -1,3 +1,4 @@
+import numpy as np
 import json
 import os
 import sys
@@ -27,6 +28,30 @@ def load_unfinished_files(root_directory):
                     total_count += 1
             except ValueError as e:
                 print("Loading of file {} failed. Error message: '{}'".format(file_name, e))
+    print("Loaded {} unfinished out of {} total files.".format(len(data), total_count))
+    return data
+
+
+def load_wait_on_perimeter_files(root_directory, map_directory):
+    data = []
+    total_count = 0
+    for directory_name, _, file_list in os.walk(root_directory):
+        if "wait_on_perimeter" in directory_name:
+            for file_name in file_list:
+                try:
+                    with open(directory_name + "/" + file_name) as f:
+                        d = json.load(f)
+                        if d:
+                            test = np.load(map_directory + d["parameters"]["target_map"] + ".npy").astype("int64")
+                            if test.shape[0] > 1:
+                                data.append(d)
+                                if len(data) % 10 == 0:
+                                    print("Appended {} files to list.".format(len(data)))
+                        else:
+                            print("File {} is empty.".format(file_name))
+                        total_count += 1
+                except ValueError as e:
+                    print("Loading of file {} failed. Error message: '{}'".format(file_name, e))
     print("Loaded {} unfinished out of {} total files.".format(len(data), total_count))
     return data
 
@@ -249,9 +274,18 @@ def save_sp_file_names(server=False):
             file.write(absolute_file_name + "\n")
 
 
+def show_wait_on_perimeter(server=False):
+    root_directory = LOAD_DIRECTORY if server else LOAD_DIRECTORY_ALT
+    map_directory = "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/"
+
+    unfinished = load_wait_on_perimeter_files(root_directory, map_directory)
+    print(len(unfinished))
+
+
 if __name__ == "__main__":
-    # save_sp_file_names()
-    if len(sys.argv) > 4:
+    if len(sys.argv) < 2:
+        show_wait_on_perimeter()
+    elif len(sys.argv) > 4:
         main(int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), False)
     elif len(sys.argv) == 2:
         idx = int(sys.argv[1])

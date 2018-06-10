@@ -6,6 +6,8 @@ import scipy.stats as scs
 import json
 import os
 from pprint import pprint
+
+from cycler import cycler
 from matplotlib.colors import ListedColormap
 from agents.agent import Task
 from experiments import AGENT_TYPES, VALUES, extra_parameters
@@ -191,8 +193,12 @@ def show_task_proportions(map_name, agent_type, metric="step_count", statistic="
 
 
 def show_plate_block_comparison(map_name):
+    monochrome = (cycler('color', ['k']) * cycler('linestyle', ['-', '--', ':', '=.']) *
+                  cycler('marker', ['^', ',', '.']))
+
     # f, (ax_plate, ax_block, ax_block_padded) = plt.subplots(1, 3)
     f, ax_plate = plt.subplots()
+    # ax_plate.set_prop_cycle(monochrome)
 
     agent_counts = {at: {} for at in AGENT_TYPES}
     step_counts = {at: {} for at in AGENT_TYPES}
@@ -235,18 +241,165 @@ def show_plate_block_comparison(map_name):
         all_x = [all_x[i] for i in order]
         all_y = [all_y[i] for i in order]
         all_conf = [all_conf[i] for i in order]
-        ax_plate.errorbar(all_x, all_y, yerr=all_conf, label=k)
+        ax_plate.errorbar(all_x, all_y, yerr=all_conf, capsize=2, label=k)
 
     ax_plate.set_ylim(ymin=0)
     ax_plate.legend()
+    ax_plate.grid(ls="dashed")
+    plt.suptitle("Steps to construction and errors for {}".format(map_name))
     plt.show()
 
 
-def show_plate_collision_proportion(agent_type="LocalPerimeterFollowingAgent"):
-    data = load_matching_map_data("plate")
-    for map_name in data:
+def show_average_distance_travelled(map_name):
+    counts = [1, 2, 4, 8, 12, 16]
+    distances_total = []
+    data = load_single_map_data(map_name, "defaults")
+    agent_types = sorted(list(AGENT_TYPES.keys()))
+    for at in agent_types:
+        distances = [[] for _ in counts]
+        for d in data:
+            if d["parameters"]["agent_type"] == at and d["finished_successfully"]:
+                agent_count = d["parameters"]["agent_count"]
+                index = counts.index(agent_count)
+                distance_avg = 0
+                counter = 0
+                for t in d["task_stats"]:
+                    distance_avg += d["task_stats"][t]["distance_travelled"]["mean"]
+                    counter += 1
+                distance_avg /= counter
+                distances[index].append(distance_avg)
+        distances = [float(np.mean(x)) for x in distances]
+        distances_total.append(distances)
+    distances_total = np.array(distances_total)
 
-        pass
+    df = pd.DataFrame(distances_total.transpose(), index=counts, columns=agent_types)
+    ax = df.plot(kind="line")
+    ax.set_axisbelow(True)
+    ax.yaxis.grid(color="grey", linestyle='dashed')
+    plt.suptitle("Average distance travelled for {}".format(map_name))
+    plt.show()
+
+
+def show_local_sp_researching(map_name):
+    counts = [1, 2, 4, 8, 12, 16]
+
+    data = load_single_map_data(map_name, "defaults")
+    research_counts = [[] for _ in counts]
+    for d in data:
+        if d["parameters"]["agent_type"] == "LocalShortestPathAgent" and d["finished_successfully"]:
+            agent_count = d["parameters"]["agent_count"]
+            index = counts.index(agent_count)
+            research_count_avg = 0
+            counter = 0
+            for a in d["sp_number_search_count"]:
+                for count in a:
+                    research_count_avg += count[0]
+                    counter += 1
+            research_count_avg /= counter
+            research_counts[index].append(research_count_avg)
+    research_counts = [float(np.mean(x)) for x in research_counts]
+
+    f, ax = plt.subplots()
+    ax.plot(counts, research_counts)
+    plt.suptitle("Average re-searching of attachment sites for {}".format(map_name))
+    plt.show()
+
+
+def show_local_sp_researching_generic(map_generic):
+    counts = [1, 2, 4, 8, 12, 16]
+    map_names = []
+    for file_name in os.listdir(LOAD_DIRECTORY):
+        if file_name.startswith(map_generic) and not file_name.endswith("padded"):
+            if file_name not in map_names:
+                map_names.append(file_name.replace(".npy", ""))
+    map_names = sorted(map_names, key=lambda x: (len(x), x))
+
+    research_counts_total = []
+    for map_name in map_names:
+        data = load_single_map_data(map_name, "defaults")
+        research_counts = [[] for _ in counts]
+        for d in data:
+            if d["parameters"]["agent_type"] == "LocalShortestPathAgent" and d["finished_successfully"]:
+                agent_count = d["parameters"]["agent_count"]
+                index = counts.index(agent_count)
+                research_count_avg = 0
+                counter = 0
+                for a in d["sp_number_search_count"]:
+                    for count in a:
+                        research_count_avg += count[0]
+                        counter += 1
+                research_count_avg /= counter
+                research_counts[index].append(research_count_avg)
+        research_counts = [float(np.mean(x)) for x in research_counts]
+        research_counts_total.append(research_counts)
+    research_counts_total = np.array(research_counts_total)
+
+    df = pd.DataFrame(research_counts_total.transpose(), index=counts, columns=map_names)
+    ax = df.plot(kind="line")
+    ax.set_axisbelow(True)
+    ax.yaxis.grid(color="grey", linestyle='dashed')
+    plt.suptitle("Average re-searching of attachment sites for {}".format(map_generic))
+    plt.show()
+
+
+def show_attached_block_count_distribution(map_name, agent_type):
+    counts = [1, 2, 4, 8, 12, 16]
+    data = load_single_map_data(map_name)
+    attached_counts = [[] for _ in counts]
+    for d in data:
+        if d["parameters"]["agent_type"] == agent_type and d["finished_successfully"]:
+            agent_count = d["parameters"]["agent_count"]
+            index = counts.index(agent_count)
+            attached_count = d["attached_block_counts"]
+            attached_counts[index].extend(attached_count)
+
+    f, ax = plt.subplots()
+    average = []
+    lower_range = []
+    upper_range = []
+    for c_idx, c in enumerate(counts):
+        avg = np.mean(attached_counts[c_idx])
+        average.append(avg)
+        lower_range.append(abs(min(attached_counts[c_idx]) - avg))
+        upper_range.append(abs(max(attached_counts[c_idx]) - avg))
+    asymmetric_range = [lower_range, upper_range]
+    ax.errorbar(counts, average, yerr=asymmetric_range, capsize=2)
+    ax.set_ylim(ymin=0)
+    plt.show()
+
+
+def show_collision_proportion(map_name):
+    # would be good to break this down by task
+    counts = [1, 2, 4, 8, 12, 16]
+    data = load_single_map_data(map_name)
+    agent_types = sorted(list(AGENT_TYPES.keys()))
+    proportions_total = []
+    for at in agent_types:
+        proportions = [[] for _ in counts]
+        for d in data:
+            if d["parameters"]["agent_type"] == at and d["finished_successfully"]:
+                agent_count = d["parameters"]["agent_count"]
+                index = counts.index(agent_count)
+                step_avg = 0
+                collision_avg = 0
+                counter = 0
+                for t in d["task_stats"]:
+                    step_avg += d["task_stats"][t]["step_count"]["mean"]
+                    collision_avg += d["task_stats"][t]["collision_avoidance_count"]["mean"]
+                    counter += 1
+                step_avg /= counter
+                collision_avg /= counter
+                proportions[index].append(collision_avg / step_avg)
+        proportions = [float(np.mean(x)) for x in proportions]
+        proportions_total.append(proportions)
+    proportions_total = np.array(proportions_total)
+
+    df = pd.DataFrame(proportions_total.transpose(), index=counts, columns=agent_types)
+    ax = df.plot(kind="line")
+    ax.set_axisbelow(True)
+    ax.yaxis.grid(color="grey", linestyle='dashed')
+    plt.suptitle("Average collision proportion for {}".format(map_name))
+    plt.show()
 
 
 def show_all_plate_block_comparisons():
@@ -260,6 +413,7 @@ def show_perimeter_comparison(agent_type):
         if file_name.startswith("perim"):
             if file_name not in map_names:
                 map_names.append(file_name.replace(".npy", ""))
+    map_names = sorted(map_names, key=lambda x: (len(x), x))
 
     step_counts_total = []
     for map_name in map_names:
@@ -277,9 +431,8 @@ def show_perimeter_comparison(agent_type):
     print(step_counts_total)
 
     df = pd.DataFrame(step_counts_total.transpose(), index=counts, columns=map_names)
-    print(df)
     color_map = ListedColormap(sns.color_palette("coolwarm", len(df.columns)).as_hex())
-    ax = df.plot(kind="line")
+    ax = df.plot(kind="line", colormap=color_map)
     ax.set_axisbelow(True)
     ax.yaxis.grid(color="grey", linestyle='dashed')
     plt.show()
@@ -342,6 +495,37 @@ def show_multiple_component_scaling(agent_type):
     plt.show()
 
 
+def show_component_finished_delay(map_name):
+    counts = [1, 2, 4, 8, 12, 16]
+    delay_counts_total = []
+    data = load_single_map_data(map_name, "defaults")
+    agent_types = sorted([at for at in AGENT_TYPES.keys() if not at.startswith("Global")])
+    for at in agent_types:
+        delay_counts = [[] for _ in counts]
+        for d in data:
+            if d["parameters"]["agent_type"] == at and d["finished_successfully"]:
+                agent_count = d["parameters"]["agent_count"]
+                index = counts.index(agent_count)
+                counter = 0
+                delay_average = 0
+                for agent in d["complete_to_switch_delay"]:
+                    for component in agent:
+                        delay_average += agent[component]
+                        counter += 1
+                delay_average /= counter
+                delay_counts[index].append(delay_average)
+        delay_counts = [float(np.mean(x)) for x in delay_counts]
+        delay_counts_total.append(delay_counts)
+    delay_counts_total = np.array(delay_counts_total)
+
+    df = pd.DataFrame(delay_counts_total.transpose(), index=counts, columns=agent_types)
+    ax = df.plot(kind="line")
+    ax.set_axisbelow(True)
+    ax.yaxis.grid(color="grey", linestyle='dashed')
+    plt.suptitle("Average delay to realising component is finished for {}".format(map_name))
+    plt.show()
+
+
 def show_all_agent_performance(data):
     # essentially just show performance for all agent counts given the parameters
     agent_counts = {at: {} for at in AGENT_TYPES}
@@ -386,6 +570,118 @@ def show_all_agent_performance(data):
 
     ax.set_ylim(ymin=0)
     ax.legend()
+    plt.show()
+
+
+def show_wait_on_perimeter_difference(map_name, agent_type):
+    counts = [1, 2, 4, 8, 12, 16]
+    normal_data = load_single_map_data(map_name, "defaults")
+    normal_step_counts = [[] for _ in counts]
+    for d in normal_data:
+        if d["parameters"]["agent_type"] == agent_type and d["finished_successfully"]:
+            agent_count = d["parameters"]["agent_count"]
+            index = counts.index(agent_count)
+            normal_step_counts[index].append(d["step_count"])
+    normal_step_counts = [float(np.mean(x)) for x in normal_step_counts]
+
+    wop_step_counts = None
+    wop_exists = os.path.exists(LOAD_DIRECTORY + map_name + "/wait_on_perimeter")
+    if wop_exists:
+        wop_data = load_single_map_data(map_name, "wait_on_perimeter")
+        wop_step_counts = [[] for _ in counts]
+        for d in wop_data:
+            if d["parameters"]["agent_type"] == agent_type and d["finished_successfully"]:
+                agent_count = d["parameters"]["agent_count"]
+                index = counts.index(agent_count)
+                wop_step_counts[index].append(d["step_count"])
+        wop_step_counts = [float(np.mean(x)) for x in wop_step_counts]
+
+    f, ax = plt.subplots()
+    ax.plot(counts, normal_step_counts, label="Normal")
+    if wop_exists:
+        ax.plot(counts, wop_step_counts, label="Wait on perimeter")
+    ax.set_ylim(ymin=0)
+    ax.legend()
+    plt.show()
+
+
+def show_wait_on_perimeter_collision_proportion_difference(map_name, agent_type):
+    counts = [1, 2, 4, 8, 12, 16]
+    normal_data = load_single_map_data(map_name, "defaults")
+    normal_step_counts = [[] for _ in counts]
+    for d in normal_data:
+        if d["parameters"]["agent_type"] == agent_type and d["finished_successfully"]:
+            agent_count = d["parameters"]["agent_count"]
+            index = counts.index(agent_count)
+            step_avg = 0
+            collision_avg = 0
+            counter = 0
+            for t in d["task_stats"]:
+                step_avg += d["task_stats"][t]["step_count"]["mean"]
+                collision_avg += d["task_stats"][t]["collision_avoidance_count"]["mean"]
+                counter += 1
+            step_avg /= counter
+            collision_avg /= counter
+            normal_step_counts[index].append(collision_avg / step_avg)
+    normal_step_counts = [float(np.mean(x)) for x in normal_step_counts]
+
+    wop_step_counts = None
+    wop_exists = os.path.exists(LOAD_DIRECTORY + map_name + "/wait_on_perimeter")
+    if wop_exists:
+        wop_data = load_single_map_data(map_name, "wait_on_perimeter")
+        wop_step_counts = [[] for _ in counts]
+        for d in wop_data:
+            if d["parameters"]["agent_type"] == agent_type and d["finished_successfully"]:
+                agent_count = d["parameters"]["agent_count"]
+                index = counts.index(agent_count)
+                step_avg = 0
+                collision_avg = 0
+                counter = 0
+                for t in d["task_stats"]:
+                    step_avg += d["task_stats"][t]["step_count"]["mean"]
+                    collision_avg += d["task_stats"][t]["collision_avoidance_count"]["mean"]
+                    counter += 1
+                step_avg /= counter
+                collision_avg /= counter
+                wop_step_counts[index].append(collision_avg / step_avg)
+        wop_step_counts = [float(np.mean(x)) for x in wop_step_counts]
+
+    f, ax = plt.subplots()
+    ax.plot(counts, normal_step_counts, label="Normal")
+    if wop_exists:
+        ax.plot(counts, wop_step_counts, label="Wait on perimeter")
+    ax.set_ylim(ymin=0)
+    ax.legend()
+    plt.show()
+
+
+def show_local_global_proportion(map_name):
+    # proportion being global/local
+    counts = [1, 2, 4, 8, 12, 16]
+    step_counts_total = {}
+    data = load_single_map_data(map_name, "defaults")
+    agent_types = sorted([at for at in AGENT_TYPES.keys()])
+    for at in agent_types:
+        step_counts = [[] for _ in counts]
+        for d in data:
+            if d["parameters"]["agent_type"] == at and d["finished_successfully"]:
+                agent_count = d["parameters"]["agent_count"]
+                index = counts.index(agent_count)
+                step_counts[index].append(d["step_count"])
+        step_counts = [float(np.mean(x)) for x in step_counts]
+        step_counts_total[at] = step_counts
+
+    perimeter_following_proportion = [step_counts_total["GlobalPerimeterFollowingAgent"][i] /
+                                      step_counts_total["LocalPerimeterFollowingAgent"][i] for i in range(len(counts))]
+    shortest_path_proportion = [step_counts_total["GlobalShortestPathAgent"][i] /
+                                step_counts_total["LocalShortestPathAgent"][i] for i in range(len(counts))]
+
+    f, ax = plt.subplots()
+    ax.plot(counts, perimeter_following_proportion, label="Perimeter following")
+    ax.plot(counts, shortest_path_proportion, label="Shortest path")
+    ax.set_ylim(ymin=0)
+    ax.legend()
+    plt.suptitle("Ratio global/local for {}".format(map_name))
     plt.show()
 
 
@@ -455,7 +751,17 @@ def main():
     # data = load_single_map_data(map_name)
     # show_all_agent_performance(data)
     # show_scaling_performance(data, parameters)
-    # show_plate_block_comparison("plate_32x32")
+    # show_plate_block_comparison("plate_16x16")
+    # show_plate_block_comparison("block_4x4x4")
+    # show_local_sp_researching_generic("plate")
+    # show_average_distance_travelled("plate_8x8")
+    # show_collision_proportion("plate_32x32")
+    # show_attached_block_count_distribution("plate_16x16", "LocalShortestPathAgent")
+    # show_component_finished_delay("component_3x3")
+    # show_wait_on_perimeter_difference("component_1x1", "LocalShortestPathAgent")
+    # show_wait_on_perimeter_collision_proportion_difference("block_4x4x4", "LocalPerimeterFollowingAgent")
+    # show_perimeter_comparison("LocalPerimeterFollowingAgent")
+    show_local_global_proportion("block_10x10x10")
 
     # show_task_proportions("block_10x10x10", "GlobalShortestPathAgent", metric="collision_avoidance_count")
     # data = load_matching_map_data("plate")
@@ -466,7 +772,7 @@ def main():
     # show_attachment_site_ordering_differences("GlobalShortestPathAgent", "cross_24")
     # -> probably doesn't show any real differences because even when agent count is first ordering criterion
     #    the distance thing is still second
-    show_component_ordering_differences("LocalPerimeterFollowingAgent", "seed_comp_4x4_2_1")
+    # show_component_ordering_differences("LocalPerimeterFollowingAgent", "seed_comp_4x4_2_1")
 
 
 if __name__ == "__main__":
