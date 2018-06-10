@@ -12,9 +12,7 @@ from matplotlib.colors import ListedColormap
 from agents.agent import Task
 from experiments import AGENT_TYPES, VALUES, extra_parameters
 
-
 LOAD_DIRECTORY = "/home/simon/PycharmProjects/LowFidelitySimulation/res/new_results/"
-
 
 PLATE_TO_BLOCK = {
     "plate_4x4": None,
@@ -77,7 +75,47 @@ def load_matching_map_data(map_generic):
     return all_data
 
 
-def get_task_stats(data, task, agent_type, agent_count, complete_only=False):
+def plot_clustered_stacked(dfall, labels=None, title="multiple stacked bar plot", H="/", **kwargs):
+    # taken from https://stackoverflow.com/a/22845857
+    n_df = len(dfall)
+    n_col = len(dfall[0].columns)
+    n_ind = len(dfall[0].index)
+    axis = plt.subplot(111)
+
+    for df in dfall:
+        axis = df.plot(kind="bar",
+                       linewidth=1,
+                       stacked=True,
+                       ax=axis,
+                       legend=False,
+                       grid=False,
+                       **kwargs)
+
+    h, l = axis.get_legend_handles_labels()  # get the handles we want to modify
+    for i in range(0, n_df * n_col, n_col):  # len(h) = n_col * n_df
+        for j, pa in enumerate(h[i:i + n_col]):
+            for rect in pa.patches:  # for each index
+                rect.set_x(rect.get_x() + 1 / float(n_df + 1) * i / float(n_col))
+                rect.set_hatch(H * int(i / n_col))  # edited part
+                rect.set_width(1 / float(n_df + 1))
+
+    axis.set_xticks((np.arange(0, 2 * n_ind, 2) + 1 / float(n_df + 1)) / 2.)
+    axis.set_xticklabels(df.index, rotation=0)
+    axis.set_title(title)
+
+    # Add invisible data to add another legend
+    n = []
+    for i in range(n_df):
+        n.append(axis.bar(0, 0, color="gray", hatch=H * i))
+
+    l1 = axis.legend(h[:n_col], l[:n_col], loc=[1.01, 0.5])
+    if labels is not None:
+        l2 = plt.legend(n, labels, loc=[1.01, 0.1])
+    axis.add_artist(l1)
+    return axis
+
+
+def get_task_stats(data, task, agent_type, agent_count, complete_only=True):
     # need to get the mean, std and count for each run
     # -> count should actually just be the number of agents
     # -> it might not actually be...
@@ -118,6 +156,7 @@ def get_task_stats(data, task, agent_type, agent_count, complete_only=False):
         "min": min(step_count["min"]),
         "max": max(step_count["max"])
     }
+    print("step_count mean for {} agents for task {}: {}".format(agent_count, task, step_count_total["mean"]))
     collision_avoidance_count_total = {
         "mean": float(np.mean(collision_avoidance_count["mean"])),
         "min": min(collision_avoidance_count["min"]),
@@ -192,6 +231,94 @@ def show_task_proportions(map_name, agent_type, metric="step_count", statistic="
     plt.show()
 
 
+def show_task_collision_proportion(map_name, agent_type, task, experiment_name="defaults"):
+    # maybe actually do this for one task only? e.g. transport which is the most important
+    # and find_attachment_site and fetch_block and so on...
+    # also show task distance travelled (?)
+
+    # maybe also try showing all agent_types next to each other
+    counts = [1, 2, 4, 8, 12, 16]
+    data = load_single_map_data(map_name, experiment_name)
+    task_normal_means = []
+    task_collision_means = []
+    for agent_count in counts:
+        task_stats = get_task_stats(data, task, agent_type, agent_count, True)
+        step_count_mean = task_stats["step_count"]["mean"]
+        collision_count_mean = task_stats["collision_avoidance_count"]["mean"]
+        task_normal_means.append(step_count_mean - collision_count_mean)
+        task_collision_means.append(collision_count_mean)
+    task_means_both = np.array([task_normal_means, task_collision_means]).transpose()
+
+    pprint(task_means_both)
+
+    df = pd.DataFrame(task_means_both, index=counts, columns=["normal", "collision avoidance"])
+    df = df.loc[:, (df != 0).any(axis=0)]
+    color_map = ListedColormap(sns.color_palette("coolwarm", len(df.columns)).as_hex())
+    ax = df.plot.bar(stacked=True, colormap=color_map)
+    ax.set_axisbelow(True)
+    ax.yaxis.grid(color="grey", linestyle='dashed')
+    plt.show()
+
+
+def show_task_collision_proportion_all_agents(map_name, task, experiment_name="defaults"):
+    counts = [1, 2, 4, 8, 12, 16]
+    agent_types = sorted([at for at in AGENT_TYPES])
+
+    data = load_single_map_data(map_name, experiment_name)
+    data_frames = []
+    for agent_type in agent_types:
+        task_normal_means = []
+        task_collision_means = []
+        for agent_count in counts:
+            task_stats = get_task_stats(data, task, agent_type, agent_count, True)
+            step_count_mean = task_stats["step_count"]["mean"]
+            collision_count_mean = task_stats["collision_avoidance_count"]["mean"]
+            task_normal_means.append(step_count_mean - collision_count_mean)
+            task_collision_means.append(collision_count_mean)
+        task_means_both = np.array([task_normal_means, task_collision_means]).transpose()
+        df = pd.DataFrame(task_means_both, index=counts, columns=["normal", "collision avoidance"])
+        df = df.loc[:, (df != 0).any(axis=0)]
+        data_frames.append(df)
+
+    color_map = ListedColormap(sns.color_palette("coolwarm", 2).as_hex())
+    ax = plot_clustered_stacked(data_frames, agent_types, cmap=color_map, edgecolor="black")
+    # ax = df.plot.bar(stacked=True, colormap=color_map)
+    ax.set_axisbelow(True)
+    ax.yaxis.grid(color="grey", linestyle='dashed')
+    plt.show()
+
+
+def show_task_area_chart(map_name, agent_type, metric="step_count", statistic="mean", experiment_name="defaults"):
+    counts = [1, 2, 4, 8, 12, 16]
+    data = load_single_map_data(map_name, experiment_name)
+    task_names = [t.name for t in Task]
+    task_means_all = []
+    sum_per_task = [0 for _ in task_names]
+    for agent_count in counts:
+        task_means = []
+        for t_idx, task in enumerate(Task):
+            task_stats = get_task_stats(data, task, agent_type, agent_count, True)
+            print("step_count mean for {} agents for task {}: {}".format(agent_count, task,
+                                                                         task_stats["step_count"]["mean"]))
+            task_means.append(task_stats[metric][statistic])
+            sum_per_task[t_idx] += task_stats[metric][statistic]
+        task_means_all.append(task_means)
+    order = sorted(range(len(task_names)), key=lambda i: sum_per_task[i], reverse=True)
+    task_names = [task_names[i] for i in order]
+    task_means_all = [[tm[i] for i in order] for tm in task_means_all]
+    task_means_all = np.array(task_means_all)
+
+    df = pd.DataFrame(task_means_all, index=counts, columns=task_names)
+    df = df.loc[:, (df != 0).any(axis=0)]
+    print(df)
+    # color_map = ListedColormap(sns.color_palette("Blues_r", len(df.columns)).as_hex())
+    color_map = ListedColormap(sns.color_palette("coolwarm", len(df.columns)).as_hex())
+    ax = df.plot.area(stacked=True, colormap=color_map)
+    ax.set_axisbelow(True)
+    ax.yaxis.grid(color="grey", linestyle='dashed')
+    plt.show()
+
+
 def show_plate_block_comparison(map_name):
     monochrome = (cycler('color', ['k']) * cycler('linestyle', ['-', '--', ':', '=.']) *
                   cycler('marker', ['^', ',', '.']))
@@ -214,10 +341,12 @@ def show_plate_block_comparison(map_name):
                     nc = False
                     if not d["finished_successfully"]:
                         if d["got_stuck"]:
-                            print("Structure was not finished with {} {}s because they got stuck.".format(agent_count, at))
+                            print("Structure was not finished with {} {}s because they got stuck.".format(agent_count,
+                                                                                                          at))
                             nc = True
                         elif d["highest_layer"] not in d["layer_completion"].keys():
-                            print("Structure was not finished with {} {}s for some other reason.".format(agent_count, at))
+                            print(
+                                "Structure was not finished with {} {}s for some other reason.".format(agent_count, at))
                             nc = True
                     if agent_count not in agent_counts[at]:
                         agent_counts[at][agent_count] = []
@@ -469,8 +598,7 @@ def show_multiple_component_scaling(agent_type):
         if file_name.startswith("component"):
             if file_name not in map_names:
                 map_names.append(file_name.replace(".npy", ""))
-
-    print(map_names)
+    map_names = sorted(map_names)
 
     counts = [1, 2, 4, 8, 12, 16]
     step_counts_total = []
@@ -492,7 +620,12 @@ def show_multiple_component_scaling(agent_type):
     ax = df.plot(kind="line")
     ax.set_axisbelow(True)
     ax.yaxis.grid(color="grey", linestyle='dashed')
+    plt.suptitle("Scaling of multiple components for {}s".format(agent_type))
     plt.show()
+
+
+def show_multiple_component_comparison(agent_type):
+    pass
 
 
 def show_component_finished_delay(map_name):
@@ -655,7 +788,22 @@ def show_wait_on_perimeter_collision_proportion_difference(map_name, agent_type)
     plt.show()
 
 
-def show_local_global_proportion(map_name):
+def show_component_local_global_proportions():
+    map_names = []
+    for file_name in os.listdir(LOAD_DIRECTORY):
+        if file_name.startswith("component"):
+            if file_name not in map_names:
+                map_names.append(file_name.replace(".npy", ""))
+    map_names = sorted(map_names)
+
+    f, ax = plt.subplots()
+    for m in map_names:
+        show_local_global_proportion(m, ax)
+    plt.suptitle("All global/local proportions for component maps")
+    plt.show()
+
+
+def show_local_global_proportion(map_name, ax=None):
     # proportion being global/local
     counts = [1, 2, 4, 8, 12, 16]
     step_counts_total = {}
@@ -676,13 +824,15 @@ def show_local_global_proportion(map_name):
     shortest_path_proportion = [step_counts_total["GlobalShortestPathAgent"][i] /
                                 step_counts_total["LocalShortestPathAgent"][i] for i in range(len(counts))]
 
-    f, ax = plt.subplots()
-    ax.plot(counts, perimeter_following_proportion, label="Perimeter following")
-    ax.plot(counts, shortest_path_proportion, label="Shortest path")
+    if ax is None:
+        f, ax = plt.subplots()
+    ax.plot(counts, perimeter_following_proportion, label="PF {}".format(map_name))
+    ax.plot(counts, shortest_path_proportion, label="SP {}".format(map_name))
     ax.set_ylim(ymin=0)
     ax.legend()
-    plt.suptitle("Ratio global/local for {}".format(map_name))
-    plt.show()
+    if ax is None:
+        plt.suptitle("Ratio global/local for {}".format(map_name))
+        plt.show()
 
 
 def show_attachment_site_ordering_differences(agent_type, map_name):
@@ -700,6 +850,8 @@ def show_attachment_site_ordering_differences(agent_type, map_name):
         for d in data:
             if d["parameters"]["agent_type"] == agent_type and d["finished_successfully"] \
                     and parameter_name in d["parameters"] and d["parameters"][parameter_name] == o:
+                if "order_only_one_metric" in d["parameters"]:
+                    print("order_only_one_metric in thing")
                 agent_count = d["parameters"]["agent_count"]
                 index = counts.index(agent_count)
                 step_count = d["step_count"]
@@ -745,6 +897,73 @@ def show_component_ordering_differences(agent_type, map_name):
     plt.show()
 
 
+def show_sp_per_search_attachment_site_count(map_name, agent_count=1):
+    # just use agent count 1 for now
+    data = load_single_map_data(map_name, "defaults")
+    agent_types = sorted([at for at in AGENT_TYPES if "Perimeter" not in at])
+    longest_step_number = 0
+    per_search_attachment_site_count = []
+    for d in data:
+        for at in agent_types:
+            if d["parameters"]["agent_type"] == at and d["finished_successfully"]:
+                ac = d["parameters"]["agent_count"]
+                if ac == agent_count:
+                    psatc = d["per_search_attachment_site_count"][0]["possible"]
+                    per_search_attachment_site_count.append(psatc)
+                    if len(psatc) > longest_step_number:
+                        longest_step_number = len(psatc)
+                    break
+                # index = counts.index(agent_count)
+
+    f, ax = plt.subplots()
+    x_vals = np.arange(longest_step_number)
+    for at_idx, at in enumerate(agent_types):
+        if len(per_search_attachment_site_count[at_idx]) < len(x_vals):
+            rest = [per_search_attachment_site_count[at_idx][-1]] * \
+                   (len(x_vals) - len(per_search_attachment_site_count[at_idx]))
+            rest = [0] * (len(x_vals) - len(per_search_attachment_site_count[at_idx]))
+            per_search_attachment_site_count[at_idx].extend(rest)
+        ax.plot(x_vals, per_search_attachment_site_count[at_idx], label=at)
+    ax.set_ylim(ymin=0)
+    ax.legend()
+    plt.suptitle("Attachment sites at each moment for {} agent(s) for {}".format(agent_count, map_name))
+    plt.show()
+
+
+def show_agents_over_construction_area(map_name, experiment_name="defaults", agent_count=1):
+    data = load_single_map_data(map_name, experiment_name)
+    agent_types = sorted([at for at in AGENT_TYPES])
+    longest_step_number = 0
+    agents_over_construction_area = []
+    for d in data:
+        for at in agent_types:
+            if d["parameters"]["agent_type"] == at and d["finished_successfully"]:
+                ac = d["parameters"]["agent_count"]
+                if ac == agent_count:
+                    aoca = d["agents_over_construction_area"]
+                    agents_over_construction_area.append(aoca)
+                    if len(aoca) > longest_step_number:
+                        longest_step_number = len(aoca)
+                    break
+
+    f, ax = plt.subplots()
+    x_vals = np.arange(longest_step_number)
+    for at_idx, at in enumerate(agent_types):
+        if len(agents_over_construction_area[at_idx]) < len(x_vals):
+            rest = [0] * (len(x_vals) - len(agents_over_construction_area[at_idx]))
+            agents_over_construction_area[at_idx].extend(rest)
+        ax.plot(x_vals, agents_over_construction_area[at_idx], label=at)
+    ax.set_ylim(ymin=0)
+    ax.legend()
+    plt.suptitle("Agents over the structure over time for {} agent(s) for {}".format(agent_count, map_name))
+    plt.show()
+
+
+def show_component_balance(map_name):
+    # try to show that agents are more spread out, i.e. attach at different components
+    pass
+
+
 def main():
     # TODO: need some easy way to get the yerr
     map_name = "components_6x6x1"
@@ -761,7 +980,15 @@ def main():
     # show_wait_on_perimeter_difference("component_1x1", "LocalShortestPathAgent")
     # show_wait_on_perimeter_collision_proportion_difference("block_4x4x4", "LocalPerimeterFollowingAgent")
     # show_perimeter_comparison("LocalPerimeterFollowingAgent")
-    show_local_global_proportion("block_10x10x10")
+    # show_local_global_proportion("component_1x1")
+    # show_multiple_component_scaling("GlobalShortestPathAgent")
+    # show_component_local_global_proportions()
+    # show_sp_per_search_attachment_site_count("hole_same_32", 2)
+    # show_agents_over_construction_area("block_8x8x8", agent_count=8)
+    # show_task_area_chart("block_6x6x7", "GlobalShortestPathAgent")
+    # show_task_area_chart("block_6x6x7", "GlobalShortestPathAgent", experiment_name="wait_on_perimeter")
+    # show_task_collision_proportion("block_6x6x7", "GlobalShortestPathAgent", Task.TRANSPORT_BLOCK)
+    # show_task_collision_proportion_all_agents("block_6x6x7", Task.TRANSPORT_BLOCK)
 
     # show_task_proportions("block_10x10x10", "GlobalShortestPathAgent", metric="collision_avoidance_count")
     # data = load_matching_map_data("plate")
@@ -769,10 +996,10 @@ def main():
     # show_upward_scaling("GlobalShortestPathAgent")
     # show_multiple_component_scaling("GlobalShortestPathAgent")
     # show_perimeter_comparison("LocalPerimeterFollowingAgent")
-    # show_attachment_site_ordering_differences("GlobalShortestPathAgent", "cross_24")
+    show_attachment_site_ordering_differences("GlobalShortestPathAgent", "cross_24")
     # -> probably doesn't show any real differences because even when agent count is first ordering criterion
     #    the distance thing is still second
-    # show_component_ordering_differences("LocalPerimeterFollowingAgent", "seed_comp_4x4_2_1")
+    # show_component_ordering_differences("LocalPerimeterFollowingAgent", "seed_comp_4x4_3_4")
 
 
 if __name__ == "__main__":

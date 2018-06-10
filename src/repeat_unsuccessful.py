@@ -66,7 +66,7 @@ def load_ordering_files(root_directory):
                     with open(directory_name + "/" + file_name) as f:
                         d = json.load(f)
                         if d:
-                            if d["finished_successfully"] and d["parameters"]["agent_type"] != "LocalShortestPathAgent":
+                            if d["finished_successfully"]:
                                 if "order_only_one_metric" not in d["parameters"]:
                                     d["parameters"]["order_only_one_metric"] = True
                                 data.append(d)
@@ -106,7 +106,7 @@ def load_sp_files(root_directory):
     return data
 
 
-def load_specified_files(file_list):
+def load_specified_files(file_list, add_ordering_thing=False):
     data = []
     total_count = 0
     for file_name in file_list:
@@ -114,6 +114,8 @@ def load_specified_files(file_list):
             with open(file_name) as f:
                 d = json.load(f)
                 if d:
+                    if add_ordering_thing:
+                        d["parameters"]["order_only_one_metric"] = True
                     data.append(d)
                     if len(data) % 10 == 0:
                         print("Appended {} files to list.".format(len(data)))
@@ -198,10 +200,14 @@ def main(func, number_parallel, number_self, server=True):
         return [l[i::n] for i in range(n)]
 
     file_name = "/home/simon/unfinished_experiments.txt"
+    add_ordering_thing = False
     if func == 1:
         file_name = "/home/simon/unfinished_sp_experiments.txt"
     elif func == 2:
         file_name = "/home/simon/unfinished_ordering_experiments.txt"
+    elif func == 3:
+        file_name = "/home/simon/final_ordering_experiments.txt"
+        add_ordering_thing = True
 
     finished_file_list = []
     try:
@@ -221,7 +227,7 @@ def main(func, number_parallel, number_self, server=True):
     file_list = [x for x in file_list if x not in finished_file_list]
 
     file_list = split_into_chunks(file_list, number_parallel)[number_self]
-    unfinished = load_specified_files(file_list)
+    unfinished = load_specified_files(file_list, add_ordering_thing)
     run_counter = 0
     while len(unfinished) != 0:
         # pool = ThreadPool(8)
@@ -256,7 +262,7 @@ def save_ordering_file_names(server=False):
         file_name = "{}_{}_{}.json".format(
             f["parameters"]["agent_type"], f["parameters"]["agent_count"], f["parameters"]["run"])
         absolute_file_name = directory_name + "/" + file_name
-        with open("/home/simon/unfinished_ordering_experiments.txt", "a") as file:
+        with open("/home/simon/final_ordering_experiments.txt", "a") as file:
             file.write(absolute_file_name + "\n")
 
 

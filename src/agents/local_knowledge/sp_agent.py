@@ -668,7 +668,8 @@ class LocalShortestPathAgent(LocalKnowledgeAgent):
             self.current_shortest_path = None
 
         if self.current_task != Task.FINISHED:
-            if len(self.position_queue) == self.position_queue.maxlen \
+            if not (self.current_block is not None and self.current_block_type_seed) \
+                    and len(self.position_queue) == self.position_queue.maxlen \
                     and sum([simple_distance(self.geometry.position, x) for x in self.position_queue]) < 70 \
                     and self.current_path is not None and not self.wait_for_rejoining:
                 self.aprint("STUCK")

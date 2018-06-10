@@ -220,6 +220,7 @@ class Map:
         # assuming that 1 agent over an area of 16 blocks is roughly balanced (because it takes up that space)
         # -> therefore normalise using that number
         required_area = (np.round(self.agents[0].required_distance / env.block.Block.SIZE) + 1) ** 2
+        required_area = 3 ** 2
         return (self.count_over_construction_area() / construction_area) / (1 / required_area)
 
     def count_at_stash(self, stash_position, min_distance=50.0):
