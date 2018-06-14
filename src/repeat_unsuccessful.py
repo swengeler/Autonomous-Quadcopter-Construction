@@ -1,11 +1,12 @@
-import numpy as np
 import json
 import os
 import sys
 from pprint import pprint
-from experiments import run_experiment, SAVE_DIRECTORY_NAME_ALT, SAVE_DIRECTORY_NAME
-from analysis import LOAD_DIRECTORY as LOAD_DIRECTORY_ALT
 
+import numpy as np
+
+from analysis import LOAD_DIRECTORY as LOAD_DIRECTORY_ALT
+from experiments import run_experiment, SAVE_DIRECTORY_NAME_ALT, SAVE_DIRECTORY_NAME
 
 LOAD_DIRECTORY = "/home/simon/new_results/"
 

@@ -99,7 +99,9 @@ class Editor2D(Tk):
             if not self.shift_activated:
                 if button == "left":
                     self.layers[self.current_layer, self.number_rows - 1 - closest_y, closest_x] = 1
-                elif button == "middle":
+                elif button == "middle" and self.current_layer == 0:
+                    if 2 in self.layers[self.current_layer]:
+                        self.layers[self.current_layer][self.layers[self.current_layer] == 2] = 1
                     self.layers[self.current_layer, self.number_rows - 1 - closest_y, closest_x] = 2
                 elif button == "right":
                     self.layers[self.current_layer, self.number_rows - 1 - closest_y, closest_x] = 0
@@ -166,10 +168,13 @@ class Editor2D(Tk):
                 self.number_rows = int(self.row_variable.get())
                 new_layers = np.zeros_like(np.ndarray((self.number_layers, self.number_rows, self.number_columns)),
                                            dtype="int64")
+                diff = self.layers.shape[1] - self.number_rows
                 for i in range(self.number_layers):
-                    for j in range(min(self.layers.shape[1], self.number_rows)):
+                    for j in range(self.layers.shape[1] - 1, diff - 1, -1):
                         for k in range(min(self.layers.shape[2], self.number_columns)):
-                            new_layers[i, j, k] = self.layers[i, j, k]
+                            new_layers[i, j - diff, k] = self.layers[i, j, k]
+                if diff < 0:
+                    new_layers[:, :-diff, :] = 0
                 self.layers = new_layers
                 self.shift_layer = np.zeros_like(self.layers[0])
             elif t == "col":
@@ -228,10 +233,10 @@ class Editor2D(Tk):
         self.button_layer_down = Button(self, text="Layer down", command=lambda: move_layer("down"))
         self.button_layer_down.grid(row=5, column=48, sticky=W)
 
-        label_seed = Label(self, text="Seed (yes/no):")
-        label_seed.grid(row=6, column=48, sticky=W)
-        self.checkbox_seed = Checkbutton(self)
-        self.checkbox_seed.grid(row=6, column=49, sticky=W)
+        # label_seed = Label(self, text="Seed (yes/no):")
+        # label_seed.grid(row=6, column=48, sticky=W)
+        # self.checkbox_seed = Checkbutton(self)
+        # self.checkbox_seed.grid(row=6, column=49, sticky=W)
 
         self.label_layer = Label(self, text="Layer: {}/{}".format(self.current_layer + 1, self.number_layers))
         self.label_layer.grid(row=7, column=48, sticky=W)
@@ -287,6 +292,10 @@ class Editor2D(Tk):
                 return
             self.layers = np.load(file_name).astype(dtype="int64")
             self.number_layers, self.number_rows, self.number_columns = self.layers.shape
+            self.entry_rows.delete(0, "end")
+            self.entry_rows.insert(0, self.number_rows)
+            self.entry_columns.delete(0, "end")
+            self.entry_columns.insert(0, self.number_columns)
             self.label_layer["text"] = "{}/{}".format(self.current_layer + 1, self.number_layers)
             self.redraw()
 

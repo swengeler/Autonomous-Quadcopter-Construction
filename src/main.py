@@ -1,18 +1,14 @@
-import time
-import random
 import queue
+import time
+
 from agents.agent import Task
 from agents.local_knowledge.ps_agent import LocalPerimeterFollowingAgent
 from agents.local_knowledge.sp_agent import LocalShortestPathAgent
-from agents.global_knowledge.ps_agent import GlobalPerimeterFollowingAgent
-from agents.global_knowledge.sp_agent import GlobalShortestPathAgent
 from env.map import *
 from env.util import *
 from geom.shape import *
 from graphics.graphics_2d import Graphics2D
 from structures import *
-from emergency_structures import emergency_structures
-from deprecated_experiments import scale_map
 
 random.seed(205)
 
@@ -23,43 +19,14 @@ return_queue = queue.Queue()
 def main():
     # setting up logging
     logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(name)s:%(funcName)s():%(lineno)d - %(message)s")
-    logger = logging.getLogger(__name__)
 
     # setting global parameters
     interval = 0.05
     paused = False
 
     # creating the target map
-    # could use "requirements" class or dictionary to specify that a certain block should be in a certain place
-    # 1: occupied
-    # 2: seed
-
-    target_map = emergency_structures["tower_bigger_stilts_10x10x10"]
-    target_map = emergency_structures["loop_structure_10x10x10"]
-    target_map = tower_stilts_bigger
-    # target_map = multi_layer_holes
-    target_map = loop_component_test  # for component seed loop weirdness
-    target_map = hole_insanity  # good example for how detrimental holes can be to perimeter search performance
-    target_map = simple_rectangle_10x10  # for testing new collision avoidance (for now)
-    target_map = block_10x10x10
-
-    target_map = component_balance_test
-
-    target_map = np.load(
-        "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/no_spacing_comps_4.npy").astype("int64")
     target_map = np.load(
         "/home/simon/PycharmProjects/LowFidelitySimulation/res/new_experiment_maps/component_1x1.npy").astype("int64")
-    target_map = test_3d
-    # target_map = big_loop
-    # target_map = scale_map(target_map, 2, (1, 2))
-
-    # target_map = np.zeros((1, 29, 29), dtype="int64")
-    # np.place(target_map, target_map == 0, 1)
-    # target_map[0, 15, 15] = 2
-
-    # for testing properly finished structure stuff, the following map using 8
-    # agents will result in ending construction with unfinished stashes:
-    # target_map = emergency_structures["loop_structure_10x10x10"]
 
     palette_block = list(sns.color_palette("Blues_d", target_map.shape[0]))
     palette_seed = list(sns.color_palette("Reds_d", target_map.shape[0]))
@@ -95,7 +62,7 @@ def main():
     # creating the block_list and a list of initial positions
     block_list = []
     for _ in range(0, block_count):
-        block_list.append(create_block(BlockType.INERT))
+        block_list.append(Block())
 
     def split_into_chunks(l, n):
         return [l[i::n] for i in range(n)]
@@ -103,7 +70,7 @@ def main():
     # seed(s) and block positions
     block_list[0].is_seed = True
     block_list[0].placed = True
-    block_list[0].geometry = GeomBox(list(environment.original_seed_position()), [Block.SIZE] * 3, 0.0)
+    block_list[0].geometry = Geometry(list(environment.original_seed_position()), [Block.SIZE] * 3, 0.0)
     block_list[0].grid_position = environment.original_seed_grid_position()
     block_list[0].seed_marked_edge = "down"
     environment.place_block(block_list[0].grid_position, block_list[0])
@@ -112,9 +79,9 @@ def main():
     for i in range(1, required_seeds + 1):
         block_list[i].is_seed = True
         block_list[i].color = Block.COLORS_SEEDS[0]
-        block_list[i].geometry = GeomBox([offset_origin[0] + target_map.shape[2] * Block.SIZE / 2,
-                                          offset_origin[1] + target_map.shape[1] * Block.SIZE + offset_stashes,
-                                          Block.SIZE / 2], [Block.SIZE] * 3, 0.0)
+        block_list[i].geometry = Geometry([offset_origin[0] + target_map.shape[2] * Block.SIZE / 2,
+                                           offset_origin[1] + target_map.shape[1] * Block.SIZE + offset_stashes,
+                                           Block.SIZE / 2], [Block.SIZE] * 3, 0.0)
         processed.append(block_list[i])
 
     # processed.extend(block_list)
@@ -151,8 +118,8 @@ def main():
     while len(processed) != block_count + agent_count:
         candidate_x = random.uniform(0.0, environment.environment_extent[0])
         candidate_y = random.uniform(0.0, environment.environment_extent[1])
-        candidate_box = GeomBox([candidate_x, candidate_y, agent_list[processed_counter].geometry.size[2] / 2],
-                                agent_list[processed_counter].geometry.size, 0.0)
+        candidate_box = Geometry([candidate_x, candidate_y, agent_list[processed_counter].geometry.size[2] / 2],
+                                 agent_list[processed_counter].geometry.size, 0.0)
         if all([simple_distance(p.geometry.position, (candidate_x, candidate_y))
                 > agent_list[processed_counter].required_distance + 10 for p in processed]):
             if candidate_box.position[0] - candidate_box.size[0] > \
@@ -306,7 +273,6 @@ def main():
         # submit_to_tkinter(stop_tk_thread)
         request_queue.put(Graphics2D.SHUTDOWN_REQUEST)
         if not finished_successfully:
-            logger.info("Simulation interrupted.")
             print("Interrupted construction with {} agents in {} steps ({} colliding)."
                   .format(agent_count, steps, collisions / 2))
             average_stats = {}
@@ -335,8 +301,6 @@ def main():
             print("\nFinal resulting map:")
             print_map(environment.occupancy_map)
             print("\nCollision data:\n{}".format(collision_pairs))
-        else:
-            logger.info("Simulation finished successfully.")
 
     print("\nMaximum steps without change: {}".format(max_no_change_counter))
 

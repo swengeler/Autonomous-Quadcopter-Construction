@@ -1,12 +1,12 @@
-import numpy as np
 import random
+
 import env.map
 from agents.agent import Agent, Task, check_map
 from agents.global_knowledge.gk_agent import GlobalKnowledgeAgent
 from env.block import Block
-from env.util import shortest_path, shortest_path_3d_in_2d, legal_attachment_sites, legal_attachment_sites_3d
-from geom.shape import *
+from env.util import shortest_path, legal_attachment_sites
 from geom.path import Path
+from geom.shape import *
 from geom.util import simple_distance
 
 
@@ -278,7 +278,6 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
                 # the following might not be enough, might have to check whether block was in the original SP
                 if self.current_sp_index < len(self.current_shortest_path) - 1:
                     self.current_grid_position = np.copy(block_below.grid_position)
-                    self.update_local_occupancy_map(environment)
             self.geometry.position = self.geometry.position + current_direction
 
         self.per_task_distance_travelled[Task.FIND_ATTACHMENT_SITE] += simple_distance(position_before,

@@ -7,12 +7,6 @@ def rotation_2d(vector, angle):
     return np.array([vector[0] * cs - vector[1] * sn, vector[0] * sn + vector[1] * cs, vector[2]])
 
 
-def rotation_2d_experimental(vector, angle):
-    cs = np.cos(angle)
-    sn = np.sin(angle)
-    return np.array([vector[0] * cs - vector[2] * sn, vector[1], vector[0] * sn + vector[2] * cs])
-
-
 def simple_distance(pos_1, pos_2, compared_positions=None):
     min_length = min(len(pos_1), len(pos_2))
     if compared_positions is not None and compared_positions < min_length:

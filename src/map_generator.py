@@ -1,4 +1,5 @@
 import numpy as np
+
 from deprecated_experiments import scale_map
 from geom.util import simple_distance
 
@@ -163,8 +164,8 @@ def create_blocks_8x8x():
 
 
 def create_component_map():
-    component_size = 2
-    component_number = (4, 4)
+    component_size = 3
+    component_number = (2, 2)
     component_spacing = 1
     height = 4
     component_map = np.zeros(
@@ -194,9 +195,9 @@ def main():
     # create_pyramid_maps(PYRAMID_HOURGLASS)
     # create_hole_maps()
     # create_hole_size_maps()
-    create_block_size_maps()
+    # create_block_size_maps()
     # create_blocks_8x8x()
-    # create_component_map()
+    create_component_map()
 
 
 if __name__ == "__main__":

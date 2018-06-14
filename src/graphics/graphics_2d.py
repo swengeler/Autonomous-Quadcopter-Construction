@@ -1,7 +1,9 @@
-import numpy as np
 import queue
 import threading
 from typing import List, Tuple
+
+import numpy as np
+
 try:
     from Tkinter import *
 except ImportError:

@@ -1,9 +1,13 @@
 import logging
 from typing import List
-from geom.shape import GeomBox
+
+from geom.shape import Geometry
 
 
 class Block:
+    """
+    A class representing a block used for construction. It could be extended to e.g. implement communicating blocks.
+    """
 
     COLORS_SEEDS = ["red"]
     COLORS_BLOCKS = ["blue"]
@@ -17,7 +21,7 @@ class Block:
                  position: List[float] = None,
                  rotation: float = 0.0):
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.geometry = GeomBox(position if position is not None else
+        self.geometry = Geometry(position if position is not None else
                                 [0, 0, Block.SIZE / 2], [Block.SIZE] * 3, rotation)
         self.color = color
         self.is_seed = is_seed
@@ -26,6 +30,13 @@ class Block:
         self.__grid_position = None
 
     def overlaps(self, other):
+        """
+        Check whether the block's geometry overlaps with some other geometry.
+
+        :param other: the geometry to check against
+        :return: True if the geometries overlap, False otherwise
+        """
+
         return self.geometry.overlaps(other.geometry)
 
     @property

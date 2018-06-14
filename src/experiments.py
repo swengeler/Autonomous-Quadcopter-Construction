@@ -1,28 +1,34 @@
 import json
 import os
-import sys
+import seaborn as sns
+from argparse import ArgumentParser
 from pprint import pprint
+
 from agents.agent import Task
 from agents.global_knowledge.ps_agent import GlobalPerimeterFollowingAgent
 from agents.global_knowledge.sp_agent import GlobalShortestPathAgent
 from agents.local_knowledge.ps_agent import LocalPerimeterFollowingAgent
 from agents.local_knowledge.sp_agent import LocalShortestPathAgent
+from env.block import *
 from env.map import *
 from env.util import *
 from geom.shape import *
 from structures import *
 
+# the default directories to load maps (structures) from and save the results to
 LOAD_DIRECTORY_NAME = "/home/simon/maps/"
 SAVE_DIRECTORY_NAME = "/home/simon/new_results/"
 
+# alternative directories for loading maps and saving results
 LOAD_DIRECTORY_NAME_ALT_1 = "/home/simon/PycharmProjects/LowFidelitySimulation/res/experiment_maps/"
 LOAD_DIRECTORY_NAME_ALT_2 = "/home/simon/PycharmProjects/LowFidelitySimulation/res/new_experiment_maps/"
 SAVE_DIRECTORY_NAME_ALT = "/home/simon/PycharmProjects/LowFidelitySimulation/res/new_results/"
 
+# some parameters that were not changed during the experiments (but could be in principle)
 OFFSET_STRUCTURE = 400.0
-INTERVAL = 0.0000001
 OFFSET_ORIGIN = (OFFSET_STRUCTURE, OFFSET_STRUCTURE)
 
+# a mapping from the string representations of agent types to the actual constructors
 AGENT_TYPES = {
     "LocalPerimeterFollowingAgent": LocalPerimeterFollowingAgent,
     "LocalShortestPathAgent": LocalShortestPathAgent,
@@ -30,7 +36,8 @@ AGENT_TYPES = {
     "GlobalShortestPathAgent": GlobalShortestPathAgent
 }
 
-VALUES = {  # where the first is the default one
+# all adjustable parameters and their possible values (the first being the default one)
+VALUES = {
     "waiting_on_perimeter_enabled": [False, True],
     "avoiding_crowded_stashes_enabled": [True, False],
     "transport_avoid_others_enabled": [True, False],
@@ -44,6 +51,19 @@ VALUES = {  # where the first is the default one
 
 
 def run_experiment(parameters):
+    """
+    Simulate the construction of a structure, using the specified parameter values, and return the results.
+
+    Most importantly the parameters include the name of the structure to build, the agent type to use and
+    the number of agents to use. In addition, other parameters relating to the behaviour of that agent type
+    are specified (e.g. to choose a strategy to select attachment sites for the shortest path algorithm).
+    The function gathers a large number of statistics about the experiment (e.g. the number of steps it took)
+    and returns a dictionary containing these.
+
+    :param parameters: a dictionary containing the values for all adjustable parameters
+    :return: a dictionary containing statistics of the experiment
+    """
+
     target_map = np.load(LOAD_DIRECTORY_NAME + parameters["target_map"] + ".npy").astype("int64")
     agent_count = parameters["agent_count"]
     agent_type = AGENT_TYPES[parameters["agent_type"]]  # should have dictionary with names mapping to constructors
@@ -79,7 +99,7 @@ def run_experiment(parameters):
     # creating the block_list and a list of initial positions
     block_list = []
     for _ in range(0, block_count):
-        block_list.append(create_block(BlockType.INERT))
+        block_list.append(Block())
 
     def split_into_chunks(l, n):
         return [l[i::n] for i in range(n)]
@@ -87,7 +107,7 @@ def run_experiment(parameters):
     # placing first seed in correct position and the other seeds elsewhere
     block_list[0].is_seed = True
     block_list[0].placed = True
-    block_list[0].geometry = GeomBox(list(environment.original_seed_position()), [Block.SIZE] * 3, 0.0)
+    block_list[0].geometry = Geometry(list(environment.original_seed_position()), [Block.SIZE] * 3, 0.0)
     block_list[0].grid_position = environment.original_seed_grid_position()
     block_list[0].seed_marked_edge = "down"
     environment.place_block(block_list[0].grid_position, block_list[0])
@@ -96,9 +116,9 @@ def run_experiment(parameters):
     for i in range(1, required_seeds + 1):
         block_list[i].is_seed = True
         block_list[i].color = Block.COLORS_SEEDS[0]
-        block_list[i].geometry = GeomBox([OFFSET_ORIGIN[0] + target_map.shape[2] * Block.SIZE / 2,
-                                          OFFSET_ORIGIN[1] + target_map.shape[1] * Block.SIZE + offset_stashes,
-                                          Block.SIZE / 2], [Block.SIZE] * 3, 0.0)
+        block_list[i].geometry = Geometry([OFFSET_ORIGIN[0] + target_map.shape[2] * Block.SIZE / 2,
+                                           OFFSET_ORIGIN[1] + target_map.shape[1] * Block.SIZE + offset_stashes,
+                                           Block.SIZE / 2], [Block.SIZE] * 3, 0.0)
         processed.append(block_list[i])
 
     # placing the simple construction blocks
@@ -148,8 +168,8 @@ def run_experiment(parameters):
     while len(processed) != block_count + agent_count:
         candidate_x = random.uniform(0.0, environment.environment_extent[0])
         candidate_y = random.uniform(0.0, environment.environment_extent[1])
-        candidate_box = GeomBox([candidate_x, candidate_y, agent_list[processed_counter].geometry.size[2] / 2],
-                                agent_list[processed_counter].geometry.size, 0.0)
+        candidate_box = Geometry([candidate_x, candidate_y, agent_list[processed_counter].geometry.size[2] / 2],
+                                 agent_list[processed_counter].geometry.size, 0.0)
         if all([simple_distance(p.geometry.position, (candidate_x, candidate_y))
                 > agent_list[processed_counter].required_distance + 10 for p in processed]):
             if candidate_box.position[0] - candidate_box.size[0] > \
@@ -331,7 +351,6 @@ def run_experiment(parameters):
         previous_map = current_map
 
     if not finished_successfully:
-        logger.info("Simulation did not finish successfully.")
         print("Interrupted construction with {} agents in {} steps ({} colliding)."
               .format(agent_count, steps, collisions / 2))
         if got_stuck:
@@ -402,16 +421,22 @@ def run_experiment(parameters):
         results["complete_to_switch_delay"] = [a.complete_to_switch_delay for a in agent_list]
         results["blocks_per_attachment"] = [a.blocks_per_attachment for a in agent_list]
         results["steps_per_attachment"] = [a.steps_per_attachment for a in agent_list]
-    else:
-        logger.info("Simulation finished successfully.")
 
     return results
 
 
 def extra_parameters(agent_type: str):
+    """
+    Return a list of names of adjustable parameters for the specified agent type.
+
+    :param agent_type: the agent type for which to return parameters
+    :return: a list of adjustable parameters names
+    """
+
     parameters = ["waiting_on_perimeter_enabled",
                   "avoiding_crowded_stashes_enabled",
-                  "transport_avoid_others_enabled"]
+                  "transport_avoid_others_enabled",
+                  "order_only_one_metric"]
     if agent_type.startswith("Local"):
         parameters.append("seed_if_possible_enabled")
         parameters.append("seeding_strategy")
@@ -425,6 +450,13 @@ def extra_parameters(agent_type: str):
 
 
 def short_form(agent_type: str):
+    """
+    Return the short name of the agent type specified by the argument.
+
+    :param agent_type: long form of the agent type
+    :return: corresponding short form of the agent type
+    """
+
     if agent_type == "LocalShortestPathAgent":
         return "LSP"
     if agent_type == "LocalPerimeterFollowingAgent":
@@ -437,6 +469,13 @@ def short_form(agent_type: str):
 
 
 def long_form(agent_type_abbreviation: str):
+    """
+    Return the long name of the agent type specified by the argument.
+
+    :param agent_type_abbreviation: short form of the agent type
+    :return: corresponding long form of the agent type
+    """
+
     if agent_type_abbreviation == "LSP":
         return "LocalShortestPathAgent"
     if agent_type_abbreviation == "LPF":
@@ -449,6 +488,16 @@ def long_form(agent_type_abbreviation: str):
 
 
 def parameters_defaults_for_all(map_name, number_runs, agent_counts, offset):
+    """
+    Return a list of parameter sets for the specified structure, number of runs and agent counts.
+
+    :param map_name: the map/structure name to include in the parameters
+    :param number_runs:  the number of runs to include/the number of times to repeat the same set of parameters
+    :param agent_counts: a list of agent counts to create sets of parameters for
+    :param offset: the offset between the construction area and block stashes (subject to change)
+    :return: a list of parameter sets with default values
+    """
+
     parameters = []
     for run in range(number_runs):
         for agent_count in agent_counts:
@@ -466,19 +515,26 @@ def parameters_defaults_for_all(map_name, number_runs, agent_counts, offset):
     return parameters
 
 
-def main(map_name="block_4x4x4"):
+def main(map_name="block_4x4x4", skip_existing=False):
+    """
+    Simulate a number of number of experiments for a specified map/structure and save the results.
+
+    :param map_name: the structure/map to construct
+    :param skip_existing: either run experiments with results again and overwrite the files or skip them
+    """
+
     experiment_options = ["all_defaults", "all_adjust_parameters", "one_adjust_parameters",
                           "local_or_global_adjust_parameters"]
 
-    # repeat the experiment 10 times (independent runs) for the "best" parameters for each agent type
+    # fixed parameters, which could also become adjustable parameters (especially in the case of offset)
     agent_counts = [1, 2, 4, 8, 12, 16]
     offset = 100
 
-    # create a folder
+    # create a folder for the given map if it does not exist
     if not os.path.exists(SAVE_DIRECTORY_NAME + map_name):
         os.makedirs(SAVE_DIRECTORY_NAME + map_name)
 
-    # type
+    # ask the user for the type of experiment they want to run
     print("Please specify the experiment you want to run: ")
     for c_idx, c in enumerate(experiment_options):
         print("[{}]: {}".format(c_idx, c))
@@ -488,20 +544,41 @@ def main(map_name="block_4x4x4"):
     else:
         experiment_choice = int(experiment_choice)
 
-    # runs
+    # ask the user for the number of independent runs to perform for each configuration
     number_runs = int(input("Please enter the number of repeated runs: "))
 
-    # name
+    # ask the user for a name for the experiment, or to choose one of the existing options
     if experiment_options[experiment_choice] == "all_defaults":
         experiment_name = "defaults"
     else:
-        experiment_name = input("\nPlease enter a name for the experiment: ")
+        possible_experiment_names = []
+        for map_directory_name in os.listdir(SAVE_DIRECTORY_NAME):
+            if os.path.isdir(SAVE_DIRECTORY_NAME):
+                for experiment_name in os.listdir(SAVE_DIRECTORY_NAME + map_directory_name):
+                    if experiment_name.strip() not in possible_experiment_names:
+                        possible_experiment_names.append(experiment_name.strip())
+        possible_experiment_names = sorted(possible_experiment_names)
+
+        print("You can choose one of the following experiment names or specify a different one: ")
+        for c_idx, c in enumerate(possible_experiment_names):
+            print("[{}]: {}".format(c_idx, c))
+        experiment_name = input("Number of the experiment name or new name for the experiment: ")
+        if len(experiment_name) == 0:
+            experiment_name = possible_experiment_names[0]
+        else:
+            try:
+                experiment_number = int(experiment_name)
+                experiment_name = possible_experiment_names[experiment_number]
+            except ValueError:
+                pass
     print()
 
+    # create a directory to save the specific experiment in if it does not exist already
     directory_name = SAVE_DIRECTORY_NAME + map_name + "/" + "{}".format(experiment_name)
     if not os.path.exists(directory_name):
         os.makedirs(directory_name)
 
+    # compile a list of parameter configurations to use for running the experiments
     if experiment_options[experiment_choice] == "all_defaults":
         parameters = parameters_defaults_for_all(map_name, number_runs, agent_counts, offset)
     elif experiment_options[experiment_choice] == "all_adjust_parameters":
@@ -597,35 +674,73 @@ def main(map_name="block_4x4x4"):
     runs_completed = 0
     start_runs_at = 0
     for p in parameters[start_runs_at:]:
-        results = run_experiment(p)
-        try:
-            file_name = "{}_{}_{}.json".format(p["agent_type"], p["agent_count"], p["run"])
-            absolute_file_name = directory_name + "/" + file_name
-            with open(absolute_file_name, "w") as file:
-                json.dump(results, file)
-            runs_completed += 1
-            print("Successfully saved results for run {} with {} agents.".format(p["run"], p["agent_count"]))
-            print("RUNS COMPLETED: {}/{} (out of total: {}/{})\n\n".format(
-                runs_completed, len(parameters) - start_runs_at, start_runs_at + runs_completed, len(parameters)))
-        except KeyboardInterrupt:
-            print("Cancelled run with the following parameters:")
-            pprint(p)
-            break
-        except Exception as e:
-            print("Error in run with the following parameters:")
-            pprint(p)
-            raise e
+        absolute_file_name = "{}_{}_{}.json".format(p["agent_type"], p["agent_count"], p["run"])
+        absolute_file_name = directory_name + "/" + absolute_file_name
+        if not skip_existing or not os.path.exists(absolute_file_name):
+            results = run_experiment(p)
+            try:
+                absolute_file_name = "{}_{}_{}.json".format(p["agent_type"], p["agent_count"], p["run"])
+                absolute_file_name = directory_name + "/" + absolute_file_name
+                with open(absolute_file_name, "w") as file:
+                    json.dump(results, file)
+                runs_completed += 1
+                print("Successfully saved results for run {} with {} agents.".format(p["run"], p["agent_count"]))
+                print("RUNS COMPLETED: {}/{} (out of total: {}/{})\n\n".format(
+                    runs_completed, len(parameters) - start_runs_at, start_runs_at + runs_completed, len(parameters)))
+            except KeyboardInterrupt:
+                print("Cancelled run with the following parameters:")
+                pprint(p)
+                break
+            except Exception as e:
+                print("Error in run with the following parameters:")
+                pprint(p)
+                raise e
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        if len(sys.argv) > 2:
-            if int(sys.argv[2]) == 1:
-                LOAD_DIRECTORY_NAME = LOAD_DIRECTORY_NAME_ALT_1
-            elif int(sys.argv[2]) == 2:
-                LOAD_DIRECTORY_NAME = LOAD_DIRECTORY_NAME_ALT_2
+    parser = ArgumentParser(description="Run and save results of simulated construction with quadcopters.")
+    parser.add_argument("map_name", type=str, help="Name of the map/structure to build.")
+    parser.add_argument("-l", "--load-directory", dest="load_directory", default=0,
+                        help="Either a number (0-2) specifying one of three pre-defined "
+                             "paths to load maps from or an absolute file path.")
+    parser.add_argument("-s", "--save-directory", dest="save_directory", default=0,
+                        help="Either a number (0, 1) specifying one of two pre-defined "
+                             "paths to save results to or an absolute file path.")
+    parser.add_argument("--skip-existing", dest="skip_existing", action='store_true',
+                        help="Specifies whether existing files should be overwritten if "
+                             "experiments are repeated. The default is to overwrite them.")
+
+    args = parser.parse_args()
+    map_name_outer = args.map_name
+    try:
+        load_directory = int(args.load_directory)
+        if load_directory == 1:
+            LOAD_DIRECTORY_NAME = LOAD_DIRECTORY_NAME_ALT_1
+        elif load_directory == 2:
+            LOAD_DIRECTORY_NAME = LOAD_DIRECTORY_NAME_ALT_2
+    except ValueError:
+        LOAD_DIRECTORY_NAME = args.load_directory
+    try:
+        save_directory = int(args.save_directory)
+        if save_directory == 1:
             SAVE_DIRECTORY_NAME = SAVE_DIRECTORY_NAME_ALT
-        main(sys.argv[1])
-    else:
-        main()
+    except ValueError:
+        SAVE_DIRECTORY_NAME = args.save_directory
+    skip_existing_outer = args.skip_existing
+
+    main(map_name_outer, skip_existing_outer)
+
+    # if len(sys.argv) > 1:
+    #     if len(sys.argv) > 2:
+    #         if int(sys.argv[2]) == 1:
+    #             LOAD_DIRECTORY_NAME = LOAD_DIRECTORY_NAME_ALT_1
+    #         elif int(sys.argv[2]) == 2:
+    #             LOAD_DIRECTORY_NAME = LOAD_DIRECTORY_NAME_ALT_2
+    #         SAVE_DIRECTORY_NAME = SAVE_DIRECTORY_NAME_ALT
+    #     if len(sys.argv) > 3:
+    #         main(sys.argv[1], bool(sys.argv[3]))
+    #     else:
+    #         main(sys.argv[1])
+    # else:
+    #     main()
 

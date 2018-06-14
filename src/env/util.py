@@ -1,87 +1,25 @@
+import collections
+import math
 import random
+from typing import Tuple
 
 import numpy as np
-import collections
-import logging
-import math
-from enum import Enum
-from typing import List, Tuple
-from env.block import *
-
-logger = logging.getLogger(__name__)
-
-
-class Occupancy(Enum):
-    UNOCCUPIED = 0
-    OCCUPIED = 1
-    SEED = 2
-
-
-class BlockType(Enum):
-    INERT = 0
-
-
-class BlockGeneratorInfo:
-    def __init__(self, block_type: BlockType, size: float, color: str, count: int):
-        self.type = block_type
-        self.size = size
-        self.color = color
-        self.count = count
 
 
 class WrongInputException(Exception):
     pass
 
 
-def create_block(block_type, *args, **kwargs):
-    logger = logging.getLogger(__name__)
-    if block_type is BlockType.INERT:
-        logger.info("Creating Block.")
-        return Block(*args, **kwargs)
-    else:
-        logger.warning("No block type specified.")
-        return None
-
-
-def create_block_list(block_generator_info):
-    blocks = []
-    for bgi in block_generator_info:
-        for _ in range(0, bgi.count):
-            blocks.append(create_block(bgi.type, size=bgi.size, color=bgi.color))
-    return blocks
-
-
-def shortest_direction_to_perimeter(grid: np.ndarray, start_position):
-    directions = [(1, 0), (-1, 0), (0, 1), (0, -1)]
-    start_position = np.array(start_position)
-    min_distance = max(grid.shape) * 10
-    min_distance = 0
-    min_direction = None
-    for d in directions:
-        current_position = start_position.copy()
-        current_distance = 0
-        while 0 <= current_position[0] < grid.shape[1] and 0 <= current_position[1] < grid.shape[0]:
-            current_position += d
-            current_distance += 1
-        if current_distance > min_distance:
-            min_distance = current_distance
-            min_direction = d
-        elif current_distance == min_distance:
-            min_direction = random.sample([min_direction, d], 1)[0]
-    return np.array([min_direction[0], min_direction[1], 0])
-
-
-def shortest_grid_path(grid):
-    if isinstance(grid, np.ndarray):
-        if len(grid.shape) == 2:
-            pass
-        elif len(grid.shape) == 3:
-            pass
-    else:
-        pass
-
-
 def shortest_path(grid: np.ndarray, start: Tuple[int, int], goal: Tuple[int, int]):
+    """
+    Return the shortest path from the start to the goal position using only nonzero positions in the grid.
+
+    :param grid: the 2D occupancy matrix to be used to find the shortest path
+    :param start: the starting position for the path
+    :param goal: the goal position for the path
+    :return: the shortest path as a list of grid positions between the start and goal position
+    """
+
     queue = collections.deque([[start]])
     seen = {start}
     path = None
@@ -99,6 +37,18 @@ def shortest_path(grid: np.ndarray, start: Tuple[int, int], goal: Tuple[int, int
 
 
 def shortest_path_3d_in_2d(lattice: np.ndarray, start: Tuple, goal: Tuple):
+    """
+    Return the shortest path from start to goal position, using only nonzero positions in the lattice.
+
+    This function works similar to the shortest_path function but instead of using only the blocks on one
+    layer for determining a possible route, it uses the blocks on all layers in the provided lattice.
+
+    :param lattice: the 3D occupancy matrix to be used to find the shortest path
+    :param start: the starting position for the path
+    :param goal: the goal position for the path
+    :return: the shortest path as a list of grid positions (3D) between the start and goal position
+    """
+
     if len(start) == 3:
         start = start[0:2]
     if len(goal) == 3:
@@ -141,6 +91,15 @@ def shortest_path_3d_in_2d(lattice: np.ndarray, start: Tuple, goal: Tuple):
 
 
 def shortest_path_3d(lattice: np.ndarray, start, goal):
+    """
+    Return the shortest path from start to goal position, using only nonzero positions in the lattice.
+
+    :param lattice:
+    :param start:
+    :param goal:
+    :return:
+    """
+
     # Note that the way I'm doing this right now basically means the resulting
     # shortest path tries to stick as close to the structure as possible
     processed_lattice = np.zeros_like(lattice)
@@ -154,10 +113,8 @@ def shortest_path_3d(lattice: np.ndarray, start, goal):
                     processed_lattice[z, y, x] = 1
                 elif z != 0 and lattice[z - 1, y, x] != 0 and (z == lattice.shape[0] or lattice[z, y, x] == 0):
                     processed_lattice[z, y, x] = 1
-    print("\nORIGINAL MAP:")
-    print_map(lattice)
-    # print("\nINTERMEDIATE LEGAL PATHWAY MAP:")
-    # print_map(processed_lattice)
+    # print("\nORIGINAL MAP:")
+    # print_map(lattice)
     for z in range(processed_lattice.shape[0]):
         for y in range(processed_lattice.shape[1]):
             for x in range(processed_lattice.shape[2]):
@@ -189,6 +146,14 @@ def shortest_path_3d(lattice: np.ndarray, start, goal):
 
 
 def print_map_layer(environment: np.ndarray, path=None, custom_symbols=None):
+    """
+    Print a single layer of a map (2D grid) in nice formatting.
+
+    :param environment: the map/grid to print
+    :param path: an optional (shortest) path to highlight
+    :param custom_symbols: a dictionary of elements in the given grid mapping to symbols to print them as
+    """
+
     symbols = {
         0: " ",
         1: ".",
@@ -224,6 +189,16 @@ def print_map_layer(environment: np.ndarray, path=None, custom_symbols=None):
 
 
 def print_map(environment: np.ndarray, path=None, layer=None, custom_symbols=None):
+    """
+    Print an entire 3D map in nice formatting.
+
+    :param environment: the map/lattice to print
+    :param path: an optional (shortest) path to highlight
+    :param layer: an optional layer in which the path should be included
+    :param custom_symbols: a dictionary of elements in the given grid mapping to symbols to print them as
+    :return:
+    """
+
     if path is not None and layer is None and len(path[0]) != 3:
         raise WrongInputException("Variable 'layer' has to be provided if 2D path is given.")
     elif path is None and layer is not None:
@@ -242,6 +217,23 @@ def print_map(environment: np.ndarray, path=None, layer=None, custom_symbols=Non
 
 
 def legal_attachment_sites(target_map: np.ndarray, occupancy_map: np.ndarray, component_marker=None, local_info=False):
+    """
+    Return information about the legal attachment sites for the given target map, occupancy matrix and component.
+
+    This function is used only for the shortest path algorithm(s), since they have "free" choice of an
+    attachment site. The function itself returns only the theoretically possible attachment sites (i.e. those
+    not violating the row rule), unless it only attachment sites given local information are allowed. In that case,
+    instead of returning only a matrix with marked legal attachment sites, the function also returns three lists
+    with different types of attachment sites: corner sites, protruding sites and end-of-row sites.
+
+    :param target_map: an occupancy matrix representing the target structure
+    :param occupancy_map: an occupancy matrix representing the current state of the structure
+    :param component_marker: the component for which to find attachment sites
+    :param local_info: if True take into account that the occupancy matrix only contains local information and return
+    additional information, otherwise just return a matrix with all theoretically possible attachment sites
+    :return: a matrix with marked attachment sites and possibly lists of different attachment site types
+    """
+
     if local_info:
         return legal_attachment_sites_revisited(target_map, occupancy_map, component_marker, True)
 
@@ -329,32 +321,6 @@ def legal_attachment_sites(target_map: np.ndarray, occupancy_map: np.ndarray, co
                 # - impose some kind of order on occupying attachment sites that means that only legal sites will exist
                 #   -> also order sites by number of adjacent blocks -> always go for two
 
-    # assume that hole_map is also given as the current layer
-    # anything larger than 1 on the hole map is an actual hole
-    # remove all corners (only outer?) where the two adjacent things have not been placed yet
-    """
-    if hole_map is not None and hole_boundaries is not None:
-        temp = []
-        # print("hole_boundaries:\n{}".format(hole_boundaries))
-        for key in hole_boundaries:
-            for corner in hole_boundaries[key]:
-                for boundary in corner:
-                    temp.append((boundary[0], boundary[1]))
-        hole_boundaries = temp
-
-        # might have to reverse the order of these two loops (or do even more stuff?)
-        for y in range(legal_sites.shape[0]):
-            for x in range(legal_sites.shape[1]):
-                # if (x, y) is a corner (regardless of closing?) don't allow attachment to it
-                if legal_sites[y, x] != 0:
-                    for y2 in (y - 1, y + 1):
-                        for x2 in (x - 1, x + 1):
-                            if 0 <= y2 < hole_map.shape[0] and 0 <= x2 < hole_map.shape[1] \
-                                    and hole_map[y, x] == 1 and hole_map[y2, x2] > 1 \
-                                    and not (occupancy_map[y2, x] != 0 and occupancy_map[y, x2] != 0):
-                                legal_sites[y, x] = 0
-    """
-
     return legal_sites
 
 
@@ -362,6 +328,19 @@ def legal_attachment_sites_revisited(target_map: np.ndarray,
                                      occupancy_map: np.ndarray,
                                      component_marker=None,
                                      row_information=False):
+    # TODO combine these two into one
+    """
+    Return information about the legal attachment sites for the given target map, occupancy matrix and component.
+
+    This method is used when the occupancy matrix only contains local information. As described in the function
+
+    :param target_map:
+    :param occupancy_map:
+    :param component_marker:
+    :param row_information: determines the format of the returned end-of-row sites
+    :return:
+    """
+
     if component_marker is not None:
         occupancy_map = np.copy(occupancy_map)
         np.place(occupancy_map, target_map != component_marker, 0)
@@ -517,11 +496,10 @@ def legal_attachment_sites_revisited(target_map: np.ndarray,
                     adjacent_side = "EAST"
                     counter += 1
                 if adjacent_side is None:
-                    logger.warning("Too few adjacent sites for potential row/column attachment site at {}.".format(tpl))
+                    print("Too few adjacent sites for potential row/column attachment site at {}.".format(tpl))
                     continue
                 if counter > 1:
-                    logger.warning(
-                        "Too many adjacent sites for potential row/column attachment site at {}.".format(tpl))
+                    print("Too many adjacent sites for potential row/column attachment site at {}.".format(tpl))
                     continue
 
                 # this could also just be done in a single direction, but it would be best to set the other
@@ -717,21 +695,6 @@ def neighbourhood(arr: np.ndarray, position, flatten=False):
     else:
         result = arr[y_lower:y_upper, x_lower:x_upper]
         return result.flatten() if flatten else result
-
-
-def cw_angle_and_distance(point, origin=(0, 0), ref_vec=(0, 1)):
-    """Taken from https://stackoverflow.com/a/41856340"""
-    vector = [point[0] - origin[0], point[1] - origin[1]]
-    len_vector = math.hypot(vector[0], vector[1])
-    if len_vector == 0:
-        return -math.pi, 0
-    normalized = [vector[0]/len_vector, vector[1]/len_vector]
-    dot_prod = normalized[0] * ref_vec[0] + normalized[1] * ref_vec[1]     # x1*x2 + y1*y2
-    diff_prod = ref_vec[1] * normalized[0] - ref_vec[0] * normalized[1]     # x1*y2 - y1*x2
-    angle = math.atan2(diff_prod, dot_prod)
-    if angle < 0:
-        return 2*math.pi+angle, len_vector
-    return angle, len_vector
 
 
 def ccw_angle_and_distance(point, origin=(0, 0), ref_point=(0, 1)):

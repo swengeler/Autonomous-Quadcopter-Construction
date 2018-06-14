@@ -1,13 +1,13 @@
-import numpy as np
 import random
+
 import env.map
 from agents.agent import Task, Agent, check_map
 from agents.global_knowledge.gk_agent import GlobalKnowledgeAgent
 from env.block import Block
 from env.util import legal_attachment_sites
-from geom.shape import *
 from geom.path import Path
-from geom.util import simple_distance, rotation_2d
+from geom.shape import *
+from geom.util import simple_distance
 
 
 class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):
@@ -23,6 +23,14 @@ class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):
         self.current_stash_position = None
 
     def find_attachment_site(self, environment: env.map.Map):
+        """
+        Move with the goal of finding an attachment site.
+
+        This method is called if the current task is FIND_ATTACHMENT_SITE. If the agent has not planned a
+
+        :param environment: the environment the agent operates in
+        """
+
         position_before = np.copy(self.geometry.position)
 
         if self.current_path is None:

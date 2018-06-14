@@ -1,21 +1,23 @@
-import numpy as np
-import seaborn as sns
 import logging
-import env.block
 from typing import List, Tuple
+
+import numpy as np
+
+import env.block
 from geom.util import simple_distance
-from env.util import cw_angle_and_distance, ccw_angle_and_distance
 
 
 class Map:
+    """
+    The container for all relevant elements for the construction task. Most importantly this includes a
+    target occupancy matrix for the structure to be built, information about the environment extent, all
+    of the building blocks and the agents.
+    """
 
     def __init__(self,
                  target_map: np.ndarray,
                  offset_origin: Tuple[float, float] = (0.0, 0.0),
                  environment_extent: List[float] = None):
-        # logger
-        self.logger = logging.getLogger(self.__class__.__name__)
-
         # occupancy matrices
         self.target_map = target_map
         self.occupancy_map = np.zeros_like(target_map)
@@ -55,13 +57,31 @@ class Map:
         self.component_info = {}
 
     def add_agents(self, agents):
+        """
+        Add a number of agents to keep track of.
+
+        This method also uses one of the agents' methods to get access to a component map of the structure
+        for later use.
+
+        :param agents: a list of agents
+        :return:
+        """
+
         self.agents.extend(agents)
         self.store_component_coordinates(self.agents[0].split_into_components())
 
-        # place agents according to some scheme, for now just specified positions
-        # I guess it makes sense that agents, by definition, actually encapsulate their own positions, right?
-
     def add_blocks(self, blocks: List[env.block.Block]):
+        """
+        Add a number of blocks to keep track of.
+
+        This method also sets the extent of the environment to match the most extreme coordinates of any
+        of the blocks if necessary. In addition, a number of block stashes is created from the list of
+        blocks, which are assumed to have been placed before. If block stashes were used in which the blocks
+        do not share the same (x, y) coordinates, some other method should be used for this purpose.
+
+        :param blocks: a list of building blocks
+        """
+
         self.blocks.extend(blocks)
         if self.environment_extent is None:
             x_extent = self.offset_origin[0] + self.target_map.shape[2] * (env.block.Block.SIZE - 1)
@@ -81,8 +101,12 @@ class Map:
                 self.block_stashes[(b.geometry.position[0], b.geometry.position[1])].append(b)
 
     def required_blocks(self):
-        # return either number of blocks (for starters) or some other specification of blocks,
-        # e.g. this many of a certain type
+        """
+        Return the number of blocks required to build the structure defined by the map.
+
+        :return: the number of blocks required for the structure
+        """
+
         return np.count_nonzero(self.target_map)
 
     def original_seed_position(self):
@@ -92,15 +116,27 @@ class Map:
                env.block.Block.SIZE / 2  # + env.block.Block.SIZE
 
     def original_seed_grid_position(self):
+        """
+        Return the grid position of the original seed on the lowest layer of the structure,
+        defined by the numpy array used to construct the map object.
+
+        :return: grid position of the initial seed as a tuple
+        """
+
         z, y, x = np.where(self.target_map == 2)
         return np.array([x[0], y[0], z[0]], dtype="int32")
 
     def place_block(self, grid_position, block):
-        # if self.occupancy_map[tuple(reversed(grid_position))] != 0:
-        #     # self.logger.error("Block at {} (is_seed = {}) placed in already occupied location: {}"
-        #     #                   .format(block.grid_position, block.is_seed, grid_position))
-        #     print("Block at {} (is_seed = {}) placed in already occupied location: {}"
-        #           .format(block.grid_position, block.is_seed, grid_position))
+        """
+        Place the given block at the specified grid position.
+
+        The occupancy matrix is changed to reflect this changed and the block is added to the
+        list of placed blocks.
+
+        :param grid_position: position in the grid to place the block at
+        :param block: block to place
+        """
+
         self.occupancy_map[tuple(reversed(grid_position))] = 2 if block.is_seed else 1
         self.placed_blocks.append(block)
         if grid_position[2] > self.highest_block_z:
@@ -110,6 +146,17 @@ class Map:
                 a.local_occupancy_map[tuple(reversed(grid_position))] = 1
 
     def check_occupancy_map(self, position, comparator=lambda x: x != 0):
+        """
+        Check whether the specified condition holds at the given position.
+
+        Using the occupancy matrix, it is determined whether the expression specified by the
+        comparator function is true for the entry at the specified position.
+
+        :param position: grid position to check
+        :param comparator: expression evaluating to True or False which is applied to the entry at the position
+        :return: True if the condition holds, False otherwise
+        """
+
         if not isinstance(position, np.ndarray):
             position = np.array(position)
         if any(position < 0):
@@ -122,7 +169,16 @@ class Map:
             val = comparator(temp)
             return val
 
-    def block_below(self, position, structure_level=None, radius=0.0):
+    def block_below(self, position, structure_level=None):
+        """
+        Return an already placed block below the specified position, if there is one.
+
+        :param position: coordinates in 3D space
+        :param structure_level: the level of the structure to check for a block below the position
+        (if omitted all levels are checked)
+        :return: the block below the specified position or None if there is none
+        """
+
         closest_x = int((position[0] - self.offset_origin[0]) / env.block.Block.SIZE)
         closest_y = int((position[1] - self.offset_origin[1]) / env.block.Block.SIZE)
         if structure_level is None:
@@ -141,25 +197,52 @@ class Map:
                     return b
         return None
 
-    def block_at_position(self, position, grid=True):
+    def block_at_position(self, position):
+        """
+        Return the block located at a specified grid position, if there is one.
+
+        :param position: the grid position for which to return the block
+        :return: the block at the specified grid position or None if there is none
+        """
+
         for b in self.placed_blocks:
-            if grid and all(b.grid_position[i] == position[i] for i in range(3)):
+            if all(b.grid_position[i] == position[i] for i in range(3)):
                 return b
         return None
 
     def ccw_block_stash_locations(self):
+        """
+        Return the (x, y) coordinates of all block stashes on the map in counter-clockwise order.
+
+        :return: locations of all block stashes
+        """
+
         stash_positions = list(self.block_stashes.keys())
         ordered_stash_positions = sorted(stash_positions,
-                                         key=lambda x: cw_angle_and_distance(x, self.center, stash_positions[0]))
-        return ordered_stash_positions[::-1]
+                                         key=lambda x: ccw_angle_and_distance(x, self.center, stash_positions[0]))
+        return ordered_stash_positions
 
     def ccw_seed_stash_locations(self):
+        """
+        Return the (x, y) coordinates of all seed stashes on the map in counter-clockwise order.
+
+        :return: locations of all seed stashes
+        """
+
         stash_positions = list(self.seed_stashes.keys())
         ordered_stash_positions = sorted(stash_positions,
-                                         key=lambda x: cw_angle_and_distance(x, self.center, stash_positions[0]))
-        return ordered_stash_positions[::-1]
+                                         key=lambda x: ccw_angle_and_distance(x, self.center, stash_positions[0]))
+        return ordered_stash_positions
 
     def ccw_corner_locations(self, position, offset=0.0):
+        """
+        Return the (x, y) coordinates of the corners of the construction area in counter-clockwise order.
+
+        :param position: the position to take as reference for ordering
+        :param offset: can be used to add a diagonal offset to the corner coordinates
+        :return: locations of the construction area corners
+        """
+
         corner_locations = [(self.offset_origin[0] - offset, self.offset_origin[1] - offset),
                             (self.offset_origin[0] + env.block.Block.SIZE * self.target_map.shape[2] + offset,
                              self.offset_origin[1] - offset),
@@ -176,12 +259,25 @@ class Map:
         return ordered_corner_locations
 
     def check_over_construction_area(self, position):
+        """
+        Check whether the specified position is within the construction area.
+
+        :param position: the position to check
+        :return: True if the position is in the construction area, False otherwise
+        """
+
         return self.offset_origin[0] <= position[0] < self.offset_origin[0] \
                + env.block.Block.SIZE * self.target_map.shape[2] \
                and self.offset_origin[1] <= position[1] < self.offset_origin[1] \
                + env.block.Block.SIZE * self.target_map.shape[1]
 
     def count_over_construction_area(self):
+        """
+        Count the number of agents currently over the construction area.
+
+        :return: number of agents over the construction area
+        """
+
         agent_count = 0
         for a in self.agents:
             if self.check_over_construction_area(a.geometry.position):
@@ -189,6 +285,13 @@ class Map:
         return agent_count
 
     def count_over_component(self, component_marker):
+        """
+        Count the number of agents currently over the component corresponding to the specified marker.
+
+        :param component_marker: the marker of the component
+        :return:
+        """
+
         if self.highest_block_z > self.component_info[component_marker]["layer"] \
                 or self.highest_block_z < self.component_info[component_marker]["layer"]:
             return 0
@@ -203,33 +306,76 @@ class Map:
         return 0
 
     def component_started(self, component_marker):
+        """
+        Check whether at least one position of the component corresponding to the given marker is occupied.
+
+        :param component_marker: the marker of the component to check
+        :return: True if at least one position is occupied, False otherwise
+        """
+
         return np.count_nonzero(self.occupancy_map[self.component_info[component_marker]["coordinates_np"]]) > 0
 
     def component_finished(self, component_marker):
+        """
+        Check whether all positions of the component corresponding to the given marker are occupied.
+
+        :param component_marker: the marker of the component to check
+        :return: True if all positions are occupied, False otherwise
+        """
+
         return np.count_nonzero(self.occupancy_map[self.component_info[component_marker]["coordinates_np"]]) == \
                len(self.component_info[component_marker]["coordinates_np"][0])
 
     def layer_started(self, layer):
+        """
+        Check whether at least one position of the specified layer is occupied.
+
+        :param layer: the layer to check
+        :return: True if at least one position is occupied, False otherwise
+        """
+
         return np.count_nonzero(self.occupancy_map[layer]) > 0
 
     def layer_finished(self, layer):
+        """
+        Check whether all positions of the specified layer are occupied.
+
+        :param layer: the layer to check
+        :return: True if all positions are occupied, False otherwise
+        """
+
         return np.count_nonzero(self.occupancy_map[layer]) == np.count_nonzero(self.target_map[layer])
 
     def density_over_construction_area(self):
+        """
+        Return the density of agents over the construction area.
+
+        The density is defined as the number of agents over the construction area divided by the area
+        of that region in terms of building blocks. Instead of returning just the density, it is
+        divided by a reference density which is deemed not to be too crowded, so that values lower than
+        1 returned by this method represent an "acceptable" density.
+
+        :return: normalised density of agents over the construction area
+        """
+
         construction_area = self.target_map.shape[2] * self.target_map.shape[1]
+        # construction_area = 0
+        # for l in range(self.target_map.shape[0]):
+        #     construction_area = max(construction_area, np.count_nonzero(self.target_map[l]))
         # assuming that 1 agent over an area of 16 blocks is roughly balanced (because it takes up that space)
         # -> therefore normalise using that number
         required_area = (np.round(self.agents[0].required_distance / env.block.Block.SIZE) + 1) ** 2
-        required_area = 3 ** 2
+        required_area = 4 ** 2
         return (self.count_over_construction_area() / construction_area) / (1 / required_area)
 
-    def count_at_stash(self, stash_position, min_distance=50.0):
-        agent_count = 0
-        for a in self.agents:
-            pass
-        pass
-
     def distance_to_construction_area(self, position):
+        """
+        Return the distance of the specified position to the construction area (or 0 if inside the area).
+
+        :param position: the position for which to return the distance
+        :return: the distance of the position to the construction area
+        """
+
         if self.check_over_construction_area(position):
             return 0
         # otherwise, find the distance to the closest side
@@ -255,6 +401,12 @@ class Map:
         return collision_potential_blocks
 
     def store_component_coordinates(self, component_target_map):
+        """
+        Extracts and saves information about components of the structure for later use.
+
+        :param component_target_map: the map of components in the structure
+        """
+
         self.component_target_map = component_target_map
         for m in [cm for cm in np.unique(self.component_target_map) if cm != 0]:
             coords = np.where(self.component_target_map == m)

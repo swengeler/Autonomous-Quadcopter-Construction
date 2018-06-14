@@ -1,12 +1,12 @@
-import numpy as np
 import random
-import env.map
 from abc import abstractmethod
+
+import env.map
 from agents.agent import Task, Agent, check_map
 from env.block import Block
-from geom.shape import *
 from geom.path import Path
-from geom.util import simple_distance, rotation_2d
+from geom.shape import *
+from geom.util import simple_distance
 
 
 class LocalKnowledgeAgent(Agent):
@@ -22,9 +22,100 @@ class LocalKnowledgeAgent(Agent):
         self.seeding_strategy = "distance_self"  # others being: "distance_center", "agent_count"
         self.find_next_component_count = []
 
+    def update_local_occupancy_map(self, environment: env.map.Map):
+        """
+        Update the agent's knowledge of the current state of the structure given its current position.
+
+        Depending on additional blocks the agent could observe since the last update to the local occupancy
+        map, update the occupancy map "around" the current grid position (the 9 blocks below the agent) and
+        also extrapolate information about the state of the structure from that.
+
+        :param environment: the environment the agent operates in
+        """
+
+        # update knowledge of the map
+        for y_diff in (-1, 0, 1):
+            for x_diff in (-1, 0, 1):
+                if environment.check_occupancy_map(np.array([self.current_grid_position[0] + x_diff,
+                                                             self.current_grid_position[1] + y_diff,
+                                                             self.current_grid_position[2]])):
+                    self.local_occupancy_map[self.current_grid_position[2],
+                                             self.current_grid_position[1] + y_diff,
+                                             self.current_grid_position[0] + x_diff] = 1
+
+        # if there are any sites to fill in the target map which are surrounded by blocks on 3 sides
+        # in the local occupancy map, then the site is also assumed to be filled because the rules
+        # of construction would not allow anything else, e.g. with this as the local map:
+        # [B] [O] [B] [A] ...
+        # [B] [O] [B] [B] ...
+        # [B] [B] [B] [B] ...
+        # ... ... ... ... ...
+        # where B = known block positions, A = attachment site, O = empty sites (to be occupied)
+        # in this case, the agent may have attached the upper-left most block when the adjacent two
+        # empty (but to-be-occupied) blocks were still empty, and then came back later when all the
+        # other blocks (marked here as B) had been filled out already -> since anything else would
+        # not be permitted, the agent knows that the previously empty sites have to be occupied at
+        # this point
+        # this would actually also be the case if there is a gap of more than 1:
+        # any continuous row/column in the target map between two occupied locations in the local occupancy
+        # map should be assumed to be filled out already
+        current_occupancy_map = self.local_occupancy_map[self.current_grid_position[2]]
+        current_target_map = self.target_map[self.current_grid_position[2]]
+        for y in range(current_target_map.shape[0]):
+            for x in range(current_target_map.shape[1]):
+                if current_occupancy_map[y, x] != 0:
+                    for diff in (-1, 1):
+                        # making it through this loop without a break means that in the x-row, y-column where the block
+                        # could be placed, there is either only a block immediately adjacent or any blocks already
+                        # placed are separated from the current site by an intended gap
+
+                        counter = 1
+                        while 0 <= y + counter * diff < current_occupancy_map.shape[0] \
+                                and current_occupancy_map[y + counter * diff, x] == 0 \
+                                and current_target_map[y + counter * diff, x] > 0:
+                            counter += 1
+                        if counter > 1 and 0 <= y + counter * diff < current_occupancy_map.shape[0] \
+                                and current_occupancy_map[y + counter * diff, x] > 0 and \
+                                current_target_map[y + counter * diff, x] > 0:
+                            # have encountered a block in this column, mark all in between
+                            # this position and the end of that column as occupied
+                            other_y = y + counter * diff
+                            if other_y > y:
+                                self.local_occupancy_map[self.current_grid_position[2], y:other_y, x] = 1
+                            else:
+                                self.local_occupancy_map[self.current_grid_position[2], other_y:y, x] = 1
+
+                        counter = 1
+                        while 0 <= x + counter * diff < current_occupancy_map.shape[1] \
+                                and current_occupancy_map[y, x + counter * diff] == 0 \
+                                and current_target_map[y, x + counter * diff] > 0:
+                            counter += 1
+                        if counter > 1 and 0 <= x + counter * diff < current_occupancy_map.shape[1] \
+                                and current_occupancy_map[y, x + counter * diff] > 0 and \
+                                current_target_map[y, x + counter * diff] > 0:
+                            # have encountered a block in this row, mark all in between
+                            # this position and the end of that row as occupied
+                            other_x = x + counter * diff
+                            if other_x > x:
+                                self.local_occupancy_map[self.current_grid_position[2], y, x:other_x] = 1
+                            else:
+                                self.local_occupancy_map[self.current_grid_position[2], y, other_x:x] = 1
+
+        # TODO: remove this in final product
+        for z in range(self.local_occupancy_map.shape[0]):
+            for y in range(self.local_occupancy_map.shape[1]):
+                for x in range(self.local_occupancy_map.shape[2]):
+                    if self.local_occupancy_map[z, y, x] != 0 and environment.occupancy_map[z, y, x] == 0:
+                        self.aprint("Local occupancy map occupied at {} where environment not occupied."
+                               .format((x, y, z)))
+                        self.aprint("Current position: {}".format(self.current_grid_position))
+                        self.aprint("Local occupancy map at this level:\n{}".format(self.local_occupancy_map[z]))
+                        self.aprint("Global occupancy map at this level:\n{}".format(environment.occupancy_map[z]))
+                        self.aprint("")
+                        break
+
     def check_stashes(self, environment: env.map.Map):
         position_before = np.copy(self.geometry.position)
-        # TODO?: do the thing
 
         if self.current_path is None:
             # check all stashes in CCW order

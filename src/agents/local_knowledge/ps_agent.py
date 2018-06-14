@@ -1,13 +1,13 @@
-import numpy as np
 import random
+
 import env.map
 from agents.agent import Task, Agent, check_map
 from agents.local_knowledge.lk_agent import LocalKnowledgeAgent
 from env.block import Block
 from env.util import legal_attachment_sites
-from geom.shape import *
 from geom.path import Path
-from geom.util import simple_distance, rotation_2d
+from geom.shape import *
+from geom.util import simple_distance
 
 
 class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
@@ -390,7 +390,7 @@ class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
         self.position_queue.append(self.geometry.position.copy())
 
         collision_danger = False
-        if self.collision_possible and self.current_task not in [Task.AVOID_COLLISION, Task.LAND, Task.FINISHED]:
+        if self.collision_possible and self.current_task not in [Task.LAND, Task.FINISHED]:
             for a in environment.agents:
                 if self is not a and self.collision_potential(a) \
                         and a.geometry.position[2] <= self.geometry.position[2] - self.required_vertical_distance:

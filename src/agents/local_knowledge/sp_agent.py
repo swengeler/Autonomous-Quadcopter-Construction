@@ -1,12 +1,12 @@
-import numpy as np
 import random
+
 import env.map
 from agents.agent import Agent, Task, check_map
 from agents.local_knowledge.lk_agent import LocalKnowledgeAgent
 from env.block import Block
 from env.util import shortest_path, legal_attachment_sites
-from geom.shape import *
 from geom.path import Path
+from geom.shape import *
 from geom.util import simple_distance
 
 

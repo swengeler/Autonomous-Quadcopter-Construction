@@ -1,15 +1,19 @@
-import numpy as np
 import random
-import env.map
 from abc import abstractmethod
+
+import env.map
 from agents.agent import Task, Agent, check_map
 from env.block import Block
-from geom.shape import *
 from geom.path import Path
-from geom.util import simple_distance, rotation_2d
+from geom.shape import *
+from geom.util import simple_distance
 
 
 class GlobalKnowledgeAgent(Agent):
+    """
+    A super class encapsulating the information and functionality expected to be used by all agents with
+    global knowledge of the environment.
+    """
 
     def __init__(self,
                  position: List[float],
@@ -29,7 +33,20 @@ class GlobalKnowledgeAgent(Agent):
                          environment: env.map.Map,
                          candidate_components,
                          order="center"):
-        # just using this for the global knowledge version for now
+        """
+        Sort the given component markers according to the specified strategy.
+
+        The 'center' strategy orders components by the distance of the component's seed to the center of the
+        structure. The 'distance' strategy orders them by the seed's distance to the agent itself. The 'agents'
+        strategy orders them by the number of agents over the blocks that have already been placed for the
+        component. The 'percentage' strategy orders them by
+
+        :param compared_map: the occupancy matrix to use for component ordering
+        :param environment: the environment in which the agent operates in
+        :param candidate_components: a list of component markers to sort
+        :param order: an identifier for the strategy to employ for sorting
+        :return: the sorted list of component markers according to the specified strategy
+        """
 
         # first option: ordering by distance measures: either geometric distance or blocks to travel there
         # note that the latter may actually not be applicable in all situations (e.g. when the QC is off-site)
@@ -115,6 +132,17 @@ class GlobalKnowledgeAgent(Agent):
         return [candidate_components[i] for i in order]
 
     def recheck_task(self, environment: env.map.Map):
+        """
+        Check whether the current task should be changed based on an updated environment.
+
+        This method is called when an agent has placed or picked up a block and is the equivalent of
+        broadcasting a message to the other agents in a real-life implementation. Depending e.g. on whether a
+        component/layer has been completed (and other factors), the agent's task changes.
+
+        :param environment: the environment the agent operates in
+        :return: True if the task was changed, False otherwise
+        """
+
         changed_task = False
         if self.check_structure_finished(environment.occupancy_map) \
                 or (self.current_block is None
@@ -125,9 +153,6 @@ class GlobalKnowledgeAgent(Agent):
             self.aprint("LANDING (11)")
             self.current_path = None
             return True
-
-        # maybe if carrying block for last component and there are no more seeds to go for,
-        # just go to position that is not above that seed and hover there ????????
 
         if self.current_block is not None and self.current_block.geometry in self.geometry.attached_geometries \
                 and not self.current_block_type_seed and len(environment.seed_stashes) > 0 \
@@ -442,6 +467,19 @@ class GlobalKnowledgeAgent(Agent):
         return changed_task
 
     def fetch_block(self, environment: env.map.Map):
+        """
+        Move with the goal of fetching a block.
+
+        This method is called if the current task is FETCH_BLOCK. If the agent has not planned a path to fetch
+        a block yet, it first determines the closest stash of normal/seed blocks which still has blocks left.
+        It then plans a path to that location and follows the path until it reaches the end point. If this parameter
+        is set and there are more than 3 other agents around that block, the agent may choose a different stash
+        of blocks to go to if it there is one. Once the agent reaches a block stash and it is not empty yet,
+        the task changes to PICK_UP_BLOCK.
+
+        :param environment: the environment the agent operates in
+        """
+
         position_before = np.copy(self.geometry.position)
 
         if self.current_path is None:
@@ -551,6 +589,18 @@ class GlobalKnowledgeAgent(Agent):
         self.per_task_distance_travelled[Task.FETCH_BLOCK] += simple_distance(position_before, self.geometry.position)
 
     def pick_up_block(self, environment: env.map.Map):
+        """
+        Move with the goal of picking up a block.
+
+        This method is called if the current task is PICK_UP_BLOCK. If the agent has not planned a path and
+        selected a block to pick up, it first selects the closest block from the block stash it is at and plans
+        a path of movement to pick up the block. Once it is at level low enough to pick up the block, it attaches
+        it to itself and the task changes to TRANSPORT_BLOCK. Other agents are also notified updated about a
+        block having been removed from the stash.
+
+        :param environment: the environment the agent operates in
+        """
+
         position_before = np.copy(self.geometry.position)
 
         # at this point it has been confirmed that there is indeed a block around that location
@@ -633,6 +683,17 @@ class GlobalKnowledgeAgent(Agent):
         self.per_task_distance_travelled[Task.PICK_UP_BLOCK] += simple_distance(position_before, self.geometry.position)
 
     def wait_on_perimeter(self, environment: env.map.Map):
+        """
+        Move with the goal of waiting on the structure perimeter (circling).
+
+        This method is called if the current task is WAIT_ON_PERIMETER. If the agent has not planned a path yet,
+        it first determines the closest corner of the construction area in a counter-clockwise direction and then
+        plans a path there. Once it reaches the corner it plans a path to the next corner and so on until the
+        condition is met to enter the construction area and perform the original task (TRANSPORT_BLOCK).
+
+        :param environment: the environment the agent operates in
+        """
+
         position_before = np.copy(self.geometry.position)
 
         if self.current_path is None:
@@ -691,6 +752,18 @@ class GlobalKnowledgeAgent(Agent):
         self.per_task_distance_travelled[Task.WAIT_ON_PERIMETER] += simple_distance(position_before, self.geometry.position)
 
     def hover_over_component(self, environment: env.map.Map):
+        """
+        Move with the goal of hovering over a component which has not been seeded yet while waiting for it to be seeded.
+
+        This method is called if the current task is HOVER_OVER_COMPONENT. If the agent has not planned a path yet,
+        it determines a path to a position above the current components seed position and then remains in approximately
+        that position until a different agent has attached the seed block there. This task is intended for situations
+        where no more seeds are left on the stash and some seeds have not been placed in the structure yet,
+        and where agents not carrying one of these seeds have to wait for one to be attached before doing anything else.
+
+        :param environment: the environment the agent operates in
+        """
+
         position_before = np.copy(self.geometry.position)
 
         # this should only happen when there is one unseeded component left, but there are no more seeds left
@@ -736,6 +809,20 @@ class GlobalKnowledgeAgent(Agent):
         self.per_task_distance_travelled[Task.HOVER_OVER_COMPONENT] += simple_distance(position_before, self.geometry.position)
 
     def rejoin_swarm(self, environment: env.map.Map):
+        """
+        Do not move but instead decide to rejoin the swarm with a low probability and determine a new component to
+        attach to based on global up-to-date knowledge of the structure.
+
+        This method is called if the current task is REJOIN_SWARM. Once an agent has landed and is waiting to rejoin
+        the swarm it should do so with a fairly low probability at each step, so that the dropping-out actually has
+        an effect on performance. Once rejoining is triggered, the agent can use the global knowledge of the progress
+        on the structure to easily determine a new component to go for. First though, it switches to task FETCH_BLOCK
+        and after that either to TRANSPORT_BLOCK (if there are unfinished components left) or RETURN_BLOCK, if it has
+        to fetch a seed for an unseeded component.
+
+        :param environment: the environment the agent operates in
+        """
+
         position_before = np.copy(self.geometry.position)
 
         if not self.rejoining_swarm and not ((self.collision_count / self.step_count) < 0.34 and random.random() < 0.9):
@@ -752,7 +839,7 @@ class GlobalKnowledgeAgent(Agent):
             self.fetch_block(environment)
             return
 
-        # because global information is available, this whole procedure is relatively straigh-forward
+        # because global information is available, this whole procedure is relatively straight-forward
         highest_layer = self.current_structure_level
         for z in range(self.current_structure_level, self.target_map.shape[0]):
             if np.count_nonzero(environment.occupancy_map[z]) > 0:
@@ -853,6 +940,18 @@ class GlobalKnowledgeAgent(Agent):
         self.per_task_distance_travelled[Task.REJOIN_SWARM] += simple_distance(position_before, self.geometry.position)
 
     def transport_block(self, environment: env.map.Map):
+        """
+        Move with the goal of transporting a picked-up block to a seed in the structure for further orientation.
+
+        This method is called if the current task is TRANSPORT_BLOCK. If the agent has not planned a path yet,
+        it determines a path to the position of the seed it is currently using for localisation in the structure.
+        Then the agent moves to that position and if it is carrying a normal block switches the task to
+        FIND_ATTACHMENT_SITE. If it is carrying a seed block, it moves to the intended location for that seed
+        instead and upon reaching it (if it is not occupied), switches to the task PLACE_BLOCK.
+
+        :param environment: the environment the agent operates in
+        """
+
         position_before = np.copy(self.geometry.position)
 
         # in this case the seed location is taken as the structure location,
@@ -1025,6 +1124,17 @@ class GlobalKnowledgeAgent(Agent):
         self.per_task_distance_travelled[Task.TRANSPORT_BLOCK] += simple_distance(position_before, self.geometry.position)
 
     def move_to_perimeter(self, environment: env.map.Map):
+        """
+        Move with the goal of reaching the perimeter of the structure (more specifically the current component).
+
+        This method is called if the current task is MOVE_TO_PERIMETER. If the agent has not planned a path yet,
+        it determines a direction to move into and then proceeds to move into that direction until it has reached
+        the structure/component perimeter. When it has reached it, the task changes FIND_ATTACHMENT_SITE or
+        SURVEY_COMPONENT depending on whether the agent is carrying a normal block or a seed block.
+
+        :param environment: the environment the agent operates in
+        """
+
         position_before = np.copy(self.geometry.position)
 
         if self.current_path is None:
@@ -1087,6 +1197,20 @@ class GlobalKnowledgeAgent(Agent):
         self.per_task_distance_travelled[Task.MOVE_TO_PERIMETER] += simple_distance(position_before, self.geometry.position)
 
     def return_block(self, environment: env.map.Map):
+        """
+        Move with the goal of returning the current block and then picking one of the 'opposite' type.
+
+        This method is called if the current task is RETURN_BLOCK. If the agent has not planned a path yet, it plans
+        one to the closest stash matching the type of block it is carrying and proceeds to move there. Once it has
+        reached the stash, it descends and places the block. Note that stashes are not modelled realistically and
+        blocks simply overlap each other in them, this process does not involve searching for a place in the stash
+        to bring the block to, which may be desirable in a later version of the implementation. Once the block has
+        been placed in the stash, the task switches either to FETCH_BLOCK or LAND, depending on whether the agent
+        was leaving the swarm or not.
+
+        :param environment: the environment the agent operates in
+        """
+
         position_before = np.copy(self.geometry.position)
 
         if self.current_path is None:
@@ -1124,8 +1248,7 @@ class GlobalKnowledgeAgent(Agent):
                 min_stash_location = None
                 min_distance = float("inf")
                 for p in list(stashes.keys()):
-                    if p not in self.known_empty_stashes \
-                            and any([p[i] != self.current_path.positions[-1][i] for i in range(2)]):
+                    if any([p[i] != self.current_path.positions[-1][i] for i in range(2)]):
                         distance = simple_distance(self.geometry.position, p)
                         if distance < min_distance:
                             min_distance = distance
@@ -1189,6 +1312,18 @@ class GlobalKnowledgeAgent(Agent):
         self.per_task_distance_travelled[Task.RETURN_BLOCK] += simple_distance(position_before, self.geometry.position)
 
     def land(self, environment: env.map.Map):
+        """
+        Move with the goal of landing.
+
+        This method is called if the current task is LAND. If the agent has not planned a path yet, it constructs a
+        path to its original position in the environment and then proceeds to land there. If the agent does not land
+        because it is leaving the swarm and planning to rejoin it later, the task changes to FINISHED and the agent
+        does not take part in construction any more. It may be desirable to choose the place to land differently
+        (e.g. outside of the area of movement of the other agents), but this has not been implemented.
+
+        :param environment: the environment the agent operates in
+        """
+
         position_before = np.copy(self.geometry.position)
 
         if self.current_path is None:
@@ -1234,5 +1369,6 @@ class GlobalKnowledgeAgent(Agent):
 
     @abstractmethod
     def advance(self, environment: env.map.Map):
+        # TODO: move some common stuff here?
         pass
 

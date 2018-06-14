@@ -1,10 +1,10 @@
-import numpy as np
 import logging
-import env.map
 import random
+from abc import ABCMeta, abstractmethod
 from collections import deque as dq
 from enum import Enum
-from abc import ABCMeta, abstractmethod
+
+import env.map
 from env.block import Block
 from env.util import print_map, shortest_path
 from geom.shape import *
@@ -14,6 +14,11 @@ np.seterr(divide='ignore', invalid='ignore')
 
 
 class Task(Enum):
+    """
+    A enumeration specifying different tasks which the agents perform during construction.
+    This could be extended if other tasks are required (e.g. for planned collision avoidance).
+    """
+
     FETCH_BLOCK = 0
     PICK_UP_BLOCK = 2
     TRANSPORT_BLOCK = 3
@@ -23,7 +28,6 @@ class Task(Enum):
     FIND_NEXT_COMPONENT = 7
     SURVEY_COMPONENT = 8
     RETURN_BLOCK = 9
-    AVOID_COLLISION = 10
     CHECK_STASHES = 11
     LAND = 12
     FINISHED = 13
@@ -46,7 +50,6 @@ class AgentStatistics:
             Task.FIND_NEXT_COMPONENT: 0,
             Task.SURVEY_COMPONENT: 0,
             Task.RETURN_BLOCK: 0,
-            Task.AVOID_COLLISION: 0,
             Task.CHECK_STASHES: 0,
             Task.LAND: 0,
             Task.FINISHED: 0,
@@ -67,6 +70,15 @@ class AgentStatistics:
 
 
 def check_map(map_to_check, position, comparator=lambda x: x != 0):
+    """
+    Check whether the specified condition holds at the given position on the given map.
+
+    :param map_to_check: the occupancy matrix to check for the condition
+    :param position: the grid position to check the condition at
+    :param comparator: an expression evaluating to True or False which is applied to the entry at the position
+    :return: True if the condition holds, False otherwise
+    """
+
     if any(position < 0):
         return comparator(0)
     try:
@@ -79,6 +91,11 @@ def check_map(map_to_check, position, comparator=lambda x: x != 0):
 
 
 class Agent:
+    """
+    A super class representing an agent encapsulating all the important information and functionality that is
+    expected to be used by all or most agent types that can be implemented based on it.
+    """
+
     __metaclass__ = ABCMeta
 
     MOVEMENT_PER_STEP = 5
@@ -92,14 +109,14 @@ class Agent:
         self.logger = logging.getLogger(self.__class__.__name__)
         self.printing_enabled = printing_enabled
 
-        self.geometry = GeomBox(position, size, 0.0)
-        self.collision_avoidance_geometry = GeomBox(position,
-                                                    [size[0] + required_spacing * 2,
+        self.geometry = Geometry(position, size, 0.0)
+        self.collision_avoidance_geometry = Geometry(position,
+                                                     [size[0] + required_spacing * 2,
                                                      size[1] + required_spacing * 2,
                                                      size[2] + required_spacing * 2], 0.0)
-        self.collision_avoidance_geometry_with_block = GeomBox([position[0], position[1],
-                                                                position[2] - (Block.SIZE - size[2]) / 2 - size[2] / 2],
-                                                               [size[0] + required_spacing * 2,
+        self.collision_avoidance_geometry_with_block = Geometry([position[0], position[1],
+                                                                 position[2] - (Block.SIZE - size[2]) / 2 - size[2] / 2],
+                                                                [size[0] + required_spacing * 2,
                                                                 size[1] + required_spacing * 2,
                                                                 size[2] + Block.SIZE + required_spacing * 2], 0.0)
         self.geometry.following_geometries.append(self.collision_avoidance_geometry)
@@ -147,17 +164,17 @@ class Agent:
 
         self.order_only_one_metric = False
 
-        # performance metrics
-        self.step_count = 0  # happens in advance method
+        # performance metrics to keep track of
+        self.step_count = 0
         self.stuck_count = 0
         self.seeded_blocks = 0
         self.attached_blocks = 0
         self.returned_blocks = 0
-        self.per_task_step_count = dict([(task, 0) for task in Task])  # happens in move method
-        self.per_task_collision_avoidance_count = dict([(task, 0) for task in Task])  # happens in move method
-        self.per_task_distance_travelled = dict([(task, 0) for task in Task]) # has to happen in every method
+        self.per_task_step_count = dict([(task, 0) for task in Task])
+        self.per_task_collision_avoidance_count = dict([(task, 0) for task in Task])
+        self.per_task_distance_travelled = dict([(task, 0) for task in Task])
         self.attachment_frequency_count = []
-        self.components_seeded = []  # this and the following one to see how balanced the work load is
+        self.components_seeded = []
         self.components_attached = []
         self.per_search_attachment_site_count = {
             "possible": [],
@@ -245,48 +262,51 @@ class Agent:
         pass
 
     def overlaps(self, other):
+        """
+        Check whether this agent's geometry and the other agent's geometry overlap.
+
+        :param other: the other agent to check against
+        :return: True if the geometries overlap, False otherwise
+        """
+
         return self.geometry.overlaps(other.geometry)
 
     def move(self, environment: env.map.Map, react_only=False):
+        """
+        Calculate the direction for the next step to take on the current path, possibly avoiding collisions.
+
+        This method uses the current path to determine the next way point to move to and calculate a vector
+        of movement in that direction. If there are other agents which are in risk of colliding with this agent
+        (and which are visible to it), a force vector pointing in the opposite direction of the vector between
+        the two agents is added to the vector of movement (scaled by their distance). The summed vector is then
+        normalised and its length extended to match the maximum range of movement per step for an agent.
+
+        :param environment: the environment in which the agent is operating
+        :param react_only: determines whether the agent will follow the current path or just try to stay
+        at the current position
+        :return: the next position on the current path and a the determined vector of movement
+        """
+
         self.per_task_step_count[self.current_task] += 1
 
         if not react_only:
             next_position = self.current_path.next()
             current_direction = self.current_path.direction_to_next(self.geometry.position)
-            original_direction = self.current_path.direction_to_next(self.geometry.position)
         else:
             next_position = self.current_static_location
-            current_direction = next_position - self.geometry.position
-            original_direction = next_position - self.geometry.position
             current_direction = np.array([0.0, 0.0, 0.0])
-            original_direction = np.array([0.0, 0.0, 0.0])
 
         if sum(np.sqrt(current_direction ** 2)) > 0:
             current_direction /= sum(np.sqrt(current_direction ** 2))
 
-        # scale force vector by angle compared to direction of movement?
-        # if angle is small, then the influence of the force vector should also be smaller because
-        # the movement itself will already contribute to the collision avoidance
-        # otherwise, the force vector has to do most of the work (e.g. also stop the agent movement forwards
-        # and should therefore be scaled up)
-        # collision_count_updated = False or not self.current_task in [Task.FIND_NEXT_COMPONENT,
-        #                                                              Task.FIND_ATTACHMENT_SITE,
-        #                                                              Task.MOVE_TO_PERIMETER,
-        #                                                              Task.SURVEY_COMPONENT,
-        #                                                              Task.PLACE_BLOCK]
         collision_count_updated = False
         total_ff_vector = np.array([0.0, 0.0, 0.0])
         if self.collision_possible:
             for a in environment.agents:
                 if self is not a and self.collision_potential(a) and self.collision_potential_visible(a, react_only):
-                    # position_difference = a.geometry.position - self.geometry.position
-                    # position_signed_angle = np.arctan2(position_difference[1], position_difference[0]) - \
-                    #                         np.arctan2(original_direction[1], original_direction[0])
-
                     force_field_vector = np.array([0.0, 0.0, 0.0])
                     force_field_vector += (self.geometry.position - a.geometry.position)
                     force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
-                    # force_field_vector = rotation_2d(force_field_vector, random.random() * np.pi / 8)
                     if not react_only:
                         force_field_vector *= 100 / simple_distance(self.geometry.position, a.geometry.position)
                     else:
@@ -324,29 +344,36 @@ class Agent:
         return next_position, current_direction
 
     def collision_potential(self, other):
+        """
+        Check whether the other agent is at risk of colliding with this agent.
+
+        This method could be adapted to initiate collision avoidance differently than it is currently done.
+
+        :param other: the other agent to check for a risk of collision with
+        :return: True if there is a risk of colliding soon, False if there is not
+        """
+
         if self.current_task == Task.FINISHED or other.current_task == Task.FINISHED:
             return False
-        # check whether self and other have other geometries attached
-        # find midpoint of collective geometries
-        # compute minimum required distance to not physically collide
-        # check whether distance is large enough
 
-        # OR: use collision box and check overlap
         if self.collision_using_geometries:
             if self.current_block is not None and self.current_block.geometry in self.geometry.following_geometries:
                 # block is attached, use collision_avoidance_geometry_with_block geometry
-                if other.current_block is not None and other.current_block.geometry in other.geometry.following_geometries:
+                if other.current_block is not None \
+                        and other.current_block.geometry in other.geometry.following_geometries:
                     return self.collision_avoidance_geometry_with_block.overlaps(
                         other.collision_avoidance_geometry_with_block)
                 else:
                     return self.collision_avoidance_geometry_with_block.overlaps(other.collision_avoidance_geometry)
             else:
                 # no block attached, check only quadcopter
-                if other.current_block is not None and other.current_block.geometry in other.geometry.following_geometries:
+                if other.current_block is not None \
+                        and other.current_block.geometry in other.geometry.following_geometries:
                     return self.collision_avoidance_geometry.overlaps(other.collision_avoidance_geometry_with_block)
                 else:
                     return self.collision_avoidance_geometry.overlaps(other.collision_avoidance_geometry)
         else:
+            # make a simple distance-based decision (a vector is added because the agent might have a block attached)
             if simple_distance(self.geometry.position + np.array([0, 0, -self.geometry.size[2]]),
                                other.geometry.position) \
                     < self.required_distance:
@@ -354,6 +381,18 @@ class Agent:
         return False
 
     def collision_potential_visible(self, other, view_above=False):
+        """
+        Check whether the other agent/quadcopter is visible to potentially initiate collision avoidance.
+
+        This method could be overridden to allow for different sensing capabilities of the quadcopters.
+        Currently it is assumed that agents all around can be recognised, except if they are immediately
+        above the current agent (unless specified by the view_above parameter).
+
+        :param other: the other agent
+        :param view_above:
+        :return: what
+        """
+
         # check whether other agent is within view, i.e. below this agent or in view of one of the cameras
         # get list of agents for which there is collision potential/danger
         self_corner_points = self.geometry.corner_points_2d()
@@ -389,10 +428,18 @@ class Agent:
                            angle=np.pi / 4,
                            max_distance=500,
                            max_vertical_distance=200):
-        # should this method only return the positions of "reasonably" visible agents or should it do more
-        # and e.g. just give directions (angles) and distances?
+        """
+        Count the number of agents visible in the specified directions (or North, South, East, West if none are given)
 
-        # maybe a good place to start would be to check for each direction whether agents are within x distance
+        :param environment: the environment the agent operates in
+        :param directions: the directions in which to count agents
+        :param angle: the angle around the directions within which agents are counted for a direction
+        :param max_distance: the maximum viewing distance (agents further away are not counted)
+        :param max_vertical_distance: the maximum vertical distance of other agents to this agent
+        :return: a list of agent counts for each specified direction
+        """
+
+        # if no directions are given, check in the four directions of movement along the grid
         if directions is None:
             directions = np.array([(1, 0), (-1, 0), (0, 1), (0, -1)])
         agents_counts = [0] * len(directions)
@@ -408,125 +455,23 @@ class Agent:
                 for d_idx, d in enumerate(directions):
                     difference = a.geometry.position[:2] - self.geometry.position[:2]
                     dot_product = d[0] * difference[0] + d[1] * difference[1]
-                    point_on_line = self.geometry.position[:2] + dot_product * d[:2]
-                    # if simple_distance(point_on_line, a.geometry.position[:2]) < 40:
-                    # in that case the agent is close enough to be counted as possibly interfering
-                    # agents_counts[d_idx] = agents_counts[d_idx] + 1
-                    # probably better to do this with angles instead
                     position_difference = a.geometry.position - self.geometry.position
                     position_signed_angle = np.arctan2(position_difference[1], position_difference[0]) - \
                                             np.arctan2(d[1], d[0])
-                    # self.aprint("Direction {} signed angle to agent {}: {}".format(d[:2], a.id, np.rad2deg(position_signed_angle)))
                     if abs(position_signed_angle) < angle:
                         agents_counts[d_idx] = agents_counts[d_idx] + 1
 
         return tuple(agents_counts)
 
-    def update_local_occupancy_map(self, environment: env.map.Map):
-        # update knowledge of the map
-        for y_diff in (-1, 0, 1):
-            for x_diff in (-1, 0, 1):
-                if environment.check_occupancy_map(np.array([self.current_grid_position[0] + x_diff,
-                                                             self.current_grid_position[1] + y_diff,
-                                                             self.current_grid_position[2]])):
-                    self.local_occupancy_map[self.current_grid_position[2],
-                                             self.current_grid_position[1] + y_diff,
-                                             self.current_grid_position[0] + x_diff] = 1
-
-        # if there are any sites to fill in the target map which are surrounded by blocks on 3 sides
-        # in the local occupancy map, then the site is also assumed to be filled because the rules
-        # of construction would not allow anything else, e.g. with this as the local map:
-        # [B] [O] [B] [A] ...
-        # [B] [O] [B] [B] ...
-        # [B] [B] [B] [B] ...
-        # ... ... ... ... ...
-        # where B = known block positions, A = attachment site, O = empty sites (to be occupied)
-        # in this case, the agent may have attached the upper-left most block when the adjacent two
-        # empty (but to-be-occupied) blocks were still empty, and then came back later when all the
-        # other blocks (marked here as B) had been filled out already -> since anything else would
-        # not be permitted, the agent knows that the previously empty sites have to be occupied at
-        # this point
-        # this would actually also be the case if there is a gap of more than 1:
-        # any continuous row/column in the target map between two occupied locations in the local occupancy
-        # map should be assumed to be filled out already
-        current_occupancy_map = self.local_occupancy_map[self.current_grid_position[2]]
-        current_target_map = self.target_map[self.current_grid_position[2]]
-        for y in range(current_target_map.shape[0]):
-            for x in range(current_target_map.shape[1]):
-                if current_occupancy_map[y, x] != 0:
-                    # counter = 0
-                    # for diff in (-1, 1):
-                    #     y2 = y + diff
-                    #     if 0 <= y2 < self.target_map.shape[1]:
-                    #         if self.local_occupancy_map[self.current_grid_position[2], y2, x] != 0:
-                    #             counter += 1
-                    #     x2 = x + diff
-                    #     if 0 <= x2 < self.target_map.shape[2]:
-                    #         if self.local_occupancy_map[self.current_grid_position[2], y, x2] != 0:
-                    #             counter += 1
-                    # if counter >= 3:
-                    #     self.local_occupancy_map[self.current_grid_position[2], y, x] = 1
-
-                    for diff in (-1, 1):
-                        # making it through this loop without a break means that in the x-row, y-column where the block
-                        # could be placed, there is either only a block immediately adjacent or any blocks already
-                        # placed are separated from the current site by an intended gap
-
-                        counter = 1
-                        while 0 <= y + counter * diff < current_occupancy_map.shape[0] \
-                                and current_occupancy_map[y + counter * diff, x] == 0 \
-                                and current_target_map[y + counter * diff, x] > 0:
-                            counter += 1
-                        if counter > 1 and 0 <= y + counter * diff < current_occupancy_map.shape[0] \
-                                and current_occupancy_map[y + counter * diff, x] > 0 and \
-                                current_target_map[y + counter * diff, x] > 0:
-                            # have encountered a block in this column, mark all in between
-                            # this position and the end of that column as occupied
-                            other_y = y + counter * diff
-                            if other_y > y:
-                                self.local_occupancy_map[self.current_grid_position[2], y:other_y, x] = 1
-                            else:
-                                self.local_occupancy_map[self.current_grid_position[2], other_y:y, x] = 1
-
-                        counter = 1
-                        while 0 <= x + counter * diff < current_occupancy_map.shape[1] \
-                                and current_occupancy_map[y, x + counter * diff] == 0 \
-                                and current_target_map[y, x + counter * diff] > 0:
-                            counter += 1
-                        if counter > 1 and 0 <= x + counter * diff < current_occupancy_map.shape[1] \
-                                and current_occupancy_map[y, x + counter * diff] > 0 and \
-                                current_target_map[y, x + counter * diff] > 0:
-                            # have encountered a block in this row, mark all in between
-                            # this position and the end of that row as occupied
-                            other_x = x + counter * diff
-                            if other_x > x:
-                                self.local_occupancy_map[self.current_grid_position[2], y, x:other_x] = 1
-                            else:
-                                self.local_occupancy_map[self.current_grid_position[2], y, other_x:x] = 1
-
-        # for y in range(3, 7):
-        #     if self.local_occupancy_map[0, y, 0] != 0 and environment.occupancy_map[0, y, 0] == 0:
-        #         self.aprint("Local occupancy map occupied at {} where environment not occupied."
-        #                .format((0, y, 0)))
-        #         self.aprint("Current position: {}".format(self.current_grid_position))
-        #         self.aprint("Local occupancy map at this level:\n{}".format(self.local_occupancy_map[0]))
-        #         self.aprint("Global occupancy map at this level:\n{}".format(environment.occupancy_map[0]))
-        #         print()
-        #         break
-
-        for z in range(self.local_occupancy_map.shape[0]):
-            for y in range(self.local_occupancy_map.shape[1]):
-                for x in range(self.local_occupancy_map.shape[2]):
-                    if self.local_occupancy_map[z, y, x] != 0 and environment.occupancy_map[z, y, x] == 0:
-                        self.aprint("Local occupancy map occupied at {} where environment not occupied."
-                               .format((x, y, z)))
-                        self.aprint("Current position: {}".format(self.current_grid_position))
-                        self.aprint("Local occupancy map at this level:\n{}".format(self.local_occupancy_map[z]))
-                        self.aprint("Global occupancy map at this level:\n{}".format(environment.occupancy_map[z]))
-                        self.aprint("")
-                        break
-
     def check_component_finished(self, compared_map: np.ndarray, component_marker=None):
+        """
+        Check whether the specified component is finished according to the provided occupancy matrix.
+
+        :param compared_map: the occupancy matrix to check
+        :param component_marker: the marker of the component to check
+        :return: True if the component is finished, False otherwise
+        """
+
         if component_marker is None:
             component_marker = self.current_component_marker
         tm = np.zeros_like(self.target_map[self.current_structure_level])
@@ -534,12 +479,16 @@ class Agent:
         om = np.copy(compared_map[self.current_structure_level])
         np.place(om, om > 0, 1)
         np.place(om, self.component_target_map[self.current_structure_level] != component_marker, 0)
-        # print("CHECKING COMPONENT {} FINISHED".format(component_marker))
-        # print_map(tm)
-        # print_map(om)
         return np.array_equal(om, tm)
 
     def check_layer_finished(self, compared_map: np.ndarray):
+        """
+        Check whether the current layer is finished according to the provided occupancy matrix.
+
+        :param compared_map: the occupancy matrix to check
+        :return: True if the current layer is finished, False otherwise
+        """
+
         tm = np.copy(self.target_map[self.current_structure_level])
         np.place(tm, tm > 0, 1)
         om = np.copy(compared_map[self.current_structure_level])
@@ -547,6 +496,13 @@ class Agent:
         return np.array_equal(om, tm)
 
     def check_structure_finished(self, compared_map: np.ndarray):
+        """
+        Check whether the structure is finished according to the provided occupancy matrix.
+
+        :param compared_map: the occupancy matrix to check
+        :return: True if the structure is finished, False otherwise
+        """
+
         tm = np.copy(self.target_map)
         np.place(tm, tm > 0, 1)
         om = np.copy(compared_map)
@@ -554,11 +510,19 @@ class Agent:
         return np.array_equal(om, tm)
 
     def unfinished_component_markers(self, compared_map: np.ndarray, level=None):
+        """
+        Return the markers of all components which are not finished yet according to the provided occupancy matrix.
+
+        :param compared_map: the occupancy matrix to check
+        :param level: the structure level at which to check for unfinished components
+        :return: a list of component markers of unfinished components
+        """
+
         if level is None:
             level = self.current_structure_level
         candidate_components = []
         for marker in np.unique(self.component_target_map[level]):
-            if marker != 0:  # != self.current_component_marker:
+            if marker != 0:
                 subset_indices = np.where(
                     self.component_target_map[level] == marker)
                 candidate_values = compared_map[level][subset_indices]
@@ -570,11 +534,19 @@ class Agent:
         return candidate_components
 
     def unseeded_component_markers(self, compared_map: np.ndarray, level=None):
+        """
+        Return the markers of all components which are not seeded yet according to the provided occupancy matrix.
+
+        :param compared_map: the occupancy matrix to check
+        :param level: the structure level at which to check for unseeded components
+        :return: a list of component markers of unseeded components
+        """
+
         if level is None:
             level = self.current_structure_level
         candidate_components = []
         for marker in np.unique(self.component_target_map[level]):
-            if marker != 0:  # != self.current_component_marker:
+            if marker != 0:
                 subset_indices = np.where(
                     self.component_target_map[level] == marker)
                 candidate_values = compared_map[level][subset_indices]
@@ -583,12 +555,16 @@ class Agent:
         return candidate_components
 
     def component_seed_location(self, component_marker, level=None, include_closing_corners=False):
-        # if component_marker == 2:
-        #     location = np.where(self.target_map == 2)
-        #     return location[2][0], location[1][0], location[0][0]
+        """
+        Return the seed location for the specified component according to some common (non-random) strategy.
+
+        :param component_marker: the component marker for which to return the seed location
+        :param level: the level of the structure at which to check (might be needed for multi-layered components)
+        :param include_closing_corners: include the closing corners of holes as possible seed locations
+        :return: the location of the specified component's seed in the grid
+        """
 
         if level is None:
-            level = self.current_structure_level
             locations = np.where(self.component_target_map == component_marker)
             level = locations[0][0]
 
@@ -624,12 +600,23 @@ class Agent:
                                         start_position,
                                         level=None,
                                         component_marker=None):
+        """
+        Return the direction (out of the four grid directions) in which the perimeter of the structure is reached first.
+
+        :param compared_map: the occupancy matrix to check
+        :param start_position: the grid position from which to start counting in each direction
+        :param level: the level of the structure on which to check
+        :param component_marker: the component marker for which to consider
+        :return: a vector of the direction with the smallest distance to the structure perimeter
+        """
+
         if level is None:
             level = self.current_structure_level
 
         if component_marker is None:
             component_marker = self.current_component_marker
 
+        # TODO: actually check component stuff
         directions = np.array([(1, 0), (-1, 0), (0, 1), (0, -1)])
         start_position = np.array(start_position)
         min_distance = 0
@@ -654,6 +641,16 @@ class Agent:
         return np.array([min_direction[0], min_direction[1], 0])
 
     def check_loop_corner(self, environment: env.map.Map, position=None):
+        """
+        Check whether the specified position is at at the closing corner of a hole and if so, whether the
+        adjacent positions on the boundary of the hole have already been filled and a block could be attached there.
+
+        :param environment: the environment the agent operates in
+        :param position: the position to check
+        :return: a boolean tuple, indicating whether the position is at a closing corner and whether
+        attachment is allowed there
+        """
+
         if position is None:
             position = self.current_grid_position
 
@@ -685,10 +682,8 @@ class Agent:
                     position + np.array([1, 0, 0])) and tuple(position + np.array([1, 0, 0])) in possible_boundaries:
                 counter += 1
             if counter >= 2:
-                # self.aprint("CORNER ALREADY SURROUNDED BY ADJACENT BLOCKS")
                 loop_corner_attachable = True
             else:
-                # self.aprint("CORNER NOT SURROUNDED BY ADJACENT BLOCKS YET")
                 pass
         else:
             loop_corner_attachable = True
@@ -696,18 +691,11 @@ class Agent:
         return at_loop_corner, loop_corner_attachable
 
     def split_into_components(self):
-        def component_fill(layer, i, j, marker):
-            if layer[i, j] == 1:
-                layer[i, j] = marker
+        """
+        Determine the disconnected components for each layer, assign markers to them and return a component map.
 
-                if i > 0:
-                    component_fill(layer, i - 1, j, marker)
-                if i < layer.shape[0] - 1:
-                    component_fill(layer, i + 1, j, marker)
-                if j > 0:
-                    component_fill(layer, i, j - 1, marker)
-                if j < layer.shape[1] - 1:
-                    component_fill(layer, i, j + 1, marker)
+        :return: an occupancy matrix with component markers
+        """
 
         def component_fill_iterative(layer, i, j, marker):
             if layer[i, j] == 1:
@@ -753,6 +741,12 @@ class Agent:
         return self.component_target_map
 
     def merge_multi_layer_components(self):
+        """
+        Merge existing disconnected components into multi-layered components and return a component map of that.
+
+        :return:
+        """
+
         # merge components if they are only connected to each other and one other component on a different layer
         # (i.e. the top and bottom most layers get special treatment for not being connected on both sides)
 
@@ -892,19 +886,13 @@ class Agent:
         return ml_component_map
 
     def find_closing_corners(self):
-        # for each layer, check whether there are any holes, i.e. 0's that - when flood-filled - only connect to 1's
-        def hole_fill(layer, i, j, marker):
-            if layer[i, j] == 0:
-                layer[i, j] = marker
-                if i > 0:
-                    hole_fill(layer, i - 1, j, marker)
-                if i < layer.shape[0] - 1:
-                    hole_fill(layer, i + 1, j, marker)
-                if j > 0:
-                    hole_fill(layer, i, j - 1, marker)
-                if j < layer.shape[1] - 1:
-                    hole_fill(layer, i, j + 1, marker)
+        """
+        Determine the closing corners of holes in the structure and return information about them.
 
+        :return:
+        """
+
+        # for each layer, check whether there are any holes, i.e. 0's that - when flood-filled - only connect to 1's
         def hole_fill_iterative(layer, i, j, marker):
             if layer[i, j] == 0:
                 layer[i, j] = marker
@@ -959,22 +947,6 @@ class Agent:
             valid_markers[z][:] = temp_copy
 
         # now need to find the enclosing cycles/loops for each hole
-        def boundary_search(layer, z, i, j, marker, visited, c_list):
-            if visited is None:
-                visited = []
-            if not (i, j) in visited and layer[i, j] == marker:
-                visited.append((i, j))
-                if i > 0:
-                    boundary_search(layer, z, i - 1, j, marker, visited, c_list)
-                if i < layer.shape[0] - 1:
-                    boundary_search(layer, z, i + 1, j, marker, visited, c_list)
-                if j > 0:
-                    boundary_search(layer, z, i, j - 1, marker, visited, c_list)
-                if j < layer.shape[1] - 1:
-                    boundary_search(layer, z, i, j + 1, marker, visited, c_list)
-            elif layer[i, j] != marker:
-                c_list.append((z, i, j))
-
         def boundary_search_iterative(layer, z, i, j, marker):
             visited = []
             c_list = []
@@ -1330,6 +1302,16 @@ class Agent:
         return closing_corners, hole_map, hole_boundary_coords, closing_corner_boundaries, closing_corner_orientations
 
     def aprint(self, *args, print_as_map=False, override_global_printing_enabled=False, **kwargs):
+        """
+        Print the input to this method, formatted so that the agent's ID is shown, if printing is enabled.
+
+        :param args: normal arguments to the print function
+        :param print_as_map: format the first element of args as a map using print_map
+        :param override_global_printing_enabled: regardless of the global setting, print or do not print
+        depending on this argument
+        :param kwargs: keyword arguments to the print function
+        """
+
         if self.printing_enabled or override_global_printing_enabled:
             if print_as_map:
                 print("[Agent {}]: ".format(self.id))
