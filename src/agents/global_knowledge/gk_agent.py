@@ -48,8 +48,7 @@ class GlobalKnowledgeAgent(Agent):
         :return: the sorted list of component markers according to the specified strategy
         """
 
-        # first option: ordering by distance measures: either geometric distance or blocks to travel there
-        # note that the latter may actually not be applicable in all situations (e.g. when the QC is off-site)
+        # first option: ordering by distance measures
         seed_grid_locations = []
         seed_locations = []
         for m in candidate_components:
@@ -66,10 +65,6 @@ class GlobalKnowledgeAgent(Agent):
             order_by_distance = sorted(range(len(candidate_components)),
                                        key=lambda i: (simple_distance(seed_locations[i], self.geometry.position),
                                                       simple_distance(seed_locations[i], environment.center)))
-        # order_by_hor_vert = sorted(range(len(candidate_components)),
-        #                            key=lambda i: (abs(self.current_grid_position[0] - seed_grid_locations[i][0]) +
-        #                                           abs(self.current_grid_position[1] - seed_grid_locations[i][1]),
-        #                                           simple_distance(seed_locations[i], environment.center)))
 
         # second option: order by the number of agents over that component; realistically this could only ever
         # be an estimate but for the sake of time and implementational difficulty, it is just the count now
@@ -127,8 +122,7 @@ class GlobalKnowledgeAgent(Agent):
             order = order_by_agent_count
         elif order == "distance":
             order = order_by_distance
-        # elif order == "hor_vert":
-        #     order = order_by_hor_vert
+
         return [candidate_components[i] for i in order]
 
     def recheck_task(self, environment: env.map.Map):
@@ -148,9 +142,9 @@ class GlobalKnowledgeAgent(Agent):
                 or (self.current_block is None
                     and all([len(environment.block_stashes[key]) == 0 for key in environment.block_stashes])
                     and all([len(environment.seed_stashes[key]) == 0 for key in environment.seed_stashes])):
+            # structure is finished, or all stashes are already empty, meaning that other agents will finish it
             self.current_task = Task.LAND
             self.task_history.append(self.current_task)
-            self.aprint("LANDING (11)")
             self.current_path = None
             return True
 
@@ -159,7 +153,8 @@ class GlobalKnowledgeAgent(Agent):
                 and all([len(environment.seed_stashes[key]) == 0 for key in environment.seed_stashes]):
             if self.current_task != Task.HOVER_OVER_COMPONENT \
                     and self.current_component_marker in self.unseeded_component_markers(environment.occupancy_map):
-                self.aprint("SWITCHING TO HOVER")
+                # if the current component has not been seeded yet, but there is an agent on its way to do so,
+                # should hover over the component to wait for it to be seeded
                 self.current_task = Task.HOVER_OVER_COMPONENT
                 self.task_history.append(self.current_task)
                 self.required_distance += 15
@@ -168,7 +163,7 @@ class GlobalKnowledgeAgent(Agent):
                 return
             elif self.current_task == Task.HOVER_OVER_COMPONENT and self.current_component_marker \
                     not in self.unseeded_component_markers(environment.occupancy_map):
-                self.aprint("STOPPING HOVER, TASK: {}".format(self.current_task))
+                # once the seed has been placed, can attach block there after hovering
                 intended_seed_position = self.component_seed_location(self.current_component_marker)
                 intended_seed = environment.block_at_position(intended_seed_position)
                 self.current_seed = intended_seed
@@ -273,8 +268,6 @@ class GlobalKnowledgeAgent(Agent):
                         return self.recheck_task(environment)
         elif self.current_task == Task.TRANSPORT_BLOCK or self.current_task == Task.WAIT_ON_PERIMETER \
                 or self.current_task == Task.PLACE_BLOCK:
-            # the check for PLACE_BLOCK is there for the (unlikely) case that an agent is pushed away from
-            # its intended attachment site so far that some other agents attaches there first
             if self.current_block_type_seed:
                 if environment.check_occupancy_map(self.next_seed_position):
                     # intended site for seed has been occupied, could now make a choice to attach there instead
@@ -488,7 +481,6 @@ class GlobalKnowledgeAgent(Agent):
                 self.current_task = Task.LAND
                 self.task_history.append(self.current_task)
                 self.current_path = None
-                self.aprint("LANDING BECAUSE ALL STASHES ARE EMPTY")
                 return
 
             stashes = environment.seed_stashes if self.current_block_type_seed else environment.block_stashes
@@ -526,7 +518,7 @@ class GlobalKnowledgeAgent(Agent):
         # if within a certain distance of the stash, check whether there are many other agents there
         # that should maybe be avoided (issue here might be that other it's is fairly likely due to
         # the low approach to the stashes that other agents push ones already there out of the way; in
-        # that case it would this check might still do some good (?))
+        # that case it would this check might still do some good
         if self.avoiding_crowded_stashes_enabled \
                 and simple_distance(self.geometry.position[:2], self.current_path.positions[-1][:2]) < 50:
             count_at_stash = 0
@@ -552,6 +544,7 @@ class GlobalKnowledgeAgent(Agent):
                     self.current_path = Path()
                     self.current_path.add_position([min_stash_location[0], min_stash_location[1], fetch_level_z])
 
+        # if intended stash is empty, try to switch
         if self.current_block_type_seed:
             if len(environment.seed_stashes[self.current_stash_position]) == 0:
                 self.current_path = None
@@ -565,8 +558,6 @@ class GlobalKnowledgeAgent(Agent):
                 self.fetch_block(environment)
                 return
 
-        # assuming that the if-statement above takes care of setting the path:
-        # collision detection should intervene here if necessary
         next_position, current_direction = self.move(environment)
         if simple_distance(self.geometry.position, next_position) <= Agent.MOVEMENT_PER_STEP:
             self.geometry.position = next_position
@@ -606,7 +597,7 @@ class GlobalKnowledgeAgent(Agent):
         # at this point it has been confirmed that there is indeed a block around that location
         if self.current_path is None:
             stashes = environment.seed_stashes if self.current_block_type_seed else environment.block_stashes
-            # determine the closest block in that stash (instead of using location, might want to use current_stash?)
+            # determine the closest block in that stash
             min_block = None
             min_distance = float("inf")
             occupied_blocks = []
@@ -623,7 +614,6 @@ class GlobalKnowledgeAgent(Agent):
 
             if min_block is None:
                 # no more blocks at that location, need to go elsewhere
-                self.aprint("EMPTY STASH DURING PICKUP (AT {})".format(self.current_stash_position))
                 self.current_task = Task.FETCH_BLOCK
                 self.task_history.append(self.current_task)
                 self.current_path = None
@@ -633,7 +623,6 @@ class GlobalKnowledgeAgent(Agent):
             # otherwise, make the selected block the current block and pick it up
             min_block.color = "red"
             self.current_block = min_block
-            self.aprint("Block {} at {} made current_block".format(self.current_block, self.current_block.geometry.position))
 
             pickup_z = min_block.geometry.position[2] + Block.SIZE / 2 + self.geometry.size[2] / 2
             self.current_path = Path()
@@ -647,14 +636,10 @@ class GlobalKnowledgeAgent(Agent):
             # attach block and move on to the transport_block task
             if not ret:
                 if self.current_block is None:
-                    self.aprint("AQUI ES EL PROBLEMO")
+                    self.aprint("Current block is None when trying to pick it up.")
                     self.current_path = None
                     self.pick_up_block(environment)
                     return
-
-                for a in environment.agents:
-                    if a is not self and self.current_block is a.current_block:
-                        self.aprint("CURRENT TARGET BLOCK PICKED UP BY OTHER AGENT {}".format(a.id))
 
                 stashes = environment.seed_stashes if self.current_block_type_seed else environment.block_stashes
                 stashes[self.current_stash_position].remove(self.current_block)
@@ -667,7 +652,6 @@ class GlobalKnowledgeAgent(Agent):
                 if self.rejoining_swarm and not self.current_block_type_seed:
                     self.current_task = Task.REJOIN_SWARM
                 else:
-                    self.aprint("TRANSPORTING BLOCK")
                     self.current_task = Task.TRANSPORT_BLOCK
                 self.task_history.append(self.current_task)
                 self.current_path = None
@@ -711,7 +695,7 @@ class GlobalKnowledgeAgent(Agent):
             self.current_path = Path()
             self.current_path.add_position([corner_point[0], corner_point[1], self.current_waiting_height])
 
-        # if agent_count < self.max_agent_count:
+        # re-check whether the condition for waiting on the perimeter still holds
         if self.area_density_restricted and environment.density_over_construction_area() <= 1:
             self.current_path = self.previous_path
             self.current_task = Task.TRANSPORT_BLOCK
@@ -753,7 +737,7 @@ class GlobalKnowledgeAgent(Agent):
 
     def hover_over_component(self, environment: env.map.Map):
         """
-        Move with the goal of hovering over a component which has not been seeded yet while waiting for it to be seeded.
+        Move with the goal of hovering over a component's seed position and waiting for it to be seeded.
 
         This method is called if the current task is HOVER_OVER_COMPONENT. If the agent has not planned a path yet,
         it determines a path to a position above the current components seed position and then remains in approximately
@@ -819,6 +803,9 @@ class GlobalKnowledgeAgent(Agent):
         on the structure to easily determine a new component to go for. First though, it switches to task FETCH_BLOCK
         and after that either to TRANSPORT_BLOCK (if there are unfinished components left) or RETURN_BLOCK, if it has
         to fetch a seed for an unseeded component.
+
+        Note that leaving and rejoining the swarm has only been tested in a very limited fashion and there may be
+        bugs in this implementation.
 
         :param environment: the environment the agent operates in
         """
@@ -992,7 +979,6 @@ class GlobalKnowledgeAgent(Agent):
                           self.current_seed.grid_position[1],
                           self.current_seed.grid_position[2] + 1]
         if environment.check_occupancy_map(position_above):
-            self.aprint("POSITION ABOVE PREVIOUS SEED ALREADY OCCUPIED")
             # the position is occupied
             block_above_seed = environment.block_at_position(position_above)
             if block_above_seed.is_seed:
@@ -1000,10 +986,6 @@ class GlobalKnowledgeAgent(Agent):
                 self.current_seed = block_above_seed
                 self.current_structure_level = self.current_seed.grid_position[2]
             else:
-                self.aprint("Current seed {} covered by block, trying to "
-                            "find seed of the covering component at {}"
-                            .format(self.current_seed.grid_position, block_above_seed.grid_position))
-
                 seed_grid_location = self.component_seed_location(
                     self.component_target_map[block_above_seed.grid_position[2],
                                               block_above_seed.grid_position[1],
@@ -1034,14 +1016,10 @@ class GlobalKnowledgeAgent(Agent):
                 self.current_path = None
                 self.current_grid_position = np.copy(self.current_seed.grid_position)
                 if self.current_block_type_seed and self.transporting_to_seed_site:
-                    self.aprint("HAVE REACHED SITE FOR CARRIED SEED (DESTINATION: {})"
-                                .format(self.next_seed_position))
-
                     # this means that we have arrived at the intended site for the seed, it should
                     # now be placed or, alternatively, a different site for it should be found
                     self.current_grid_position = np.array(self.next_seed_position)
                     if not environment.check_occupancy_map(self.next_seed_position):
-                        self.aprint("GOING TO PLACE THE SEED (AT {})".format(self.current_grid_position))
                         # can place the carried seed
                         self.current_task = Task.PLACE_BLOCK
                         self.task_history.append(self.current_task)
@@ -1049,9 +1027,6 @@ class GlobalKnowledgeAgent(Agent):
                                                                                   self.current_grid_position[1],
                                                                                   self.current_grid_position[0]]
                     else:
-                        self.aprint("NEED TO FIND DIFFERENT SEED SITE (ON LEVEL {})"
-                                    .format(self.current_structure_level))
-
                         # the position is already occupied, need to move to different site
                         # check whether there are even any unseeded sites
                         unseeded = self.unseeded_component_markers(environment.occupancy_map)
@@ -1076,7 +1051,6 @@ class GlobalKnowledgeAgent(Agent):
                     return
 
                 if not self.current_block_type_seed:
-                    self.aprint("CARRYING NORMAL BLOCK")
                     # should check whether the component is finished
                     if self.check_component_finished(environment.occupancy_map,
                                                      self.component_target_map[self.current_seed.grid_position[2],
@@ -1087,7 +1061,6 @@ class GlobalKnowledgeAgent(Agent):
                         self.current_task = Task.MOVE_TO_PERIMETER
                         self.task_history.append(self.current_task)
                 else:
-                    self.aprint("REACHED OLD SEED AND NOW TRANSPORTING TO NEW SEED SITE")
                     # if a seed is being carried, the transport phase continues to the designated seed position
                     seed_x = environment.offset_origin[0] + self.next_seed_position[0] * Block.SIZE
                     seed_y = environment.offset_origin[1] + self.next_seed_position[1] * Block.SIZE
@@ -1113,7 +1086,6 @@ class GlobalKnowledgeAgent(Agent):
                     self.transporting_to_seed_site = True
 
                 if self.check_component_finished(environment.occupancy_map):
-                    self.aprint("FINISHED COMPONENT {} AFTER TRANSPORTING".format(self.current_component_marker))
                     self.recheck_task(environment)
                     self.task_history.append(self.current_task)
                     self.current_visited_sites = None
@@ -1129,8 +1101,7 @@ class GlobalKnowledgeAgent(Agent):
 
         This method is called if the current task is MOVE_TO_PERIMETER. If the agent has not planned a path yet,
         it determines a direction to move into and then proceeds to move into that direction until it has reached
-        the structure/component perimeter. When it has reached it, the task changes FIND_ATTACHMENT_SITE or
-        SURVEY_COMPONENT depending on whether the agent is carrying a normal block or a seed block.
+        the structure/component perimeter. When it has reached it, the task changes FIND_ATTACHMENT_SITE.
 
         :param environment: the environment the agent operates in
         """
@@ -1169,6 +1140,7 @@ class GlobalKnowledgeAgent(Agent):
                     result = all(environment.occupancy_map[self.hole_boundaries[self.hole_map[
                         self.current_grid_position[2], self.current_grid_position[1],
                         self.current_grid_position[0]]]] != 0)
+                    # if the result is True, then we know that there is a hole and it is closed already
                 except (IndexError, KeyError):
                     result = False
 
@@ -1180,11 +1152,9 @@ class GlobalKnowledgeAgent(Agent):
                     # have reached perimeter
                     if not self.current_block_type_seed:
                         self.current_task = Task.FIND_ATTACHMENT_SITE
-                    else:
-                        self.current_task = Task.SURVEY_COMPONENT
-                    self.task_history.append(self.current_task)
-                    self.current_grid_direction = np.array(
-                        [-self.current_grid_direction[1], self.current_grid_direction[0], 0], dtype="int32")
+                        self.task_history.append(self.current_task)
+                        self.current_grid_direction = np.array(
+                            [-self.current_grid_direction[1], self.current_grid_direction[0], 0], dtype="int64")
                 else:
                     destination_x = (self.current_grid_position + self.current_grid_direction)[0] * Block.SIZE + \
                                     environment.offset_origin[0]
@@ -1242,7 +1212,6 @@ class GlobalKnowledgeAgent(Agent):
                 if a is not self and simple_distance(
                         a.geometry.position[:2], self.current_path.positions[-1][:2]) <= self.stash_min_distance:
                     count_at_stash += 1
-            # maybe don't make this a hard threshold though
             if count_at_stash > 3:
                 stashes = environment.seed_stashes if self.current_block_type_seed else environment.block_stashes
                 min_stash_location = None
@@ -1278,8 +1247,6 @@ class GlobalKnowledgeAgent(Agent):
             # if arrived at the stash, release the block and go to fetch a seed currently there is not other task
             # that needs to be performed in that case, therefore we can be sure that a seed should be fetched
             if not ret:
-                self.aprint("Trying to return block {} (drop_out_of_swarm: {})"
-                            .format(self.current_block, self.drop_out_of_swarm))
                 self.geometry.attached_geometries.remove(self.current_block.geometry)
 
                 if self.current_block_type_seed:
@@ -1297,7 +1264,6 @@ class GlobalKnowledgeAgent(Agent):
                 if self.drop_out_of_swarm:
                     self.current_task = Task.LAND
                 else:
-                    self.aprint("FETCHING NEW BLOCK AFTER RETURNING ONE")
                     self.current_task = Task.FETCH_BLOCK
                 self.task_history.append(self.current_task)
 
@@ -1311,64 +1277,13 @@ class GlobalKnowledgeAgent(Agent):
 
         self.per_task_distance_travelled[Task.RETURN_BLOCK] += simple_distance(position_before, self.geometry.position)
 
-    def land(self, environment: env.map.Map):
+    @abstractmethod
+    def advance(self, environment: env.map.Map):
         """
-        Move with the goal of landing.
-
-        This method is called if the current task is LAND. If the agent has not planned a path yet, it constructs a
-        path to its original position in the environment and then proceeds to land there. If the agent does not land
-        because it is leaving the swarm and planning to rejoin it later, the task changes to FINISHED and the agent
-        does not take part in construction any more. It may be desirable to choose the place to land differently
-        (e.g. outside of the area of movement of the other agents), but this has not been implemented.
+        Abstract method to be overridden by subclasses.
 
         :param environment: the environment the agent operates in
         """
 
-        position_before = np.copy(self.geometry.position)
-
-        if self.current_path is None:
-            land_x = self.initial_position[0]
-            land_y = self.initial_position[1]
-            land_z = Block.SIZE * (self.current_structure_level + 2) + self.geometry.size[2] / 2 + self.required_spacing
-
-            self.current_path = Path()
-            self.current_path.add_position([self.geometry.position[0], self.geometry.position[1], land_z])
-            self.current_path.add_position([land_x, land_y, land_z])
-            self.current_path.add_position([land_x, land_y, self.geometry.size[2] / 2])
-
-        next_position, current_direction = self.move(environment)
-        if simple_distance(self.geometry.position, next_position) <= Agent.MOVEMENT_PER_STEP:
-            self.geometry.position = next_position
-            ret = self.current_path.advance()
-            if not ret:
-                if abs(self.geometry.position[2] - Block.SIZE / 2) > Block.SIZE / 2:
-                    self.aprint("FINISHED WITHOUT LANDING")
-                    self.aprint("PATH POSITIONS: {}\nPATH INDEX: {}".format(self.current_path.positions,
-                                                                            self.current_path.current_index))
-                    self.aprint("POSITION IN QUESTION: {}".format(
-                        self.current_path.positions[self.current_path.current_index]))
-                    self.aprint("LAST 10 TASKS: {}".format(self.task_history[-10:]))
-                    self.aprint("HAPPENING IN AGENT: {}".format(self))
-                    self.aprint("placeholder")
-                    self.current_path = None
-                if self.current_block is not None:
-                    self.aprint("LANDING WITH BLOCK STILL ATTACHED")
-                    self.aprint("LAST 20 TASKS: {}".format(self.task_history[-10:]))
-                    self.aprint("what")
-                if self.drop_out_of_swarm:
-                    self.wait_for_rejoining = True
-                    self.current_task = Task.REJOIN_SWARM
-                else:
-                    self.current_task = Task.FINISHED
-                self.task_history.append(self.current_task)
-                self.current_path = None
-        else:
-            self.geometry.position = self.geometry.position + current_direction
-
-        self.per_task_distance_travelled[Task.LAND] += simple_distance(position_before, self.geometry.position)
-
-    @abstractmethod
-    def advance(self, environment: env.map.Map):
-        # TODO: move some common stuff here?
         pass
 

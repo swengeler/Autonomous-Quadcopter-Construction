@@ -1,9 +1,12 @@
 import queue
 import time
+import random
+import seaborn as sns
 
 from agents.agent import Task
 from agents.local_knowledge.ps_agent import LocalPerimeterFollowingAgent
 from agents.local_knowledge.sp_agent import LocalShortestPathAgent
+from env.block import Block
 from env.map import *
 from env.util import *
 from geom.shape import *
@@ -17,17 +20,15 @@ return_queue = queue.Queue()
 
 
 def main():
-    # setting up logging
-    logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(name)s:%(funcName)s():%(lineno)d - %(message)s")
-
     # setting global parameters
     interval = 0.05
     paused = False
 
     # creating the target map
     target_map = np.load(
-        "/home/simon/PycharmProjects/LowFidelitySimulation/res/new_experiment_maps/component_1x1.npy").astype("int64")
+        "/home/simon/PycharmProjects/LowFidelitySimulation/res/new_experiment_maps/block_4x4x4.npy").astype("int64")
 
+    # changing the block colours for easy differentiation when they are placed at a certain height
     palette_block = list(sns.color_palette("Blues_d", target_map.shape[0]))
     palette_seed = list(sns.color_palette("Reds_d", target_map.shape[0]))
     hex_palette_block = []
@@ -48,9 +49,7 @@ def main():
                           offset_structure * 2 + target_map.shape[1] * Block.SIZE,
                           offset_structure * 2 + target_map.shape[1] * Block.SIZE]
 
-    # environment_extent = [1000] * 3
-
-    # creating Map object and getting the required number of block_list (of each type)
+    # creating Map object and getting the required number of blocks
     environment = Map(target_map, offset_origin, environment_extent)
     block_count = environment.required_blocks()
 
@@ -59,7 +58,7 @@ def main():
     component_target_map = dummy_agent.split_into_components()
     required_seeds = np.max(component_target_map) - 2
 
-    # creating the block_list and a list of initial positions
+    # creating the blocks and a list of initial positions
     block_list = []
     for _ in range(0, block_count):
         block_list.append(Block())
@@ -84,7 +83,6 @@ def main():
                                            Block.SIZE / 2], [Block.SIZE] * 3, 0.0)
         processed.append(block_list[i])
 
-    # processed.extend(block_list)
     chunk_list = split_into_chunks(block_list[(1 + required_seeds):], 4)
     for sl_idx, sl in enumerate(chunk_list):
         for b in sl:
@@ -99,20 +97,12 @@ def main():
                                        offset_origin[1] + target_map.shape[1] * Block.SIZE + offset_stashes, Block.SIZE / 2]
             processed.append(b)
 
-    # creating the agent_list
-    agent_count = 1
+    # creating the agents and placing
+    agent_count = 16
     agent_type = LocalShortestPathAgent
     agent_list = [agent_type([50, 60, 7.5], [40, 40, 15], target_map, 10.0) for _ in range(0, agent_count)]
-    for i in range(len(agent_list)):
-        agent_list[i].id = i
-        agent_list[i].waiting_on_perimeter_enabled = True
-        agent_list[i].avoiding_crowded_stashes_enabled = True
-        agent_list[i].transport_avoid_others_enabled = True
-        # agent_list[i].dropping_out_enabled = True
-        # agent_list[i].printing_enabled = False
-        agent_list[i].seed_if_possible_enabled = True
-        agent_list[i].seeding_strategy = "distance_self"
-        agent_list[i].seeding_strategy = "shortest_path"
+    for a in agent_list:
+        a.waiting_on_perimeter_enabled = True
 
     processed_counter = 0
     while len(processed) != block_count + agent_count:
@@ -132,27 +122,13 @@ def main():
                 processed.append(agent_list[processed_counter])
                 processed_counter += 1
 
-    # adding the block_list (whose positions are randomly initialised inside the Map object)
+    # adding the blocks
     environment.add_blocks(block_list)
 
-    # print("BLOCK POSITIONS: {}".format(environment.block_stashes))
-    # print("SEED POSITIONS: {}".format(environment.seed_stashes))
-
-    # adding the agent list
+    # adding the agents
     environment.add_agents(agent_list)
 
-    # print("CLOSING CORNERS: {}".format(agent_list[0].closing_corners))
-    print("COMPONENT MAP:\n{}".format(agent_list[0].component_target_map))
-
-    idx = 0
-    # print("FOR AGENT 0 AT POSITION {}:".format(agent_list[idx].geometry.position))
-    # agent_list[idx].check_stashes(environment)
-    # print("COMPONENT MAP: {}".format(agent_list[idx].component_target_map))
-    # print("COMPONENT MAP: {}".format(agent_list[idx].multi_layer_component_target_map))
-    # return
-
     # starting the tkinter GUI
-    # threading.Thread(target=tk_main_loop, args=(environment.environment_extent[0])).start()
     graphics = Graphics2D(environment, request_queue, return_queue, ["top", "front"], interval * 1000, render=True)
     graphics.run()
 
@@ -167,33 +143,18 @@ def main():
     collisions = 0
     finished_successfully = False
     structure_complete = False
-    results = {}
     collision_pairs = []
 
-    component_markers = [cm for cm in np.unique(dummy_agent.component_target_map) if cm != 0]
-    agents_over_construction_zone = []
-    agents_over_components = dict([(cm, []) for cm in component_markers])
-    component_completion_count = dict([(cm, 0) for cm in component_markers])
-    layer_completion_count = [0] * target_map.shape[2]
-    # probably need reference in agents
-    started_components = []
-    completed_components = []
-    completed_layers = []
     try:
         while True:
             if not paused:
                 for a in agent_list:
                     a.advance(environment)
                 steps += 1
-                for cm in component_markers:
-                    if cm not in completed_components and cm not in started_components:
-                        # check whether components have been started
-                        if cm not in dummy_agent.unseeded_component_markers(environment.occupancy_map):
-                            pass
-                    elif cm not in completed_components:
-                        pass
+
                 if steps % 1000 == 0:
                     print("Simulation steps: {}".format(steps))
+
                 if all([a.current_task == Task.FINISHED for a in agent_list]):
                     print("Finished construction with {} agents in {} steps ({} colliding)."
                           .format(agent_count, steps, collisions / 2))
@@ -215,12 +176,6 @@ def main():
                     for k in list(max_stats.keys()):
                         print("{}: {}".format(k, max_stats[k]))
                     finished_successfully = True
-                    results["step_count"] = steps
-                    results["collisions"] = collisions
-                    results["average"] = average_stats
-                    results["min"] = min_stats
-                    results["max"] = max_stats
-                    results["finished_successfully"] = finished_successfully
                     print("\nFinal resulting map:")
                     print_map(environment.occupancy_map)
                     print("\nCollision data:\n{}".format(collision_pairs))
@@ -228,6 +183,7 @@ def main():
                 elif not structure_complete and agent_list[0].check_structure_finished(environment.occupancy_map):
                     print("Structure complete with {} agent(s) after {} steps.".format(agent_count, steps))
                     structure_complete = True
+
                 if len(agent_list) > 1:
                     for a1 in agent_list:
                         for a2 in agent_list:
@@ -237,9 +193,6 @@ def main():
                                 print("Agent {} ({}) and {} ({}) colliding.".format(a1.id, a1.current_task,
                                                                                     a2.id, a2.current_task))
                                 collision_pairs.append((a1.current_task, a2.current_task))
-                                # paused = True
-                # print("CURRENT MAP:")
-                # print_map(environment.occupancy_map)
 
                 current_map = np.copy(environment.occupancy_map)
                 np.place(current_map, current_map > 1, 1)
@@ -251,7 +204,6 @@ def main():
                     max_no_change_counter = no_change_counter
                 previous_map = current_map
 
-            # submit_to_tkinter(update_window, environment)
             request_queue.put(Graphics2D.UPDATE_REQUEST)
             try:
                 val = return_queue.get_nowait()
@@ -270,7 +222,6 @@ def main():
                         pass
             time.sleep(interval)
     except KeyboardInterrupt:
-        # submit_to_tkinter(stop_tk_thread)
         request_queue.put(Graphics2D.SHUTDOWN_REQUEST)
         if not finished_successfully:
             print("Interrupted construction with {} agents in {} steps ({} colliding)."
@@ -292,12 +243,6 @@ def main():
             print("\nMax statistics for agents:")
             for k in list(max_stats.keys()):
                 print("{}: {}".format(k, max_stats[k]))
-            results["step_count"] = steps
-            results["collisions"] = collisions
-            results["average"] = average_stats
-            results["min"] = min_stats
-            results["max"] = max_stats
-            results["finished_successfully"] = finished_successfully
             print("\nFinal resulting map:")
             print_map(environment.occupancy_map)
             print("\nCollision data:\n{}".format(collision_pairs))

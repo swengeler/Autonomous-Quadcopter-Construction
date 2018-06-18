@@ -1,6 +1,4 @@
 import collections
-import math
-import random
 from typing import Tuple
 
 import numpy as np
@@ -612,6 +610,23 @@ def legal_attachment_sites_revisited(target_map: np.ndarray,
 
 
 def legal_attachment_sites_3d(target_map: np.ndarray, occupancy_map: np.ndarray, safety_radius=2):
+    """
+    Return information about the legal attachment sites in 3D for the given target map and occupancy matrix.
+
+    This function is used for identifying legal attachment sites not restricted to a single layer (and therefore
+    component). It accounts for the physical size of the quadcopters by using a 'safety radius' around each
+    potential attachment site to determine whether there are other blocks on layers below within that safety radius
+    which should be placed first, because movement to them would otherwise be impossible. This way of determining
+    attachment sites introduces some other problems as well, most importantly that of localisation. In an early
+    test version using this function, agents had global knowledge of the structure and instant localisation (e.g.
+    by means of unique blocks).
+
+    :param target_map: an occupancy matrix representing the target structure
+    :param occupancy_map: an occupancy matrix representing the current state of the structure
+    :param safety_radius: the safety radius to ensure blocks on lower layers can still be placed
+    :return: a matrix with marked attachment sites
+    """
+
     # input is supposed to be a 3-dimensional layer
 
     # for each layer, identify the potential attachment sites in 2D, the 3D version can only get more restrictive
@@ -698,6 +713,16 @@ def neighbourhood(arr: np.ndarray, position, flatten=False):
 
 
 def ccw_angle_and_distance(point, origin=(0, 0), ref_point=(0, 1)):
+    """
+    Return the angle (counter-clockwise) and distance of a vector (determined relative to an origin point) with
+    respect to a reference vector.
+
+    :param point: the point used to calculate the vector
+    :param origin: the origin for both the provided point and the reference point
+    :param ref_point: the point used to calculate the reference vector
+    :return: angle of the point vector to the reference point vector and distance of point to origin
+    """
+
     vector = np.array([point[0] - origin[0], point[1] - origin[1]])
     len_vector = sum(np.sqrt(vector ** 2))
     ref_vector = np.array([ref_point[0] - origin[0], ref_point[1] - origin[1]])

@@ -151,22 +151,13 @@ class Graphics2D:
                                                self.padding[1],
                                                fill="blue", width=2)
 
-                if a.collision_using_geometries:
-                    points = np.concatenate(a.collision_avoidance_geometry_with_block.corner_points_2d()).tolist()
-                    for p_idx, p in enumerate(points):
-                        if p_idx % 2 != 0:
-                            points[p_idx] = self.map.environment_extent[1] - p + self.padding[1]
-                        else:
-                            points[p_idx] = p + self.padding[0]
-                    canvas.create_polygon(points, fill="black", outline="black")
-                else:
-                    canvas.create_oval(a.geometry.position[0] - a.required_distance / 2 + self.padding[0],
-                                       self.map.environment_extent[1] - (a.geometry.position[1] -
-                                                                         a.required_distance / 2) + self.padding[1],
-                                       a.geometry.position[0] + a.required_distance / 2 + self.padding[0],
-                                       self.map.environment_extent[1] - (a.geometry.position[1] +
-                                                                         a.required_distance / 2) + self.padding[1],
-                                       fill="black")
+                canvas.create_oval(a.geometry.position[0] - a.required_distance / 2 + self.padding[0],
+                                   self.map.environment_extent[1] - (a.geometry.position[1] -
+                                                                     a.required_distance / 2) + self.padding[1],
+                                   a.geometry.position[0] + a.required_distance / 2 + self.padding[0],
+                                   self.map.environment_extent[1] - (a.geometry.position[1] +
+                                                                     a.required_distance / 2) + self.padding[1],
+                                   fill="black")
 
                 points = np.concatenate(a.geometry.corner_points_2d()).tolist()
                 for p_idx, p in enumerate(points):
@@ -185,22 +176,13 @@ class Graphics2D:
             canvas = self.canvases["front"]
             sorted_agents = sorted(self.map.agents, key=lambda x: x.geometry.position[1], reverse=True)
             for a in sorted_agents:
-                if a.collision_using_geometries:
-                    size = a.collision_avoidance_geometry_with_block.size[2]
-                    points = np.array(a.collision_avoidance_geometry_with_block.corner_points_2d())
-                    min_x = min(points[:, 0]) + self.padding[0]
-                    max_x = max(points[:, 0]) + self.padding[0]
-                    z = self.map.environment_extent[2] - (a.collision_avoidance_geometry_with_block.position[2] - Block.SIZE / 2) + self.padding[1]
-                    canvas.create_polygon([min_x, z - size / 2, max_x, z - size / 2,
-                                           max_x, z + size / 2, min_x, z + size / 2], fill="black", outline="black")
-                else:
-                    canvas.create_oval(a.geometry.position[0] - a.required_distance / 2 + self.padding[0],
-                                       self.map.environment_extent[2] - (a.geometry.position[2] - a.geometry.size[2] -
-                                                                         a.required_distance / 2) + self.padding[1],
-                                       a.geometry.position[0] + a.required_distance / 2 + self.padding[0],
-                                       self.map.environment_extent[2] - (a.geometry.position[2] - a.geometry.size[2] +
-                                                                         a.required_distance / 2) + self.padding[1],
-                                       fill="black")
+                canvas.create_oval(a.geometry.position[0] - a.required_distance / 2 + self.padding[0],
+                                   self.map.environment_extent[2] - (a.geometry.position[2] - a.geometry.size[2] -
+                                                                     a.required_distance / 2) + self.padding[1],
+                                   a.geometry.position[0] + a.required_distance / 2 + self.padding[0],
+                                   self.map.environment_extent[2] - (a.geometry.position[2] - a.geometry.size[2] +
+                                                                     a.required_distance / 2) + self.padding[1],
+                                   fill="black")
 
             for a in sorted_agents:
                 size = a.geometry.size[2]

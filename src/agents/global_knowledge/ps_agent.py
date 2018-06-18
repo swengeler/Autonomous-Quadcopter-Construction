@@ -11,6 +11,10 @@ from geom.util import simple_distance
 
 
 class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):
+    """
+    A class implementing the perimeter following algorithm developed by Werfel et al. for quadcopters using
+    global knowledge (i.e. knowledge of blocks' removal from stashes and placement in the structure).
+    """
 
     def __init__(self,
                  position: List[float],
@@ -26,7 +30,15 @@ class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):
         """
         Move with the goal of finding an attachment site.
 
-        This method is called if the current task is FIND_ATTACHMENT_SITE. If the agent has not planned a
+        This method is called if the current task is FIND_ATTACHMENT_SITE. If this is the case, the agent is already
+        at the structure perimeter and knows its position in the grid. It then moves along the structure perimeter
+        (more specifically the perimeter of the current component) in counter-clockwise direction and determines
+        at each empty site it passes whether the carried block can be placed there. This is true at sites which should
+        be occupied according to the target occupancy matrix and which are 'inner corners' of the structure or
+        'end-of-row sites'. If the agent revisits a site during this, it is either 'stuck' in a hole and the next task
+        is MOVE_TO_PERIMETER to escape it, or the current component is complete in which case the agent checks
+        what to do next based on its current knowledge. If the agent does find an attachment site, the next task
+        becomes PLACE_BLOCK.
 
         :param environment: the environment the agent operates in
         """
@@ -34,7 +46,6 @@ class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):
         position_before = np.copy(self.geometry.position)
 
         if self.current_path is None:
-            # might consider putting something here
             self.current_path = Path()
             self.current_path.add_position(self.geometry.position)
 
@@ -44,11 +55,13 @@ class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):
         if self.current_visited_sites is None:
             self.current_visited_sites = []
 
-        if check_map(self.hole_map, self.current_grid_position, lambda x: x > 1): # need to check if hole is closed
+        if check_map(self.hole_map, self.current_grid_position, lambda x: x > 1):
+            # checking whether in a closed hole (without repeated sites)
             hole_marker = self.hole_map[self.current_grid_position[2],
                                         self.current_grid_position[1],
                                         self.current_grid_position[0]]
             if np.count_nonzero(environment.occupancy_map[self.hole_boundaries[hole_marker]] != 0) == 0:
+                # check whether hole is finished
                 self.current_task = Task.MOVE_TO_PERIMETER
                 self.task_history.append(self.current_task)
                 self.current_grid_direction = [1, 0, 0]
@@ -125,13 +138,12 @@ class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):
                         (environment.check_occupancy_map(self.current_grid_position + np.array([0, 1, 0])) and
                          environment.check_occupancy_map(self.current_grid_position + np.array([0, -1, 0])))) and \
                             not environment.check_occupancy_map(self.current_grid_position, lambda x: x > 0):
+                        # check if position is surrounded from two opposing sites
                         self.current_task = Task.LAND
                         self.current_visited_sites = None
                         self.current_path = None
-                        self.logger.error("CASE 1-3: Attachment site found, but block cannot be placed at {}."
-                                          .format(self.current_grid_position))
-                        self.aprint("LANDING (2)")
-                        self.aprint(True, self.target_map)
+                        self.aprint("CASE 1-3: Attachment site found, but block cannot be placed at {}."
+                                    .format(self.current_grid_position))
                     else:
                         self.current_task = Task.PLACE_BLOCK
                         self.task_history.append(self.current_task)
@@ -143,7 +155,7 @@ class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):
                             log_string = log_string.format(1, self.current_grid_position)
                         else:
                             log_string = log_string.format(2, self.current_grid_position)
-                        self.logger.debug(log_string)
+                        self.aprint(log_string)
 
                         sites = legal_attachment_sites(self.target_map[self.current_structure_level],
                                                        environment.occupancy_map[self.current_structure_level],
@@ -156,7 +168,7 @@ class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):
                         self.current_grid_direction = np.array([self.current_grid_direction[1],
                                                                 -self.current_grid_direction[0], 0],
                                                                dtype="int32")
-                        self.logger.debug("CASE 2: Position straight ahead occupied, turning clockwise.")
+                        self.aprint("CASE 2: Position straight ahead occupied, turning clockwise.")
                     elif position_around_corner_empty:
                         # first move forward (to the corner)
                         self.current_path.add_position(
@@ -169,22 +181,19 @@ class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):
                                                                 self.current_grid_direction[0], 0],
                                                                dtype="int32")
                         self.current_grid_position += self.current_grid_direction
-                        self.logger.debug(
-                            "CASE 3: Reached corner of structure, turning counter-clockwise. {} {}".format(
-                                self.current_grid_position, self.current_grid_direction))
+                        self.aprint("CASE 3: Reached corner of structure, turning counter-clockwise. {} {}"
+                                    .format(self.current_grid_position, self.current_grid_direction))
                         self.current_path.add_position(reference_position + Block.SIZE * self.current_grid_direction)
                         self.current_row_started = True
                     else:
                         # otherwise site "around the corner" occupied -> continue straight ahead
                         self.current_grid_position += self.current_grid_direction
-                        self.logger.debug("CASE 4: Adjacent positions ahead occupied, continuing to follow perimeter.")
+                        self.aprint("CASE 4: Adjacent positions ahead occupied, continuing to follow perimeter.")
                         self.current_path.add_position(
                             self.geometry.position + Block.SIZE * self.current_grid_direction)
                         self.current_row_started = True
 
                 if self.check_component_finished(environment.occupancy_map):
-                    self.aprint("FINISHED COMPONENT {} AFTER MOVING TO NEXT BLOCK IN ATTACHMENT SITE"
-                                .format(self.current_component_marker))
                     self.recheck_task(environment)
                     self.task_history.append(self.current_task)
                     self.current_visited_sites = None
@@ -192,9 +201,24 @@ class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):
         else:
             self.geometry.position = self.geometry.position + current_direction
 
-        self.per_task_distance_travelled[Task.FIND_ATTACHMENT_SITE] += simple_distance(position_before, self.geometry.position)
+        self.per_task_distance_travelled[Task.FIND_ATTACHMENT_SITE] += simple_distance(position_before,
+                                                                                       self.geometry.position)
 
     def place_block(self, environment: env.map.Map):
+        """
+        Move with the goal of placing a block.
+
+        This method is called if the current task is PLACE_BLOCK. If the agent has not planned a path yet,
+        it determines a path to descend from the current position to a position where it can let go of the block
+        to place it. In a more realistic simulation this placement process would likely be much more complex and
+        may indeed turn out to be one of the most difficult parts of the low-level quadcopter control necessary
+        for the construction task. In this case however, this complexity is not considered. Once the block has been
+        placed, if the structure is not finished the task becomes FETCH_BLOCK, otherwise it becomes LAND. Since this
+        is the global knowledge version of this algorithm, the agent also notifies all other agents of the change.
+
+        :param environment: the environment the agent operates in
+        """
+
         position_before = np.copy(self.geometry.position)
 
         if self.current_path is None:
@@ -230,7 +254,7 @@ class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):
             # block should now be placed in the environment's occupancy matrix
             if not ret:
                 if self.current_block.geometry.position[2] > (self.current_grid_position[2] + 0.5) * Block.SIZE:
-                    self.logger.error("BLOCK PLACED IN AIR ({})".format(self.current_grid_position[2]))
+                    self.aprint("Error: block placed in the air ({})".format(self.current_grid_position[2]))
                     self.current_path.add_position(
                         np.array([self.geometry.position[0], self.geometry.position[1],
                                   (self.current_grid_position[2] + 1) * Block.SIZE + self.geometry.size[2] / 2]))
@@ -245,6 +269,9 @@ class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):
                         self.components_attached.append(int(self.current_component_marker))
                     self.attached_blocks += 1
 
+                if self.rejoining_swarm:
+                    self.rejoining_swarm = False
+
                 self.attachment_frequency_count.append(self.count_since_last_attachment)
                 self.count_since_last_attachment = 0
 
@@ -257,21 +284,13 @@ class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):
                 self.current_visited_sites = None
                 self.transporting_to_seed_site = False
 
-                if self.rejoining_swarm:
-                    self.rejoining_swarm = False
-
                 if self.check_structure_finished(environment.occupancy_map) \
                         or (self.check_layer_finished(environment.occupancy_map)
                             and self.current_structure_level >= self.target_map.shape[0] - 1):
-                    self.aprint("AFTER PLACING BLOCK: FINISHED")
                     self.current_task = Task.LAND
-                    self.aprint("LANDING (3)")
                 elif self.check_component_finished(environment.occupancy_map):
-                    self.aprint("AFTER PLACING BLOCK: FINDING NEXT COMPONENT")
                     self.current_task = Task.FETCH_BLOCK
                 else:
-                    self.aprint("AFTER PLACING BLOCK: FETCHING BLOCK FOR COMPONENT {} (PREVIOUS WAS SEED: {})"
-                                .format(self.current_component_marker, self.current_block_type_seed))
                     self.current_task = Task.FETCH_BLOCK
                     if self.current_block_type_seed:
                         self.current_block_type_seed = False
@@ -285,6 +304,17 @@ class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):
         self.per_task_distance_travelled[Task.PLACE_BLOCK] += simple_distance(position_before, self.geometry.position)
 
     def advance(self, environment: env.map.Map):
+        """
+        Perform the next step of movement according to the current task.
+
+        Aside from calling the respective method for the current task, this method also takes care of some other
+        responsibilities, which are not specific to any specific task. In an earlier version, it was decided in
+        this method whether to initiate collision avoidance by dodging other agents explicitly and this would be
+        the best place to do so should it be reintroduced.
+
+        :param environment: the environment the agent operates in
+        """
+
         if self.current_task == Task.FINISHED:
             return
 
@@ -295,12 +325,6 @@ class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):
             elif all([len(environment.seed_stashes[key]) == 0 for key in environment.seed_stashes]) \
                     and all([len(environment.block_stashes[key]) == 0 for key in environment.block_stashes]):
                 finished = True
-            # elif self.current_block_type_seed \
-            #         and all([len(environment.seed_stashes[key]) == 0 for key in environment.seed_stashes]):
-            #     finished = True
-            # elif not self.current_block_type_seed \
-            #         and all([len(environment.block_stashes[key]) == 0 for key in environment.block_stashes]):
-            #     finished = True
 
             if finished:
                 self.drop_out_of_swarm = False
@@ -308,7 +332,6 @@ class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):
                 self.rejoining_swarm = False
                 self.current_path = None
                 self.current_task = Task.LAND
-                self.aprint("LANDING (8)")
                 self.task_history.append(self.current_task)
 
         if self.dropping_out_enabled:
@@ -343,7 +366,6 @@ class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):
 
         if self.current_task != Task.LAND and self.check_structure_finished(environment.occupancy_map):
             self.current_task = Task.LAND
-            self.aprint("LANDING (8)")
             self.task_history.append(self.current_task)
 
         self.agent_statistics.step(environment)
@@ -369,15 +391,18 @@ class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):
         elif self.current_task == Task.LAND:
             self.land(environment)
 
+        # since collision avoidance is as basic as it is it could happen that agents are stuck in a position
+        # and cannot move past each other, in that case the following makes them move a bit so that their
+        # positions change enough for the collision avoidance to take care of the congestion
         if self.current_task not in [Task.FINISHED, Task.LAND, Task.HOVER_OVER_COMPONENT]:
             if len(self.position_queue) == self.position_queue.maxlen \
                     and sum([simple_distance(self.geometry.position, x) for x in self.position_queue]) < 70 \
                     and self.current_path is not None:
-                self.aprint("STUCK")
                 self.stuck_count += 1
                 self.current_path.add_position([self.geometry.position[0],
                                                 self.geometry.position[1],
-                                                self.geometry.position[2] + self.geometry.size[2] * 2 * random.random()],
+                                                self.geometry.position[2] + self.geometry.size[
+                                                    2] * 2 * random.random()],
                                                self.current_path.current_index)
         elif self.current_task == Task.LAND:
             if len(self.position_queue) == self.position_queue.maxlen \
@@ -398,7 +423,6 @@ class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):
                     if self.current_path is None:
                         self.path_before_collision_avoidance_none = True
                     collision_danger = True
-                    # self.collision_count += 1
                     break
 
         self.step_count += 1

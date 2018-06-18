@@ -1,6 +1,7 @@
 import json
 import os
 import seaborn as sns
+import random
 from argparse import ArgumentParser
 from pprint import pprint
 
@@ -66,7 +67,7 @@ def run_experiment(parameters):
 
     target_map = np.load(LOAD_DIRECTORY_NAME + parameters["target_map"] + ".npy").astype("int64")
     agent_count = parameters["agent_count"]
-    agent_type = AGENT_TYPES[parameters["agent_type"]]  # should have dictionary with names mapping to constructors
+    agent_type = AGENT_TYPES[parameters["agent_type"]]
     offset_stashes = parameters["offset_stashes"]
 
     # stuff...

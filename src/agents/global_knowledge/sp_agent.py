@@ -11,6 +11,9 @@ from geom.util import simple_distance
 
 
 class GlobalShortestPathAgent(GlobalKnowledgeAgent):
+    """
+    A class implementing the shortest path algorithm developed for this project using global knowledge.
+    """
 
     def __init__(self,
                  position: List[float],
@@ -24,6 +27,20 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
         self.attachment_site_ordering = "shortest_path"  # other is "agent_count"
 
     def find_attachment_site(self, environment: env.map.Map):
+        """
+        Move with the goal of finding an attachment site.
+
+        This method is called if the current task is FIND_ATTACHMENT_SITE. If the agent has not planned a path yet,
+        it first determines all possible attachment sites in the current component, chooses one according to some
+        strategy and then plans a path to move there following the grid structure (not following the grid and still
+        counting blocks to maintain information about its position may be faster and may be feasible in a more
+        realistic simulation as well). Since this is the global knowledge version of the algorithm, all sites to be
+        occupied which do not currently violate the row rule are legal attachment sites. Unless the agent finds the
+        planned attachment site to be occupied upon arrival, the task changes to PLACE_BLOCK when that site is reached.
+
+        :param environment: the environment the agent operates in
+        """
+
         position_before = np.copy(self.geometry.position)
 
         if self.current_path is None or self.current_shortest_path is None:
@@ -34,11 +51,6 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
 
             attachment_map = np.copy(attachment_sites)
 
-            self.aprint("DETERMINING ATTACHMENT SITES ON LEVEL {} WITH MARKER {} AND SEED AT {}:"
-                        .format(self.current_structure_level,
-                                self.current_component_marker,
-                                self.current_seed.grid_position))
-
             # copy occupancy matrix to safely insert attachment sites
             occupancy_map_copy = np.copy(environment.occupancy_map[self.current_structure_level])
 
@@ -48,6 +60,7 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
 
             self.per_search_attachment_site_count["total"].append(len(attachment_sites))
 
+            # remove all attachment sites which are not legal because of hole restrictions
             backup = []
             for site in attachment_sites:
                 at_loop_corner, loop_corner_attachable = self.check_loop_corner(
@@ -78,20 +91,11 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
                                     break
                 if loop_corner_attachable and allowable_region_attachable:
                     backup.append(site)
-                else:
-                    self.aprint("CORNER SITE {} REMOVED BECAUSE lca = {}, ara = {}"
-                                .format(site, loop_corner_attachable, allowable_region_attachable))
             attachment_sites = backup
-
-            if len(attachment_sites) == 0:
-                self.aprint("NO LEGAL ATTACHMENT SITES AT LEVEL {} WITH MARKER {}"
-                            .format(self.current_structure_level, self.current_component_marker))
-                self.aprint("ATTACHMENT MAP:")
-                self.aprint(attachment_map, print_as_map=True)
 
             self.per_search_attachment_site_count["possible"].append(len(attachment_sites))
 
-            # find the closest one
+            # determine shortest paths to all attachment sites
             shortest_paths = []
             for x, y in attachment_sites:
                 occupancy_map_copy[y, x] = 1
@@ -105,7 +109,6 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
                           for x, y in attachment_sites]
             counts = self.count_in_direction(environment, directions=directions, angle=np.pi / 2)
 
-            # order = sorted(range(len(shortest_paths)), key=lambda i: len(shortest_paths[i]))
             if self.attachment_site_ordering == "shortest_path":
                 if self.order_only_one_metric:
                     order = sorted(range(len(shortest_paths)), key=lambda i: (len(shortest_paths[i]), random.random()))
@@ -122,13 +125,8 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
             shortest_paths = [shortest_paths[i] for i in order]
             attachment_sites = [attachment_sites[i] for i in order]
 
-            # the initial direction of this shortest path would maybe be good to decide based on if this is used...
-            new_sp = [(self.current_grid_position[0], attachment_sites[0][1]),
-                      (attachment_sites[0][0], attachment_sites[0][1])]
-
             # find "bends" in the path and only require going there
             sp = shortest_paths[0]
-            self.aprint("Original shortest path: {}".format(sp))
             if len(sp) > 1:
                 diffs = [(sp[1][0] - sp[0][0], sp[1][1] - sp[0][1])]
                 new_sp = [sp[0]]
@@ -142,9 +140,10 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
                 new_sp.append(sp[-1])
                 sp = new_sp
 
-            self.aprint("Shortest path to attachment site: {}".format(sp))
-
             if not all(sp[-1][i] == attachment_sites[0][i] for i in range(2)):
+                # these are problems with a bug that I unfortunately did not have more time to investigate
+                # I took the practical approach of "solving" the problem by redoing the search for attachment
+                # sites here, which allows construction to continue, if nothing else
                 self.aprint("SHORTEST PATH DOESN'T LEAD TO INTENDED ATTACHMENT SITE",
                             override_global_printing_enabled=True)
                 self.aprint("Current grid position: {}".format(self.current_grid_position),
@@ -162,9 +161,6 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
                             override_global_printing_enabled=True)
                 self.aprint("Attachment map:", override_global_printing_enabled=True)
                 self.aprint(attachment_map, print_as_map=True, override_global_printing_enabled=True)
-                # if self.current_component_marker != self.component_target_map[self.current_seed.grid_position[2],
-                #                                                               self.current_seed.grid_position[1],
-                #                                                               self.current_seed.grid_position[0]]:
                 if check_map(self.component_target_map, self.current_seed.grid_position,
                              lambda x: x != self.current_component_marker) \
                         or check_map(self.component_target_map, self.current_grid_position,
@@ -205,13 +201,12 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
 
             self.current_sp_search_count += 1
 
+        # check again whether attachment site is still available/legal
         attachment_sites = legal_attachment_sites(self.component_target_map[self.current_structure_level],
                                                   environment.occupancy_map[self.current_structure_level],
                                                   component_marker=self.current_component_marker)
         if attachment_sites[self.current_shortest_path[-1][1], self.current_shortest_path[-1][0]] == 0:
             self.current_path = None
-            self.aprint("Current target for attachment: {}\nAttachment sites:".format(self.current_shortest_path[-1]))
-            self.aprint(attachment_sites, print_as_map=True)
             self.find_attachment_site(environment)
             return
 
@@ -224,11 +219,7 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
                 # have reached next point on shortest path to attachment site
                 current_spc = self.current_shortest_path[self.current_sp_index]
                 self.current_grid_position = np.array([current_spc[0], current_spc[1], self.current_structure_level])
-                self.aprint("REACHED {} ON SHORTEST PATH ({})".format(current_spc, self.current_shortest_path))
-                self.aprint("Own position: {}".format(self.geometry.position))
-                self.aprint("GRID POSITION: {}".format(self.current_grid_position))
                 if self.current_sp_index >= len(self.current_shortest_path) - 1:
-                    self.aprint("TEST 1")
                     # if the attachment site was determined definitively (corner or protruding), have reached
                     # intended attachment site and should assess whether block can be placed or not
                     if not environment.check_occupancy_map(self.current_grid_position):
@@ -237,12 +228,10 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
                         self.task_history.append(self.current_task)
                         self.current_path = None
                         self.current_shortest_path = None
-                        self.aprint("GOING TO PLACE BLOCK AT CORNER OR PROTRUDING SITE")
                     else:
                         # if no, need to find new attachment site (might just be able to restart this method)
                         self.current_path = None
                         self.current_shortest_path = None
-                        self.aprint("SITE ALREADY OCCUPIED, SEARCH FOR NEW ONE")
                 else:
                     # if the attachment site was determined definitively (corner or protruding), have reached
                     # intended attachment site and should assess whether block can be placed or not
@@ -262,13 +251,12 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
                     self.current_path.add_position(next_position)
 
                 if self.check_component_finished(environment.occupancy_map):
-                    self.aprint("FINISHED COMPONENT {} AFTER MOVING TO NEXT BLOCK IN ATTACHMENT SITE"
-                                .format(self.current_component_marker))
                     self.recheck_task(environment)
                     self.task_history.append(self.current_task)
                     self.current_visited_sites = None
                     self.current_path = None
         else:
+            # update local occupancy map while moving over the structure
             block_below = environment.block_below(self.geometry.position)
             # also need to check whether block is in shortest path
             if block_below is not None and block_below.grid_position[2] == self.current_grid_position[2] \
@@ -284,6 +272,20 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
                                                                                        self.geometry.position)
 
     def place_block(self, environment: env.map.Map):
+        """
+        Move with the goal of placing a block.
+
+        This method is called if the current task is PLACE_BLOCK. If the agent has not planned a path yet,
+        it determines a path to descend from the current position to a position where it can let go of the block
+        to place it. In a more realistic simulation this placement process would likely be much more complex and
+        may indeed turn out to be one of the most difficult parts of the low-level quadcopter control necessary
+        for the construction task. In this case however, this complexity is not considered. Once the block has been
+        placed, if the structure is not finished the task becomes FETCH_BLOCK, otherwise it becomes LAND. Since this
+        is the global knowledge version of this algorithm, the agent also notifies all other agents of the change.
+
+        :param environment: the environment the agent operates in
+        """
+
         position_before = np.copy(self.geometry.position)
 
         if self.current_path is None:
@@ -296,13 +298,10 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
             self.current_path.add_position([placement_x, placement_y, init_z])
             self.current_path.add_position([placement_x, placement_y, first_z])
             self.current_path.add_position([placement_x, placement_y, placement_z])
-            self.aprint(
-                "place_block, height of init, first, placement: {}, {}, {}".format(init_z, first_z, placement_z))
-            self.aprint("current grid position: {}, current structure level: {}".format(self.current_grid_position,
-                                                                                        self.current_structure_level))
 
         # check again whether attachment is allowed since other agents placing blocks there may have made it illegal
         if not self.current_block_type_seed:
+            # check whether site is occupied
             if environment.check_occupancy_map(self.current_grid_position):
                 self.current_path = None
                 self.current_task = Task.FIND_ATTACHMENT_SITE
@@ -310,6 +309,7 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
                 self.find_attachment_site(environment)
                 return
 
+            # check whether site is still legal
             attachment_sites = legal_attachment_sites(self.component_target_map[self.current_structure_level],
                                                       environment.occupancy_map[self.current_structure_level],
                                                       component_marker=self.current_component_marker)
@@ -335,8 +335,7 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
             # block should now be placed in the environment's occupancy matrix
             if not ret:
                 if self.current_block.geometry.position[2] > (self.current_grid_position[2] + 1.0) * Block.SIZE:
-                    self.logger.error("BLOCK PLACED IN AIR ({}, {}, {})".format(
-                        self.current_grid_position, self.id, self.current_block.geometry.position))
+                    self.aprint("Error: block placed in the air ({})".format(self.current_grid_position[2]))
                     self.current_path.add_position(
                         np.array([self.geometry.position[0], self.geometry.position[1],
                                   (self.current_grid_position[2] + 1) * Block.SIZE + self.geometry.size[2] / 2]))
@@ -373,21 +372,15 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
                 if self.check_structure_finished(self.local_occupancy_map) \
                         or (self.check_layer_finished(self.local_occupancy_map)
                             and self.current_structure_level >= self.target_map.shape[0] - 1):
-                    self.aprint("AFTER PLACING BLOCK: FINISHED")
                     self.current_task = Task.LAND
-                    self.aprint("LANDING (3)")
                 elif self.check_component_finished(self.local_occupancy_map):
-                    self.aprint("AFTER PLACING BLOCK: FINDING NEXT COMPONENT")
                     self.current_task = Task.FETCH_BLOCK
                 else:
-                    self.aprint("AFTER PLACING BLOCK: FETCHING BLOCK (PREVIOUS WAS SEED: {})"
-                                .format(self.current_block_type_seed))
                     self.current_task = Task.FETCH_BLOCK
                     if self.current_block_type_seed:
                         self.current_block_type_seed = False
                 self.task_history.append(self.current_task)
 
-                self.aprint("RECHECK CALLED FROM AGENT {}".format(self.id))
                 for a in environment.agents:
                     a.recheck_task(environment)
         else:
@@ -396,6 +389,17 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
         self.per_task_distance_travelled[Task.PLACE_BLOCK] += simple_distance(position_before, self.geometry.position)
 
     def advance(self, environment: env.map.Map):
+        """
+        Perform the next step of movement according to the current task.
+
+        Aside from calling the respective method for the current task, this method also takes care of some other
+        responsibilities, which are not specific to any specific task. In an earlier version, it was decided in
+        this method whether to initiate collision avoidance by dodging other agents explicitly and this would be
+        the best place to do so should it be reintroduced.
+
+        :param environment: the environment the agent operates in
+        """
+
         if self.current_task == Task.FINISHED:
             return
 
@@ -406,12 +410,6 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
             elif all([len(environment.seed_stashes[key]) == 0 for key in environment.seed_stashes]) \
                     and all([len(environment.block_stashes[key]) == 0 for key in environment.block_stashes]):
                 finished = True
-            # elif self.current_block_type_seed \
-            #         and all([len(environment.seed_stashes[key]) == 0 for key in environment.seed_stashes]):
-            #     finished = True
-            # elif not self.current_block_type_seed \
-            #         and all([len(environment.block_stashes[key]) == 0 for key in environment.block_stashes]):
-            #     finished = True
 
             if finished:
                 self.drop_out_of_swarm = False
@@ -419,8 +417,6 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
                 self.rejoining_swarm = False
                 self.current_path = None
                 self.current_task = Task.LAND
-                self.aprint("LANDING (8)")
-                self.aprint("")
                 self.task_history.append(self.current_task)
 
         if self.dropping_out_enabled:
@@ -481,11 +477,13 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
             self.current_path = None
             self.current_shortest_path = None
 
+        # since collision avoidance is as basic as it is it could happen that agents are stuck in a position
+        # and cannot move past each other, in that case the following makes them move a bit so that their
+        # positions change enough for the collision avoidance to take care of the congestion
         if self.current_task not in [Task.FINISHED, Task.LAND, Task.HOVER_OVER_COMPONENT]:
             if len(self.position_queue) == self.position_queue.maxlen \
                     and sum([simple_distance(self.geometry.position, x) for x in self.position_queue]) < 70 \
                     and self.current_path is not None and not self.wait_for_rejoining:
-                self.aprint("STUCK")
                 self.stuck_count += 1
                 self.current_path.add_position([self.geometry.position[0],
                                                 self.geometry.position[1],

@@ -7,6 +7,7 @@ from enum import Enum
 import env.map
 from env.block import Block
 from env.util import print_map, shortest_path
+from geom.path import Path
 from geom.shape import *
 from geom.util import simple_distance
 
@@ -64,7 +65,6 @@ class AgentStatistics:
 
     def step(self, environment: env.map.Map):
         if self.previous_task != self.agent.current_task:
-            # print("[Agent {}]: Changed task to {}".format(self.agent.id, self.agent.current_task))
             self.previous_task = self.agent.current_task
         self.task_counter[self.agent.current_task] = self.task_counter[self.agent.current_task] + 1
 
@@ -99,6 +99,7 @@ class Agent:
     __metaclass__ = ABCMeta
 
     MOVEMENT_PER_STEP = 5
+    AGENT_ID = 0
 
     def __init__(self,
                  position: List[float],
@@ -159,8 +160,8 @@ class Agent:
 
         # parameters that can change for all agent types
         self.waiting_on_perimeter_enabled = False
-        self.avoiding_crowded_stashes_enabled = False
-        self.transport_avoid_others_enabled = False
+        self.avoiding_crowded_stashes_enabled = True
+        self.transport_avoid_others_enabled = True
 
         self.order_only_one_metric = False
 
@@ -242,13 +243,11 @@ class Agent:
         self.area_density_restricted = True
         self.stash_min_distance = 100
 
-        self.collision_using_geometries = False
         self.task_history = []
         self.task_history.append(self.current_task)
-        self.LAND_CALLED_FIRST_TIME = False
-        self.id = -1
+        self.id = Agent.AGENT_ID
+        Agent.AGENT_ID += 1
         self.collision_possible = True
-        self.repeated = 0
 
         self.agent_statistics = AgentStatistics(self)
 
@@ -259,6 +258,12 @@ class Agent:
 
     @abstractmethod
     def advance(self, environment: env.map.Map):
+        """
+        Abstract method to be overridden by subclasses.
+
+        :param environment: the environment the agent operates in
+        """
+
         pass
 
     def overlaps(self, other):
@@ -296,6 +301,7 @@ class Agent:
             next_position = self.current_static_location
             current_direction = np.array([0.0, 0.0, 0.0])
 
+        # normalising the direction vector first, to be able to reason about the size of the force vector more easily
         if sum(np.sqrt(current_direction ** 2)) > 0:
             current_direction /= sum(np.sqrt(current_direction ** 2))
 
@@ -307,6 +313,8 @@ class Agent:
                     force_field_vector = np.array([0.0, 0.0, 0.0])
                     force_field_vector += (self.geometry.position - a.geometry.position)
                     force_field_vector /= sum(np.sqrt(force_field_vector ** 2))
+
+                    # the coefficients were determined experimentally, others might be better
                     if not react_only:
                         force_field_vector *= 100 / simple_distance(self.geometry.position, a.geometry.position)
                     else:
@@ -320,8 +328,8 @@ class Agent:
                         self.collision_queue.append(1)
                         self.agent_statistics.collision_danger.append(1)
                         self.collision_count += 1
-                        collision_count_updated = True
                         self.per_task_collision_avoidance_count[self.current_task] += 1
+                        collision_count_updated = True
 
         if not collision_count_updated:
             self.agent_statistics.collision_danger.append(0)
@@ -334,6 +342,7 @@ class Agent:
 
         self.agent_statistics.collision_avoidance_contribution.append(ca_contribution)
 
+        # normalising and scaling the vector
         if sum(np.sqrt(current_direction ** 2)) > 0:
             current_direction /= sum(np.sqrt(current_direction ** 2))
         current_direction *= Agent.MOVEMENT_PER_STEP
@@ -342,6 +351,52 @@ class Agent:
             current_direction = np.array([0, 0, 0])
 
         return next_position, current_direction
+
+    def land(self, environment: env.map.Map):
+        """
+        Move with the goal of landing.
+
+        This method is called if the current task is LAND. If the agent has not planned a path yet, it constructs a
+        path to its original position in the environment and then proceeds to land there. If the agent does not land
+        because it is leaving the swarm and planning to rejoin it later, the task changes to FINISHED and the agent
+        does not take part in construction any more. It may be desirable to choose the place to land differently
+        (e.g. outside of the area of movement of the other agents), but this has not been implemented.
+
+        :param environment: the environment the agent operates in
+        """
+
+        position_before = np.copy(self.geometry.position)
+
+        if self.current_path is None:
+            land_x = self.initial_position[0]
+            land_y = self.initial_position[1]
+            land_z = Block.SIZE * (self.current_structure_level + 2) + self.geometry.size[2] / 2 + self.required_spacing
+
+            self.current_path = Path()
+            self.current_path.add_position([self.geometry.position[0], self.geometry.position[1], land_z])
+            self.current_path.add_position([land_x, land_y, land_z])
+            self.current_path.add_position([land_x, land_y, self.geometry.size[2] / 2])
+
+        next_position, current_direction = self.move(environment)
+        if simple_distance(self.geometry.position, next_position) <= Agent.MOVEMENT_PER_STEP:
+            self.geometry.position = next_position
+            ret = self.current_path.advance()
+            if not ret:
+                if abs(self.geometry.position[2] - Block.SIZE / 2) > Block.SIZE / 2:
+                    self.aprint("Error: finished without landing.")
+                if self.current_block is not None:
+                    self.aprint("Error: finished with block still attached.")
+                if self.drop_out_of_swarm:
+                    self.wait_for_rejoining = True
+                    self.current_task = Task.REJOIN_SWARM
+                else:
+                    self.current_task = Task.FINISHED
+                self.task_history.append(self.current_task)
+                self.current_path = None
+        else:
+            self.geometry.position = self.geometry.position + current_direction
+
+        self.per_task_distance_travelled[Task.LAND] += simple_distance(position_before, self.geometry.position)
 
     def collision_potential(self, other):
         """
@@ -353,31 +408,15 @@ class Agent:
         :return: True if there is a risk of colliding soon, False if there is not
         """
 
+        # agents which have already landed (and are considered to be "taken out of" the simulation) are ignored
         if self.current_task == Task.FINISHED or other.current_task == Task.FINISHED:
             return False
 
-        if self.collision_using_geometries:
-            if self.current_block is not None and self.current_block.geometry in self.geometry.following_geometries:
-                # block is attached, use collision_avoidance_geometry_with_block geometry
-                if other.current_block is not None \
-                        and other.current_block.geometry in other.geometry.following_geometries:
-                    return self.collision_avoidance_geometry_with_block.overlaps(
-                        other.collision_avoidance_geometry_with_block)
-                else:
-                    return self.collision_avoidance_geometry_with_block.overlaps(other.collision_avoidance_geometry)
-            else:
-                # no block attached, check only quadcopter
-                if other.current_block is not None \
-                        and other.current_block.geometry in other.geometry.following_geometries:
-                    return self.collision_avoidance_geometry.overlaps(other.collision_avoidance_geometry_with_block)
-                else:
-                    return self.collision_avoidance_geometry.overlaps(other.collision_avoidance_geometry)
-        else:
-            # make a simple distance-based decision (a vector is added because the agent might have a block attached)
-            if simple_distance(self.geometry.position + np.array([0, 0, -self.geometry.size[2]]),
-                               other.geometry.position) \
-                    < self.required_distance:
-                return True
+        # make a simple distance-based decision (a vector is added because the agent might have a block attached)
+        if simple_distance(self.geometry.position + np.array([0, 0, -self.geometry.size[2]]), other.geometry.position) \
+                < self.required_distance:
+            return True
+
         return False
 
     def collision_potential_visible(self, other, view_above=False):
@@ -394,7 +433,6 @@ class Agent:
         """
 
         # check whether other agent is within view, i.e. below this agent or in view of one of the cameras
-        # get list of agents for which there is collision potential/danger
         self_corner_points = self.geometry.corner_points_2d()
         self_x = [p[0] for p in self_corner_points]
         self_y = [p[1] for p in self_corner_points]
@@ -442,6 +480,7 @@ class Agent:
         # if no directions are given, check in the four directions of movement along the grid
         if directions is None:
             directions = np.array([(1, 0), (-1, 0), (0, 1), (0, -1)])
+
         agents_counts = [0] * len(directions)
         for a in environment.agents:
             if a is not self and self.collision_potential_visible(a) \
@@ -451,10 +490,8 @@ class Agent:
                     Block.SIZE * self.target_map.shape[2] + environment.offset_origin[0] + a.geometry.size[0] \
                     and environment.offset_origin[1] - a.geometry.size[1] <= a.geometry.position[1] <= \
                     Block.SIZE * self.target_map.shape[1] + environment.offset_origin[1] + a.geometry.size[1]:
-                # should probably also check whether agent is (likely to be) over structure/grid at all
+                # it may in addition be desirable to check whether the agent is even above the structure/grid
                 for d_idx, d in enumerate(directions):
-                    difference = a.geometry.position[:2] - self.geometry.position[:2]
-                    dot_product = d[0] * difference[0] + d[1] * difference[1]
                     position_difference = a.geometry.position - self.geometry.position
                     position_signed_angle = np.arctan2(position_difference[1], position_difference[0]) - \
                                             np.arctan2(d[1], d[0])
@@ -526,9 +563,6 @@ class Agent:
                 subset_indices = np.where(
                     self.component_target_map[level] == marker)
                 candidate_values = compared_map[level][subset_indices]
-                # the following check means that on the occupancy map, this component still has all
-                # positions unoccupied, i.e. no seed has been placed -> this makes it a candidate
-                # for placing the currently transported seed there
                 if np.count_nonzero(candidate_values == 0) > 0:
                     candidate_components.append(marker)
         return candidate_components
@@ -568,8 +602,7 @@ class Agent:
             locations = np.where(self.component_target_map == component_marker)
             level = locations[0][0]
 
-        # according to whichever strategy is currently being employed for placing the seed, return that location
-        # this location is the grid location, not the absolute spatial position
+        # this location is the grid location, not the position in 3D space
         occupied_locations = np.where(self.component_target_map[level] == component_marker)
         occupied_locations = list(zip(occupied_locations[0], occupied_locations[1]))
         supported_locations = np.nonzero(self.target_map[level - 1])
@@ -579,6 +612,7 @@ class Agent:
             occupied_locations = [x for x in occupied_locations if (x[1], x[0], level)
                                   not in self.closing_corners[level][self.current_component_marker]]
 
+        # the center-most location is used here, other positions may be more desirable (interesting to investigate)
         min_y = min([l[0] for l in occupied_locations])
         max_y = max([l[0] for l in occupied_locations])
         min_x = min([l[1] for l in occupied_locations])
@@ -602,6 +636,11 @@ class Agent:
                                         component_marker=None):
         """
         Return the direction (out of the four grid directions) in which the perimeter of the structure is reached first.
+
+        Note that this method was intended to be used for moving to the perimeter of the structure as quickly as
+        possible and thereby hopefully speeding up the search for an attachment site. This did not improve performance
+        in practice, and was not used anymore. Thus this does not actually account for the component marker (and
+        whether the hole is enclosed by that component, e.g. the component itself might be enclosed by a hole instead).
 
         :param compared_map: the occupancy matrix to check
         :param start_position: the grid position from which to start counting in each direction
@@ -638,6 +677,7 @@ class Agent:
                 min_direction = d
             elif current_distance == min_distance:
                 min_direction = random.sample([min_direction, d], 1)[0]
+
         return np.array([min_direction[0], min_direction[1], 0])
 
     def check_loop_corner(self, environment: env.map.Map, position=None):
@@ -656,8 +696,7 @@ class Agent:
 
         loop_corner_attachable = False
         at_loop_corner = False
-        if tuple(position) \
-                in self.closing_corners[self.current_structure_level][self.current_component_marker]:
+        if tuple(position) in self.closing_corners[self.current_structure_level][self.current_component_marker]:
             at_loop_corner = True
             # need to check whether the adjacent blocks have been placed already
             counter = 0
@@ -683,8 +722,6 @@ class Agent:
                 counter += 1
             if counter >= 2:
                 loop_corner_attachable = True
-            else:
-                pass
         else:
             loop_corner_attachable = True
 
@@ -727,7 +764,7 @@ class Agent:
                     wave_front = new_wave_front
 
         # go through the target map layer by layer and split each one into disconnected components
-        # how to store these components? could be separate target map, using numbers to denote each component
+        # that information is then stored in an occupancy matrix using different integers for different components
         self.component_target_map = np.copy(self.target_map)
         np.place(self.component_target_map, self.component_target_map > 1, 1)
         component_marker = 2
@@ -744,38 +781,30 @@ class Agent:
         """
         Merge existing disconnected components into multi-layered components and return a component map of that.
 
-        :return:
+        This method was never actually used in the implementation but may still be useful for future work on this.
+        Its purpose is essentially to identify parts of the structure (stretching over multiple layers) that could
+        be worked on in isolation from the rest of the structure, because they don't have to be connected to it
+        up until some point. One could also make this hierarchical and identify progressively larger subsets of the
+        structure which are "disconnected" in this way from the rest, eventually ending up with the entire structure.
+        Once assigned to such a multi-layered component, agents would be able to focus on that component until it is
+        finished without having to worry about the rest of the structure. After that they would have to check whether
+        other (lower-level) components would have to be completed before connecting these "disconnected" components.
+
+        :return: an occupancy map of component markers for multi-layered components
         """
 
         # merge components if they are only connected to each other and one other component on a different layer
-        # (i.e. the top and bottom most layers get special treatment for not being connected on both sides)
+        # (the top and bottom most layers get special treatment for not being connected on both sides)
+        # that means any component which is connected to at least two other components on one of the adjacent layers
+        # can automatically be counted out
 
-        # that means any component which is connected to at least two other components
-        # on one of the adjacent layers can automatically be counted out
+        # NOTES FOR THE FUTURE:
+        # - make this a hierarchical (would have to find different representation than single occupancy matrix)
+        # - should also check the distance between multi-layered components to ensure that building one component
+        #   does not make it physically impossible to reach another (because QCs need some space to operate)
+        #   -> could e.g. require 3 blocks of space between components (which would still be useful for structures
+        #      with pillars with large distances between them)
 
-        # go layer-by-layer: start with all components on layer 0 and then go up and check whether any of the
-        # components on layer 1 should be added to those identified from layer 0 or if they should become the new
-        # components to compare to (?)
-        multi_layer_component_markers = list(np.unique(self.component_target_map[0]))
-        if 0 in multi_layer_component_markers:
-            multi_layer_component_markers.remove(0)
-        for layer in range(1, self.target_map.shape[0]):
-            current_components = list(np.unique(self.component_target_map[layer]))
-            if 0 in current_components:
-                current_components.remove(0)
-            # check for the existing components whether it works?
-
-        # repeat the stuff below until identifying that no more components can be merged
-        # for all components:
-        #     go through all other components and check whether they are adjacent (vertically)
-        #         if they are, check whether components can be merged or not
-        #         this means that they are both only connected to one other component (?)
-        # TODO: maybe ignore components that are "alone" on a layer because it wouldn't change anything?
-        # TODO: make this a hierarchical (think initial example) -> at least good suggestion for future work
-        # TODO: need to check the distance to adjacent components
-        # if it is too small, then the multi-layer component thing shouldn't be attempted because it will hinder
-        # construction otherwise; might be better to do this check "online" though instead of putting it into
-        # the ml_component_map (?)
         ml_component_markers = [x for x in list(np.unique(self.component_target_map)) if x != 0]
         mergeable_pairs = []
         for m1 in ml_component_markers:
@@ -829,12 +858,10 @@ class Agent:
                                 m2_clear = False
 
                         if m1_clear and m2_clear:
-                            # print("Component {} and {} can be merged.".format(m1, m2))
                             mergeable_pairs.append((m1, m2))
-        self.aprint("Mergeable pairs:\n{}".format(mergeable_pairs))
 
         # merge all components which share one component in the mergeable pairs list
-        # first group all those pairs which have share components
+        # first group all those pairs which share components
         mergeable_groups = []
         for pair in mergeable_pairs:
             # try to find an entry in mergeable_groups that pair would belong to
@@ -853,12 +880,6 @@ class Agent:
         backup = []
         all_ml_components = []
         for group in mergeable_groups:
-            # for all of the components in the group, check whether they have a dangerous distance
-            # to any other part of the structure (doesn't matter which), so that this multi-layered component
-            # might have to be discarded
-            # actually, since one might still be able to build a subpart of the multi-layered component in this way
-            # it would probably be best to check whether that's possible too (i.e. identify the components which
-            # make things problematic and then remove them if they are on the "top" or "bottom" of the ml component)
             unique_values = []
             for m1, m2 in group:
                 if m1 not in unique_values:
@@ -868,8 +889,6 @@ class Agent:
             backup.append(unique_values)
             all_ml_components.extend(unique_values)
         mergeable_groups = backup
-
-        self.aprint("Mergeable groups:\n{}".format(mergeable_groups))
 
         ml_index = 2
         ml_component_map = np.zeros_like(self.component_target_map)
@@ -889,7 +908,8 @@ class Agent:
         """
         Determine the closing corners of holes in the structure and return information about them.
 
-        :return:
+        :return: the coordinates of the closing corners, an occupancy matrix of all holes, the boundary coordinates
+        of each hole, the coordinates adjacent to closing corners and the orientations of the closing corners
         """
 
         # for each layer, check whether there are any holes, i.e. 0's that - when flood-filled - only connect to 1's
@@ -936,6 +956,7 @@ class Agent:
                         valid_markers[z].append(hole_marker)
                         hole_marker += 1
 
+        # remove all "holes" connected to the perimeter of the structure, since they are not really holes
         for z in range(len(valid_markers)):
             temp_copy = valid_markers[z].copy()
             for m in valid_markers[z]:
@@ -986,9 +1007,7 @@ class Agent:
         for z in range(hole_map.shape[0]):
             hole_boundaries.append([])
             for m in valid_markers[z]:
-                coord_list = []
                 locations = np.where(hole_map == m)
-                # boundary_search(hole_map[z], z, locations[1][0], locations[2][0], m, None, coord_list)
                 coord_list = boundary_search_iterative(hole_map[z], z, locations[1][0], locations[2][0], m)
                 first_component_marker = self.component_target_map[z, coord_list[0][1], coord_list[0][2]]
                 for _, y, x in coord_list:
@@ -1000,19 +1019,13 @@ class Agent:
                             removable_holes[(z, m)].append(current_marker)
                 coord_list = tuple(np.moveaxis(np.array(coord_list), -1, 0))
                 hole_boundaries[z].append(coord_list)
-                # should already only include components in hole boundaries which are actually AROUND the hole
-                # i.e. the hole does not enclose that component
 
-        # a) the hole having to be removed because it is between components
-        # b) the hole encircling a component, but still being a valid hole
-        #    -> in this case it's important not to select a closing corner from any enclosed component
-
-        # remove those holes between components
-        # for each hole, if any adjacent component(s) only have sites adjacent that are "themselves" or that hole,
-        # then they are enclosed by the hole and the hole itself should still count as such?
-
-        # actually, if the component is in a hole between components, this does not hold, therefore the above has
-        # to be true for all components except for one (which is the enclosing component)
+        # there are two options why a hole might be added to the removable_holes list
+        # (adjacent to two different components):
+        # a) the hole has to be removed because it is between components (not really a hole)
+        # b) the hole encircles a component, but is still a valid hole
+        #    -> in this case it's important not to select a closing corner from any enclosed component,
+        #       even though that component is adjacent to the hole
 
         enclosed_components = {}
         # for every hole that is adjacent to two (or more) components:
@@ -1026,22 +1039,17 @@ class Agent:
             hole_max_x = np.max(hole_positions[2])
             hole_min_y = np.min(hole_positions[1])
             hole_max_y = np.max(hole_positions[1])
-            # print("HOLE {} BOUNDARIES\nmin_x = {}, max_x = {}, min_y = {}, max_y = {}"
-            #       .format(m, hole_min_x, hole_max_x, hole_min_y, hole_max_y))
             for ac in adjacent_components:
                 component_positions = np.where(self.component_target_map == ac)
                 component_min_x = np.min(component_positions[2])
                 component_max_x = np.max(component_positions[2])
                 component_min_y = np.min(component_positions[1])
                 component_max_y = np.max(component_positions[1])
-                # print("COMPONENT {} BOUNDARIES\nmin_x = {}, max_x = {}, min_y = {}, max_y = {}"
-                #       .format(ac, component_min_x, component_max_x, component_min_y, component_max_y))
-                # print(component_positions)
                 if hole_min_x <= component_min_x <= hole_max_x \
                         and hole_min_x <= component_max_x <= hole_max_x \
                         and hole_min_y <= component_min_y <= hole_max_y \
                         and hole_min_y <= component_max_y <= hole_max_y:
-                    # the component is (hopefully) enclosed by the hole
+                    # any hole enclosing a component has to be larger than the component itself
                     local_enclosed_components.append(ac)
             if len(local_enclosed_components) <= len(adjacent_components) - 2:
                 self.aprint("HOLE {} IS BETWEEN COMPONENTS AND THEREFORE REMOVABLE.".format(m))
@@ -1052,9 +1060,6 @@ class Agent:
             else:
                 self.aprint("ADJACENT COMPONENTS ENCLOSED BY HOLE {}:\n{}".format(m, local_enclosed_components))
                 enclosed_components[(z, m)] = local_enclosed_components
-
-        # self.aprint("COMPONENT MAP:\n{}".format(self.component_target_map))
-        # self.aprint("ENCLOSED COMPONENTS: {}".format(enclosed_components))
 
         for z, m in enclosed_components:
             index = valid_markers[z].index(m)
@@ -1090,16 +1095,14 @@ class Agent:
                 # there should only be one adjacent component, so this SHOULD work
                 adjacent_components = np.unique(self.component_target_map[hole_boundaries[z][m_idx]])
                 if len(adjacent_components) > 1:
-                    self.logger.error("More than 1 adjacent component to hole {}: {}".format(m, adjacent_components))
+                    self.aprint("More than 1 adjacent component to hole {}: {}".format(m, adjacent_components))
 
                 hole_boundary_coords[m] = hole_boundaries[z][m_idx]
                 outer_corner_coord_list = []
-                outer_open_corner_coord_list = []
                 inner_corner_coord_list = []
                 corner_boundary_list = []
 
                 component_marker_list_outer = []
-                component_marker_list_outer_open = []
                 component_marker_list_inner = []
                 for y in range(hole_map.shape[1]):
                     for x in range(hole_map.shape[2]):
@@ -1147,13 +1150,11 @@ class Agent:
                         # in this case, the original seed is in this component and needs to be chosen as the position
                         position = np.where(self.target_map == 2)
                         position = tuple(zip(position[2], position[1], position[0]))
-                        if len(position) > 1:
-                            self.logger.warning("Too many seeds when creating hole map.")
                         adjacent_seed_location = position[0]
                     else:
+                        # include_closing_corners is True here, because the closing corners have not been determined
+                        # yet (since they are based on the seed position)
                         adjacent_seed_location = self.component_seed_location(cm, include_closing_corners=True)
-
-                    # self.aprint("\nSEED LOCATION FOR HOLE {} IN COMPONENT {}: {}".format(m, cm, adjacent_seed_location))
 
                     # determine the location of the hole with respect to the seed (NW, NE, SW, SE)
                     # does this depend on the min/max? I think it can, but doesnt have to
@@ -1171,25 +1172,23 @@ class Agent:
                     # actually, there might be situations where the choice matters a lot, e.g. if a closing corner
                     # (or the closing corner region) overlaps with a different hole
 
+                    # the closing corner is determined by the length of the shortest path to each of them
                     current_sp_lengths = []
                     for corner in current_outer:
                         temp = shortest_path(
                             self.target_map[corner[2]], tuple(adjacent_seed_location[:2]), tuple(corner[:2]))
                         current_sp_lengths.append(len(temp))
-                    # self.aprint("SHORTEST PATH LENGTHS FOR HOLE {} IN COMPONENT {}:\n{}"
-                    #             .format(m, cm, current_sp_lengths))
                     ordered_idx = sorted(range(len(current_sp_lengths)), key=lambda i: current_sp_lengths[i])
                     ordered_outer = [current_outer[i] for i in ordered_idx]
                     ordered_boundary = [current_boundary[i] for i in ordered_idx]
-                    # self.aprint("ORDERED POSSIBLE CORNERS:\n{}\n{}"
-                    #             .format([current_sp_lengths[i] for i in ordered_idx], ordered_outer))
 
-                    # other possibility: choose the corner that excludes the smallest area?
+                    # OTHER IDEA FOR CHOOSING CORNER: choose the corner that excludes the smallest area
 
                     # regardless of what method is used to determine the corners, set the closing corner here
                     closing_corner = ordered_outer[-1]
                     closing_corner_boundary = ordered_boundary[-1]
 
+                    # determine on which side of the seed the closing corner lies
                     hole_positions = np.where(hole_map == m)
                     hole_min_x = np.min(hole_positions[2])
                     hole_max_x = np.max(hole_positions[2])
@@ -1237,67 +1236,14 @@ class Agent:
                                 else:
                                     corner_direction = "SW"
 
-                    # TODO: important note (see image hole_problem in Images folder as well)
-                    # => there might actually be some cases in which it is not possible to do use the corner/region
-                    #    technique to guarantee correct construction -> should include that in the thesis (at least
-                    #    if I find cases where this is indeed the case)
-
                     if (len(current_outer) + len(current_inner)) % 2 == 0:
-                        # THE BLOCK BELOW IS THE OLD METHOD OF DOING THINGS AND IT WORKED ON RESTRICTED STRUCTURES
-                        # sorted_by_y = sorted(range(len(current_outer)),
-                        #                      key=lambda e: current_outer[e][1], reverse=True)
-                        # sorted_by_x = sorted(sorted_by_y, key=lambda e: current_outer[e][0], reverse=True)
-                        # current_outer = [current_outer[i] for i in sorted_by_x]
-                        # current_boundary = [current_boundary[i] for i in sorted_by_x]
-                        # closing_corners[z][cm].append(current_outer[0])
-                        # closing_corner_boundaries[z][cm].append(current_boundary[0])
-                        # closing_corner_orientations[z][cm].append("NE")
-
-                        # THIS BLOCK IS THE NEW METHOD
                         closing_corners[z][cm].append(closing_corner)
                         closing_corner_boundaries[z][cm].append(closing_corner_boundary)
                         closing_corner_orientations[z][cm].append(corner_direction)
                     else:
-                        self.logger.warning("The structure contains open corners, "
-                                            "which cannot be built using the PerimeterFollowingAgent.")
-
-                    # need to actually register open corners as such, I think, because otherwise a corner might e.g.
-                    # be chosen as a closing corner even though it is in the SOUTH-EAST of the hole, which given the
-                    # attachment and hole rules that we have could result in trouble
+                        self.aprint("The structure contains open corners, which cannot be built.")
 
                 hole_corners[z].append(outer_corner_coord_list)
-
-        all_hole_boundaries = []
-        for z in range(hole_map.shape[0]):
-            boundary_locations = []
-            for m_idx, m in enumerate(valid_markers[z]):
-                # pass 1: get all immediately adjacent boundaries
-                # pass 2: get corners
-                # empty map with all boundaries of that hole being 1:
-                boundary_map = np.zeros_like(hole_map)
-                boundary_map[hole_boundaries[z][m_idx]] = 1
-                for y in range(boundary_map.shape[1]):
-                    for x in range(boundary_map.shape[2]):
-                        if 0 < hole_map[z, y, x] < 2:
-                            counter = 0
-                            for x_diff, y_diff in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
-                                if 0 <= x_diff < boundary_map.shape[2] and 0 <= y_diff < boundary_map.shape[1] and \
-                                        boundary_map[z, y_diff, x_diff] == 1:
-                                    counter += 1
-                            if counter >= 2:
-                                boundary_map[z, y, x] = 1
-                boundary_coords = np.where(boundary_map == 1)
-                boundary_coord_tuple_list = list(zip(boundary_coords[2], boundary_coords[1], boundary_coords[0]))
-                boundary_locations.extend(boundary_coord_tuple_list)
-            all_hole_boundaries.append(boundary_locations)
-
-        boundary_map = np.zeros_like(hole_map)
-        for z in range(hole_map.shape[0]):
-            for x, y, z in all_hole_boundaries[z]:
-                boundary_map[z, y, x] = 1
-
-        # self.aprint("\nCLOSING CORNERS:\n{}".format(closing_corners))
-        # self.aprint("CLOSING CORNER ORIENTATIONS:\n{}".format(closing_corner_orientations))
 
         return closing_corners, hole_map, hole_boundary_coords, closing_corner_boundaries, closing_corner_orientations
 

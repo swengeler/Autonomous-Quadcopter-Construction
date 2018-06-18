@@ -1,9 +1,9 @@
-import logging
 from typing import List, Tuple
 
 import numpy as np
 
 import env.block
+from env.util import ccw_angle_and_distance
 from geom.util import simple_distance
 
 
@@ -346,7 +346,7 @@ class Map:
 
         return np.count_nonzero(self.occupancy_map[layer]) == np.count_nonzero(self.target_map[layer])
 
-    def density_over_construction_area(self):
+    def density_over_construction_area(self, required_area_side_length=4):
         """
         Return the density of agents over the construction area.
 
@@ -358,14 +358,11 @@ class Map:
         :return: normalised density of agents over the construction area
         """
 
+        # originally, the density was normalised using the collision cloud of the agent (when used for waiting on the
+        # perimeter), but performance actually suffered from that; using the new default resulted in some improvements
+        # on structures with small horizontal size
         construction_area = self.target_map.shape[2] * self.target_map.shape[1]
-        # construction_area = 0
-        # for l in range(self.target_map.shape[0]):
-        #     construction_area = max(construction_area, np.count_nonzero(self.target_map[l]))
-        # assuming that 1 agent over an area of 16 blocks is roughly balanced (because it takes up that space)
-        # -> therefore normalise using that number
-        required_area = (np.round(self.agents[0].required_distance / env.block.Block.SIZE) + 1) ** 2
-        required_area = 4 ** 2
+        required_area = required_area_side_length ** 2
         return (self.count_over_construction_area() / construction_area) / (1 / required_area)
 
     def distance_to_construction_area(self, position):

@@ -1638,7 +1638,7 @@ def main():
     # show_component_finished_delay("component_3x3")
     # show_wait_on_perimeter_difference("block_6x6x7", "GlobalShortestPathAgent")
     # show_wait_on_perimeter_difference_all_types("hole_half_width_8", "wait_on_perimeter_4_blocks_only")
-    show_wait_on_perimeter_difference_all_types("plate_8x8", "wait_on_perimeter_4")
+    show_wait_on_perimeter_difference_all_types("block_6x6x7", "wait_on_perimeter_4") # also try pyramid
     # show_wait_on_perimeter_collision_proportion_difference("block_4x4x4", "LocalPerimeterFollowingAgent")
     # show_perimeter_comparison("GlobalPerimeterFollowingAgent")
     # show_local_global_proportion("plate_32x32")

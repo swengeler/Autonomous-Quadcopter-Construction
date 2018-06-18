@@ -47,6 +47,12 @@ class Block:
     def grid_position(self, grid_position):
         self.__grid_position = grid_position
         if self.is_seed:
-            self.color = Block.COLORS_SEEDS[self.__grid_position[2]]
+            if len(Block.COLORS_SEEDS) > self.__grid_position[2]:
+                self.color = Block.COLORS_SEEDS[self.__grid_position[2]]
+            else:
+                self.color = Block.COLORS_SEEDS[0]
         else:
-            self.color = Block.COLORS_BLOCKS[self.__grid_position[2]]
+            if len(Block.COLORS_BLOCKS) > self.__grid_position[2]:
+                self.color = Block.COLORS_BLOCKS[self.__grid_position[2]]
+            else:
+                self.color = Block.COLORS_BLOCKS[0]

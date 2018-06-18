@@ -11,6 +11,10 @@ from geom.util import simple_distance
 
 
 class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
+    """
+    A class implementing the perimeter following algorithm developed by Werfel et al. for quadcopters using
+    local knowledge.
+    """
 
     def __init__(self,
                  position: List[float],
@@ -22,13 +26,24 @@ class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
             position, size, target_map, required_spacing, printing_enabled)
 
     def find_attachment_site(self, environment: env.map.Map):
+        """
+        Move with the goal of finding an attachment site.
+
+        This method is called if the current task is FIND_ATTACHMENT_SITE. If this is the case, the agent is already
+        at the structure perimeter and knows its position in the grid. It then moves along the structure perimeter
+        (more specifically the perimeter of the current component) in counter-clockwise direction and determines
+        at each empty site it passes whether the carried block can be placed there. This is true at sites which should
+        be occupied according to the target occupancy matrix and which are 'inner corners' of the structure or
+        'end-of-row sites'. If the agent revisits a site during this, it is either 'stuck' in a hole and the next task
+        is MOVE_TO_PERIMETER to escape it, or the current component is complete in which case the agent switches to
+        FIND_NEXT_COMPONENT. If the agent does find an attachment site, the next task becomes PLACE_BLOCK.
+
+        :param environment: the environment the agent operates in
+        """
+
         position_before = np.copy(self.geometry.position)
 
-        # orientation happens counter-clockwise -> follow seed edge in that direction once its reached
-        # can either follow the perimeter itself or just fly over blocks (do the latter for now)
         if self.current_path is None:
-            # might consider putting something here
-            self.aprint("current_path is None in find_attachment_site")
             self.current_path = Path()
             self.current_path.add_position(self.geometry.position)
 
@@ -43,9 +58,6 @@ class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
             self.geometry.position = next_position
             ret = self.current_path.advance()
 
-            # self.aprint("Current local occupancy map:")
-            # self.aprint(True, self.local_occupancy_map)
-
             if not ret:
                 self.update_local_occupancy_map(environment)
 
@@ -54,8 +66,8 @@ class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
                 # corner of the current block reached, assess next action
                 at_loop_corner, loop_corner_attachable = self.check_loop_corner(environment, self.current_grid_position)
 
-                # check whether location is somewhere NORTH-EAST of any closing corner, i.e. the block should not be
-                # placed there before closing that loop (NE because currently all closing corners are located there)
+                # check whether location is somewhere NW/NE/SW/SE of any closing corner, i.e. the block should
+                # not be placed there before closing that loop
                 allowable_region_attachable = True
                 if not at_loop_corner:
                     closing_corners = self.closing_corners[self.current_structure_level][self.current_component_marker]
@@ -86,9 +98,6 @@ class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
                     # there are two options here: either the current component is finished, or we are trapped in a hole
                     # check if in hole
                     if check_map(self.hole_map, self.current_grid_position, lambda x: x > 1):
-                        # self.aprint("REVISITED SITE (IN HOLE)")
-                        # self.aprint("self.current_grid_position = {}".format(self.current_grid_position))
-                        # self.aprint("HOLE MAP:\n{}".format(self.hole_map))
                         self.current_task = Task.MOVE_TO_PERIMETER
                         self.task_history.append(self.current_task)
                         self.current_grid_direction = [1, 0, 0]  # should probably use expected SP here
@@ -96,11 +105,6 @@ class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
                                                                                     self.current_grid_position[1],
                                                                                     self.current_grid_position[0]]]] = 1
                     else:
-                        # self.aprint("REVISITED SITE (ON PERIMETER), MOVING COMPONENTS")
-                        # self.aprint("self.current_component_marker = {}".format(self.current_component_marker))
-                        # self.aprint("current_site_tuple = {}".format(current_site_tuple))
-                        # self.aprint("self.current_seed.grid_position = {}".format(self.current_seed.grid_position))
-                        # self.aprint("self.current_visited_sites = {}".format(self.current_visited_sites))
                         self.local_occupancy_map[self.component_target_map == self.current_component_marker] = 1
                         self.current_task = Task.FIND_NEXT_COMPONENT
                         self.task_history.append(self.current_task)
@@ -124,7 +128,7 @@ class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
                     self.target_map, self.current_grid_position + self.current_grid_direction, lambda x: x == 0)
                 position_around_corner_empty = environment.check_occupancy_map(
                     self.current_grid_position + self.current_grid_direction +
-                    np.array([-self.current_grid_direction[1], self.current_grid_direction[0], 0], dtype="int32"),
+                    np.array([-self.current_grid_direction[1], self.current_grid_direction[0], 0], dtype="int64"),
                     lambda x: x == 0)
                 row_ending = self.current_row_started and (position_ahead_to_be_empty or position_around_corner_empty)
 
@@ -136,13 +140,12 @@ class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
                         (environment.check_occupancy_map(self.current_grid_position + np.array([0, 1, 0])) and
                          environment.check_occupancy_map(self.current_grid_position + np.array([0, -1, 0])))) and \
                             not environment.check_occupancy_map(self.current_grid_position, lambda x: x > 0):
+                        # check if position is surrounded from two opposing sites
                         self.current_task = Task.LAND
                         self.current_visited_sites = None
                         self.current_path = None
-                        self.logger.error("CASE 1-3: Attachment site found, but block cannot be placed at {}."
-                                          .format(self.current_grid_position))
-                        self.aprint("LANDING (2)")
-                        self.aprint(True, self.target_map)
+                        self.aprint("CASE 1-3: Attachment site found, but block cannot be placed at {}."
+                                    .format(self.current_grid_position))
                     else:
                         # site should be occupied AND
                         # 1. site ahead has a block (inner corner) OR
@@ -157,7 +160,7 @@ class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
                             log_string = log_string.format(1, self.current_grid_position)
                         else:
                             log_string = log_string.format(2, self.current_grid_position)
-                        self.logger.debug(log_string)
+                        self.aprint(log_string)
 
                         sites = legal_attachment_sites(self.target_map[self.current_structure_level],
                                                        environment.occupancy_map[self.current_structure_level],
@@ -174,7 +177,7 @@ class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
                         self.current_grid_direction = np.array([self.current_grid_direction[1],
                                                                 -self.current_grid_direction[0], 0],
                                                                dtype="int32")
-                        self.logger.debug("CASE 2: Position straight ahead occupied, turning clockwise.")
+                        self.aprint("CASE 2: Position straight ahead occupied, turning clockwise.")
                     elif position_around_corner_empty:
                         # first move forward (to the corner)
                         self.current_path.add_position(
@@ -187,22 +190,19 @@ class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
                                                                 self.current_grid_direction[0], 0],
                                                                dtype="int32")
                         self.current_grid_position += self.current_grid_direction
-                        self.logger.debug(
-                            "CASE 3: Reached corner of structure, turning counter-clockwise. {} {}".format(
-                                self.current_grid_position, self.current_grid_direction))
+                        self.aprint("CASE 3: Reached corner of structure, turning counter-clockwise. {} {}"
+                                    .format(self.current_grid_position, self.current_grid_direction))
                         self.current_path.add_position(reference_position + Block.SIZE * self.current_grid_direction)
                         self.current_row_started = True
                     else:
                         # otherwise site "around the corner" occupied -> continue straight ahead
                         self.current_grid_position += self.current_grid_direction
-                        self.logger.debug("CASE 4: Adjacent positions ahead occupied, continuing to follow perimeter.")
+                        self.aprint("CASE 4: Adjacent positions ahead occupied, continuing to follow perimeter.")
                         self.current_path.add_position(
                             self.geometry.position + Block.SIZE * self.current_grid_direction)
                         self.current_row_started = True
 
                 if self.check_component_finished(self.local_occupancy_map):
-                    self.aprint("FINISHED COMPONENT {} AFTER MOVING TO NEXT BLOCK IN ATTACHMENT SITE"
-                                .format(self.current_component_marker))
                     self.current_task = Task.FIND_NEXT_COMPONENT
                     self.task_history.append(self.current_task)
                     self.current_visited_sites = None
@@ -214,12 +214,24 @@ class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
                                                                                        self.geometry.position)
 
     def place_block(self, environment: env.map.Map):
+        """
+        Move with the goal of placing a block.
+
+        This method is called if the current task is PLACE_BLOCK. If the agent has not planned a path yet,
+        it determines a path to descend from the current position to a position where it can let go of the block
+        to place it. In a more realistic simulation this placement process would likely be much more complex and
+        may indeed turn out to be one of the most difficult parts of the low-level quadcopter control necessary
+        for the construction task. In this case however, this complexity is not considered. Once the block has been
+        placed, if the current component is not finished the task becomes FETCH_BLOCK. If it is but the structure is
+        not finished it becomes FIND_NEXT_COMPONENT, otherwise it becomes LAND.
+
+        :param environment: the environment the agent operates in
+        """
+
         position_before = np.copy(self.geometry.position)
 
-        # fly to determined attachment site, lower quadcopter and place block,
-        # then switch task back to fetching blocks
-
         if self.current_path is None:
+            # plan path to lower down
             init_z = Block.SIZE * (self.current_structure_level + 2) + self.required_spacing + self.geometry.size[2] / 2
             first_z = Block.SIZE * (self.current_grid_position[2] + 2) + self.geometry.size[2] / 2
             placement_x = Block.SIZE * self.current_grid_position[0] + environment.offset_origin[0]
@@ -236,7 +248,7 @@ class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
                                      self.current_grid_position[0]] = 1
             # a different agent has already placed the block in the meantime
             self.current_path = None
-            self.current_task = Task.TRANSPORT_BLOCK  # should maybe be find_attachment_site?
+            self.current_task = Task.TRANSPORT_BLOCK
             self.task_history.append(self.current_task)
             return
 
@@ -255,7 +267,7 @@ class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
             # block should now be placed in the environment's occupancy matrix
             if not ret:
                 if self.current_block.geometry.position[2] > (self.current_grid_position[2] + 0.5) * Block.SIZE:
-                    self.logger.error("BLOCK PLACED IN AIR ({})".format(self.current_grid_position[2]))
+                    self.aprint("Error: block placed in the air ({})".format(self.current_grid_position[2]))
                     self.current_path.add_position(
                         np.array([self.geometry.position[0], self.geometry.position[1],
                                   (self.current_grid_position[2] + 1) * Block.SIZE + self.geometry.size[2] / 2]))
@@ -270,6 +282,9 @@ class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
                     if self.current_component_marker not in self.components_attached:
                         self.components_attached.append(int(self.current_component_marker))
                     self.attached_blocks += 1
+
+                if self.rejoining_swarm:
+                    self.rejoining_swarm = False
 
                 self.attachment_frequency_count.append(self.count_since_last_attachment)
                 self.count_since_last_attachment = 0
@@ -290,39 +305,34 @@ class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
                 if self.check_structure_finished(self.local_occupancy_map) \
                         or (self.check_layer_finished(self.local_occupancy_map)
                             and self.current_structure_level >= self.target_map.shape[0] - 1):
-                    self.aprint("AFTER PLACING BLOCK: FINISHED")
                     self.current_task = Task.LAND
-                    self.aprint("LANDING (3)")
                 elif self.check_component_finished(self.local_occupancy_map):
-                    self.aprint("AFTER PLACING BLOCK: FINDING NEXT COMPONENT")
-                    self.aprint(True, self.local_occupancy_map)
                     self.current_task = Task.FIND_NEXT_COMPONENT
                 else:
-                    self.aprint("AFTER PLACING BLOCK: FETCHING BLOCK FOR COMPONENT {} (PREVIOUS WAS SEED: {})"
-                                .format(self.current_component_marker, self.current_block_type_seed))
-                    self.aprint(True, self.local_occupancy_map)
                     self.current_task = Task.FETCH_BLOCK
                     if self.current_block_type_seed:
                         self.current_block_type_seed = False
                 self.task_history.append(self.current_task)
-
-                for y in range(self.local_occupancy_map.shape[1]):
-                    for x in range(self.local_occupancy_map.shape[2]):
-                        if self.local_occupancy_map[self.current_grid_position[2], y, x] != 0 \
-                                and self.target_map[self.current_grid_position[2], y, x] == 0:
-                            self.aprint("LOCAL OCCUPANCY MAP IS WRONG")
-                            self.aprint("Local occupancy map:\n{}".format(
-                                self.local_occupancy_map[self.current_grid_position[2]]))
-                            self.aprint("Global occupancy map:\n{}".format(
-                                environment.occupancy_map[self.current_grid_position[2]]))
-
-                            self.aprint("")
         else:
             self.geometry.position = self.geometry.position + current_direction
 
         self.per_task_distance_travelled[Task.PLACE_BLOCK] += simple_distance(position_before, self.geometry.position)
 
     def advance(self, environment: env.map.Map):
+        """
+        Perform the next step of movement according to the current task.
+
+        Aside from calling the respective method for the current task, this method also takes care of some other
+        responsibilities, which are not specific to any specific task. In an earlier version, it was decided in
+        this method whether to initiate collision avoidance by dodging other agents explicitly and this would be
+        the best place to do so should it be reintroduced.
+
+        :param environment: the environmnet the agent operates in
+        """
+
+        if self.current_task == Task.FINISHED:
+            return
+
         if self.current_seed is None:
             self.current_seed = environment.blocks[0]
             self.local_occupancy_map[self.current_seed.grid_position[2],
@@ -337,7 +347,6 @@ class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
 
         if self.current_task != Task.LAND and self.check_structure_finished(self.local_occupancy_map):
             self.current_task = Task.LAND
-            self.aprint("LANDING (8)")
             self.task_history.append(self.current_task)
 
         self.agent_statistics.step(environment)
@@ -367,15 +376,18 @@ class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
         elif self.current_task == Task.LAND:
             self.land(environment)
 
+        # since collision avoidance is as basic as it is it could happen that agents are stuck in a position
+        # and cannot move past each other, in that case the following makes them move a bit so that their
+        # positions change enough for the collision avoidance to take care of the congestion
         if self.current_task != Task.FINISHED:
             if len(self.position_queue) == self.position_queue.maxlen \
                     and sum([simple_distance(self.geometry.position, x) for x in self.position_queue]) < 70 \
                     and self.current_path is not None:
-                self.aprint("STUCK")
                 self.stuck_count += 1
                 self.current_path.add_position([self.geometry.position[0],
                                                 self.geometry.position[1],
-                                                self.geometry.position[2] + self.geometry.size[2] * 2 * random.random()],
+                                                self.geometry.position[2] + self.geometry.size[
+                                                    2] * 2 * random.random()],
                                                self.current_path.current_index)
         elif self.current_task == Task.LAND:
             if len(self.position_queue) == self.position_queue.maxlen \
@@ -390,18 +402,14 @@ class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
         self.position_queue.append(self.geometry.position.copy())
 
         collision_danger = False
+        # the following was previously used to change the task to do collision avoidance
         if self.collision_possible and self.current_task not in [Task.LAND, Task.FINISHED]:
             for a in environment.agents:
                 if self is not a and self.collision_potential(a) \
                         and a.geometry.position[2] <= self.geometry.position[2] - self.required_vertical_distance:
-                    # self.aprint("INITIATING HIGH-LEVEL COLLISION AVOIDANCE")
-                    # self.previous_task = self.current_task
-                    # self.current_task = Task.AVOID_COLLISION
-                    # self.task_history.append(self.current_task)
                     if self.current_path is None:
                         self.path_before_collision_avoidance_none = True
                     collision_danger = True
-                    # self.collision_count += 1
                     break
 
         self.step_count += 1
@@ -432,10 +440,3 @@ class LocalPerimeterFollowingAgent(LocalKnowledgeAgent):
                 self.current_component_switch_marker = -1
             else:
                 self.complete_to_switch_delay[int(self.current_component_switch_marker)] += 1
-
-        # if len(self.collision_queue) == self.collision_queue.maxlen:
-        #     self.aprint("Proportion of collision danger to other movement: {}"
-        #            .format(sum(self.collision_queue) / self.collision_queue.maxlen))
-        # self.aprint("Current collision danger proportion: {}".format(self.collision_count / self.step_count))
-
-
