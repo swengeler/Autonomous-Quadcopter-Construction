@@ -1,13 +1,11 @@
 import random
+from typing import List
 
 import env.map
 from agents.agent import Agent, Task, check_map
 from agents.local_knowledge.lk_agent import LocalKnowledgeAgent
-from env.block import Block
-from env.util import shortest_path, legal_attachment_sites
-from geom.path import Path
-from geom.shape import *
-from geom.util import simple_distance
+from env import Block, legal_attachment_sites, shortest_path
+from geom.path import *
 
 
 class LocalShortestPathAgent(LocalKnowledgeAgent):
@@ -41,9 +39,6 @@ class LocalShortestPathAgent(LocalKnowledgeAgent):
 
         :param environment: the environment the agent operates in
         """
-
-        if self.current_path is None:
-            self.current_path = Path()
 
         position_before = np.copy(self.geometry.position)
 

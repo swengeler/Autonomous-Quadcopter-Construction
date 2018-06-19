@@ -3,13 +3,9 @@ import time
 import random
 import seaborn as sns
 
-from agents.agent import Task
-from agents.local_knowledge.ps_agent import LocalPerimeterFollowingAgent
-from agents.local_knowledge.sp_agent import LocalShortestPathAgent
-from env.block import Block
-from env.map import *
-from env.util import *
-from geom.shape import *
+from agents import *
+from env import *
+from geom import *
 from graphics.graphics_2d import Graphics2D
 from structures import *
 
@@ -98,8 +94,8 @@ def main():
             processed.append(b)
 
     # creating the agents and placing
-    agent_count = 16
-    agent_type = LocalShortestPathAgent
+    agent_count = 5
+    agent_type = GlobalShortestPathAgent
     agent_list = [agent_type([50, 60, 7.5], [40, 40, 15], target_map, 10.0) for _ in range(0, agent_count)]
     for a in agent_list:
         a.waiting_on_perimeter_enabled = True

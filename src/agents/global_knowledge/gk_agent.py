@@ -1,12 +1,12 @@
+import numpy as np
 import random
+from typing import List
 from abc import abstractmethod
 
 import env.map
 from agents.agent import Task, Agent, check_map
-from env.block import Block
-from geom.path import Path
-from geom.shape import *
-from geom.util import simple_distance
+from env import Block
+from geom import *
 
 
 class GlobalKnowledgeAgent(Agent):

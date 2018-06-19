@@ -545,6 +545,14 @@ def main(map_name="block_4x4x4", skip_existing=False):
     else:
         experiment_choice = int(experiment_choice)
 
+    # ask the user for the number of agents for which to run the experiment for
+    agent_count_list = input("Please specify a list of agent counts (or press enter to use the defaults {}): "
+                             .format(agent_counts))
+    if len(agent_count_list) != 0:
+        agent_count_list = [int(x.strip()) for x in agent_count_list.split()]
+        agent_counts = agent_count_list
+        print("Running experiments for the following agent counts: {}".format(agent_counts))
+
     # ask the user for the number of independent runs to perform for each configuration
     number_runs = int(input("Please enter the number of repeated runs: "))
 
@@ -730,18 +738,4 @@ if __name__ == "__main__":
     skip_existing_outer = args.skip_existing
 
     main(map_name_outer, skip_existing_outer)
-
-    # if len(sys.argv) > 1:
-    #     if len(sys.argv) > 2:
-    #         if int(sys.argv[2]) == 1:
-    #             LOAD_DIRECTORY_NAME = LOAD_DIRECTORY_NAME_ALT_1
-    #         elif int(sys.argv[2]) == 2:
-    #             LOAD_DIRECTORY_NAME = LOAD_DIRECTORY_NAME_ALT_2
-    #         SAVE_DIRECTORY_NAME = SAVE_DIRECTORY_NAME_ALT
-    #     if len(sys.argv) > 3:
-    #         main(sys.argv[1], bool(sys.argv[3]))
-    #     else:
-    #         main(sys.argv[1])
-    # else:
-    #     main()
 

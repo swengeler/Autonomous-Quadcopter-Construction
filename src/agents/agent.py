@@ -1,15 +1,13 @@
-import logging
+import numpy as np
 import random
+from typing import List
 from abc import ABCMeta, abstractmethod
 from collections import deque as dq
 from enum import Enum
 
 import env.map
-from env.block import Block
-from env.util import print_map, shortest_path
-from geom.path import Path
-from geom.shape import *
-from geom.util import simple_distance
+from env import Block, print_map, shortest_path
+from geom import *
 
 np.seterr(divide='ignore', invalid='ignore')
 
@@ -107,7 +105,6 @@ class Agent:
                  target_map: np.ndarray,
                  required_spacing: float,
                  printing_enabled=True):
-        self.logger = logging.getLogger(self.__class__.__name__)
         self.printing_enabled = printing_enabled
 
         self.geometry = Geometry(position, size, 0.0)

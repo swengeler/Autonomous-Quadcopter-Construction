@@ -151,11 +151,6 @@ class Geometry:
             if not interval_overlaps(min_self, max_self, min_other, max_other):
                 return any([g.overlaps(other) for g in self.attached_geometries])
 
-        # compute all normals for both rectangles (pretty easy since they are rectangles rotated only around z)
-
-        # for each normal, project all points on it, get the min and max of each ON THAT AXIS/NORMAL
-
-        # check if there is overlap between them, if not done, if yes keep trying
         return True
 
     def geometry_is_attached(self, other):

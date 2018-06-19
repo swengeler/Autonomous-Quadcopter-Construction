@@ -1,13 +1,11 @@
 import random
+from typing import List
 
 import env.map
 from agents.agent import Task, Agent, check_map
 from agents.global_knowledge.gk_agent import GlobalKnowledgeAgent
-from env.block import Block
-from env.util import legal_attachment_sites
-from geom.path import Path
-from geom.shape import *
-from geom.util import simple_distance
+from env import Block, legal_attachment_sites
+from geom.path import *
 
 
 class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):

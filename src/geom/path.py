@@ -158,9 +158,6 @@ class Path:
         # e.g. have to reach (x, y), preferably at z, but not necessarily
         optional_position = self.next()
         optional_distance = self.optional_distances[self.current_index]
-        # optional_axes = self.optional_distances[self.current_index][1]
-        # return simple_distance(position[[a for a in optional_axes]],
-        #                        optional_position[[a for a in optional_axes]]) <= optional_distance
         if isinstance(optional_distance, tuple):
             return all([abs(position[i] - optional_position[i]) <= optional_distance[i] for i in range(3)])
         else:

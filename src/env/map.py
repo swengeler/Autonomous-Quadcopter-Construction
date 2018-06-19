@@ -4,7 +4,6 @@ import numpy as np
 
 import env.block
 from env.util import ccw_angle_and_distance
-from geom.util import simple_distance
 
 
 class Map:
@@ -381,21 +380,6 @@ class Map:
         dx = max(abs(position[0] - (self.offset_origin[0] + width / 2)) - width / 2, 0)
         dy = max(abs(position[1] - (self.offset_origin[1] + height / 2)) - height / 2, 0)
         return np.sqrt(dx ** 2 + dy ** 2)
-
-    def collision_potential_with_structure(self, agent, check_z=False):
-        max_index = 3 if check_z else 2
-        # should check only in x, y direction by default
-        collision_potential_blocks = []
-        for b in self.placed_blocks:
-            # if there is collision potential, return true, use required distance to check
-            if simple_distance(b.geometry.position, agent.geometry.position) \
-                    < b.geometry.size[0] + agent.required_distance / 2:
-                collision_potential_blocks.append(b)
-        # the block information can then also be used to identify the highest block
-        # then something has to be done to rise to that level and possibly go closer to said block
-        # -> if there is still a block in the way then we should rise higher
-        # perhaps could just do a while block in the way, rise sorta thing
-        return collision_potential_blocks
 
     def store_component_coordinates(self, component_target_map):
         """
