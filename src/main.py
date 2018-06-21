@@ -7,21 +7,43 @@ from agents import *
 from env import *
 from geom import *
 from graphics.graphics_2d import Graphics2D
+from experiments import AGENT_TYPES, long_form
 
-random.seed(205)
+
+"""
+Running this file opens up a simple GUI which can be used to run and monitor single runs of simulated construction.
+It should be noted that the GUI is very unwieldy, but it gets done what it needs to.
+"""
+
 
 request_queue = queue.Queue()
 return_queue = queue.Queue()
+done = False
+running = False
 
 
-def run_simulation():
+def run_simulation(map_name, agent_count, agent_type):
+    """
+    Simulate and display the construction of a specified structure using
+    the specified number of agents of the specified type.
+
+    :param map_name: path to the file containing the occupancy matrix for the target structure
+    :param agent_count: the number of agents to use
+    :param agent_type: the agent type to use
+    """
+
+    global running, done
+    running = True
+
     # setting global parameters
     interval = 0.05
     paused = False
 
     # creating the target map
-    target_map = np.load(
-        "/home/simon/PycharmProjects/LowFidelitySimulation/res/new_experiment_maps/block_4x4x4.npy").astype("int64")
+    if map_name is None:
+        target_map = np.array([[[1, 1, 1], [1, 2, 1], [1, 1, 1]]])
+    else:
+        target_map = np.load(map_name).astype("int64")
 
     # changing the block colours for easy differentiation when they are placed at a certain height
     palette_block = list(sns.color_palette("Blues_d", target_map.shape[0]))
@@ -94,8 +116,7 @@ def run_simulation():
             processed.append(b)
 
     # creating the agents and placing
-    agent_count = 2
-    agent_type = GlobalShortestPathAgent
+    agent_type = AGENT_TYPES[agent_type]
     agent_list = [agent_type([50, 60, 7.5], [40, 40, 15], target_map, 10.0) for _ in range(0, agent_count)]
     for a in agent_list:
         a.waiting_on_perimeter_enabled = True
@@ -124,9 +145,7 @@ def run_simulation():
     # adding the agents
     environment.add_agents(agent_list)
 
-    # starting the tkinter GUI
-    graphics = Graphics2D(environment, request_queue, return_queue, min_update_interval=interval * 1000, render=True)
-    graphics.run()
+    request_queue.put((Graphics2D.START_REQUEST, environment))
 
     # stuck stuff
     no_change_counter = 0
@@ -191,17 +210,25 @@ def run_simulation():
             else:
                 if val == Graphics2D.SHUTDOWN_RETURN:
                     raise KeyboardInterrupt
+                elif val == Graphics2D.STOP_RETURN:
+                    return
                 elif val == Graphics2D.PAUSE_PLAY_RETURN:
                     paused = not paused
                 elif val == Graphics2D.INTERVAL_RETURN:
                     try:
                         new_interval = return_queue.get_nowait()
-                        interval = new_interval
+                        if new_interval < 0.00001:
+                            interval = 0.00001
+                        else:
+                            interval = new_interval
                     except queue.Empty:
                         pass
+                elif val == Graphics2D.START_RETURN:
+                    break
             time.sleep(interval)
     except KeyboardInterrupt:
         request_queue.put(Graphics2D.SHUTDOWN_REQUEST)
+        done = True
         if not finished_successfully:
             print("Interrupted construction with {} agents in {} steps ({} colliding)."
                   .format(agent_count, steps, collisions / 2))
@@ -209,16 +236,43 @@ def run_simulation():
             print_map(environment.occupancy_map)
             print("\nCollision data:\n{}".format(collision_pairs))
 
-    print("\nMaximum steps without change: {}".format(max_no_change_counter))
-
 
 def main():
+    """
+    Start the simulator GUI and handle input events.
+    """
+
     graphics = Graphics2D(request_queue, return_queue)
     graphics.run()
 
-    while True:
+    map_name = None
+    agent_count = 1
+    agent_type = "LSP"
+
+    global done
+    while not done:
         # listen for events from graphics and if there is one
-        pass
+        try:
+            val = return_queue.get_nowait()
+        except queue.Empty:
+            pass
+        else:
+            message = None
+            if isinstance(val, tuple):
+                temp = val
+                val = temp[0]
+                message = temp[1]
+            if val == Graphics2D.AGENT_COUNT_RETURN:
+                agent_count = message
+            elif val == Graphics2D.AGENT_TYPE_RETURN:
+                agent_type = message
+            elif val == Graphics2D.MAP_RETURN:
+                map_name = message
+            elif val == Graphics2D.START_RETURN:
+                run_simulation(map_name, agent_count, long_form(agent_type))
+            elif val == Graphics2D.SHUTDOWN_RETURN:
+                request_queue.put(Graphics2D.SHUTDOWN_REQUEST)
+                break
 
 
 if __name__ == "__main__":

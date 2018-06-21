@@ -16,14 +16,23 @@ from env.block import Block
 
 
 class Graphics2D:
+    """
+    A simple (and very unpolished) GUI which can be used to select a structure/map for which to run a simulation,
+    select the number of agents and agent type, start and stop the simulation and pause it.
+    """
+
     UPDATE_REQUEST = 0
     SHUTDOWN_REQUEST = 1
+    START_REQUEST = 2
 
     SHUTDOWN_RETURN = 101
     PAUSE_PLAY_RETURN = 102
     INTERVAL_RETURN = 103
     AGENT_COUNT_RETURN = 104
-    MAP_RETURN = 105
+    AGENT_TYPE_RETURN = 105
+    MAP_RETURN = 106
+    START_RETURN = 107
+    STOP_RETURN = 108
 
     def __init__(self,
                  request_queue: queue.Queue,
@@ -44,11 +53,20 @@ class Graphics2D:
         self.render = render
         self.master = None
         self.canvases = dict()
+        self.started = False
 
     def run(self):
+        """
+        Start a new thread and run the GUI in that thread.
+        """
+
         threading.Thread(target=self.window_setup).start()
 
     def draw_grid(self):
+        """
+        Draw the grid/lattice that the structure is built in (for visual clarity).
+        """
+
         size = Block.SIZE
         if "top" in self.views:
             canvas = self.canvases["top"]
@@ -82,23 +100,11 @@ class Graphics2D:
                 canvas.create_line(x_start + self.padding[0], y_const + self.padding[1],
                                    x_end + self.padding[0], y_const + self.padding[1])
 
-        if "side" in self.views:
-            canvas = self.canvases["side"]
-            for i in range(self.map.target_map.shape[1] + 1):
-                x_const = self.map.offset_origin[1] + (i - 0.5) * size
-                y_start = self.map.environment_extent[2] + size / 2
-                y_end = y_start - size * (self.map.target_map.shape[0])
-                canvas.create_line(x_const + self.padding[0], y_start + self.padding[1],
-                                   x_const + self.padding[0], y_end + self.padding[1])
-
-            for i in range(self.map.target_map.shape[0] + 1):
-                x_start = self.map.offset_origin[1] - size / 2
-                x_end = x_start + size * (self.map.target_map.shape[1])
-                y_const = self.map.environment_extent[2] - (i - 0.5) * size
-                canvas.create_line(x_start + self.padding[0], y_const + self.padding[1],
-                                   x_end + self.padding[0], y_const + self.padding[1])
-
     def draw_blocks(self):
+        """
+        Draw the building blocks.
+        """
+
         size = Block.SIZE
         if "top" in self.views:
             canvas = self.canvases["top"]
@@ -123,18 +129,11 @@ class Graphics2D:
                 canvas.create_polygon([min_x, z - size / 2, max_x, z - size / 2,
                                        max_x, z + size / 2, min_x, z + size / 2], fill=b.color, outline="black")
 
-        if "side" in self.views:
-            canvas = self.canvases["side"]
-            sorted_blocks = sorted(self.map.blocks, key=lambda x: x.geometry.position[0])
-            for b in sorted_blocks:
-                points = np.array(b.geometry.corner_points_2d())
-                min_y = min(points[:, 1]) + self.padding[0]
-                max_y = max(points[:, 1]) + self.padding[0]
-                z = self.map.environment_extent[2] - (b.geometry.position[2] - size / 2) + self.padding[1]
-                canvas.create_polygon([min_y, z - size / 2, max_y, z - size / 2,
-                                       max_y, z + size / 2, min_y, z + size / 2], fill=b.color, outline="black")
-
     def draw_agents(self):
+        """
+        Draw the agents, as well as their collision clouds.
+        """
+
         if "top" in self.views:
             canvas = self.canvases["top"]
             counter = 0
@@ -195,6 +194,10 @@ class Graphics2D:
                                        max_x, z + size / 2, min_x, z + size / 2], fill="blue", outline="black")
 
     def draw_numbers(self):
+        """
+        Draw the indices of the agents and the layer number of each seed block.
+        """
+
         if "top" in self.views:
             canvas = self.canvases["top"]
             for a in self.map.agents:
@@ -224,6 +227,10 @@ class Graphics2D:
                                        fill="white", font="Arial 10 bold", text="{}".format(b.grid_position[2]))
 
     def update_graphics(self):
+        """
+        Render an updated view of the environment.
+        """
+
         if self.render and self.map is not None:
             for c in list(self.canvases.values()):
                 c.delete("all")
@@ -233,6 +240,10 @@ class Graphics2D:
             self.draw_numbers()
 
     def window_setup(self):
+        """
+        Set up the user interface and its functionality.
+        """
+
         self.master = Tk()
 
         def on_closing():
@@ -246,10 +257,21 @@ class Graphics2D:
             except queue.Empty:
                 pass
             else:
+                message = None
+                if isinstance(request, tuple):
+                    temp = request
+                    request = temp[0]
+                    message = temp[1]
                 if request is Graphics2D.UPDATE_REQUEST:
                     self.update_graphics()
                 elif request is Graphics2D.SHUTDOWN_REQUEST:
                     self.master.destroy()
+                elif request is Graphics2D.START_REQUEST:
+                    self.map = message
+                    self.canvases["top"].config(width=(self.map.environment_extent[0] + 2 * self.padding[0] - self.cropping[0] - self.cropping[1]),
+                                                height=(self.map.environment_extent[1] + 2 * self.padding[1] - self.cropping[2] - self.cropping[3]))
+                    self.canvases["front"].config(width=(self.map.environment_extent[0] + 2 * self.padding[0] - self.cropping[0] - self.cropping[1]),
+                                                  height=(self.map.environment_extent[2] + 2 * self.padding[1] - self.cropping[2] - self.cropping[3]))
 
             self.master.after(self.update_interval, timer_tick)
 
@@ -265,7 +287,7 @@ class Graphics2D:
                             height=(600 + 2 * self.padding[1] - self.cropping[2] - self.cropping[3]),
                             background="#a7a9bc")
             # cv.pack(side=LEFT)
-            cv.grid(row=1, column=0, columnspan=2)
+            cv.grid(row=2, column=0, columnspan=3)
             self.canvases["top"] = cv
         if "front" in self.views:
             if self.map is not None:
@@ -278,7 +300,7 @@ class Graphics2D:
                             width=(600 + 2 * self.padding[0] - self.cropping[0] - self.cropping[1]),
                             height=(600 + 2 * self.padding[1] - self.cropping[2] - self.cropping[3]),
                             background="#a7a9bc")
-            cv.grid(row=1, column=2, columnspan=2)
+            cv.grid(row=2, column=3, columnspan=3)
             self.canvases["front"] = cv
 
         def callback_pause_play():
@@ -320,23 +342,44 @@ class Graphics2D:
             e2.delete(0, "end")
             try:
                 value = int(value)
-                self.return_queue.put(Graphics2D.AGENT_COUNT_RETURN)
-                self.return_queue.put(value)
+                self.return_queue.put((Graphics2D.AGENT_COUNT_RETURN, value))
             except ValueError:
                 pass
 
         e2.bind("<Return>", callback_agents)
 
+        # for loading a
         def load():
             file_name = askopenfilename(defaultextension=".npy")
             if file_name is None or len(file_name) == 0:
                 return
-            print(file_name)
-            result = tkinter.messagebox.askyesno(message="Are you sure you want to interrupt the running simulation?")
-            print(result)
+            self.return_queue.put((Graphics2D.MAP_RETURN, file_name))
 
         button_load = Button(self.master, text="Load map", command=load)
         button_load.grid(row=0, column=0, sticky=W)
+
+        agent_type_var = StringVar(self.master)
+        agent_type_var.set("LSP")
+
+        def callback_agent_type(n, m, x):
+            self.return_queue.put((Graphics2D.AGENT_TYPE_RETURN, agent_type_var.get()))
+
+        # for selecting the agent type
+        agent_type_var.trace("w", callback_agent_type)
+        agent_type_selector = OptionMenu(self.master, agent_type_var, "LSP", "LPF", "GSP", "GPF")
+        agent_type_selector.grid(row=0, column=4, sticky=W)
+
+        # for starting or stopping the simulation (not to be confused with pausing it)
+        def callback_start_stop():
+            self.return_queue.put(Graphics2D.START_RETURN)
+            if self.started:
+                for c in list(self.canvases.values()):
+                    c.delete("all")
+                self.map = None
+            self.started = not self.started
+
+        start_stop = Button(self.master, text="Start/stop", command=callback_start_stop)
+        start_stop.grid(row=0, column=5, sticky=W)
 
         # initialise graphics
         for c in list(self.canvases.values()):

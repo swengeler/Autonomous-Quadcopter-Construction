@@ -88,10 +88,12 @@ def shortest_path_3d(lattice: np.ndarray, start, goal):
     """
     Return the shortest path from start to goal position, using only nonzero positions in the lattice.
 
-    :param lattice:
-    :param start:
-    :param goal:
-    :return:
+    This function is an alternative to the shortest_path_3d_in_2d function, which was never used.
+
+    :param lattice: the 3D occupancy matrix to be used to find the shortest path
+    :param start: the starting position for the path
+    :param goal: the goal position for the path
+    :return: the shortest path as a list of grid positions (3D) between the start and goal position
     """
 
     # Note that the way I'm doing this right now basically means the resulting
@@ -300,17 +302,18 @@ def legal_attachment_sites_local(target_map: np.ndarray,
                                  occupancy_map: np.ndarray,
                                  component_marker=None,
                                  row_information=False):
-    # TODO combine these two into one
     """
     Return information about the legal attachment sites for the given target map, occupancy matrix and component.
 
-    This method is used when the occupancy matrix only contains local information. As described in the function
+    This function is used when the occupancy matrix only contains local information. It returns an occupancy matrix
+    of the legal attachment sites and three lists with different types of attachment sites: corner sites,
+    protruding sites and end-of-row sites.
 
-    :param target_map:
-    :param occupancy_map:
-    :param component_marker:
+    :param target_map: an occupancy matrix representing the target structure
+    :param occupancy_map: an occupancy matrix representing the current state of the structure
+    :param component_marker: the component for which to find attachment sites
     :param row_information: determines the format of the returned end-of-row sites
-    :return:
+    :return: a matrix with marked attachment sites and lists of different attachment site types
     """
 
     if component_marker is not None:

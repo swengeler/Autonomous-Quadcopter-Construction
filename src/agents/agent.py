@@ -106,7 +106,7 @@ class Agent:
         self.previous_path = None
         self.current_static_location = self.geometry.position
         self.current_structure_level = 0
-        self.current_grid_position = None  # closest grid position if at structure
+        self.current_grid_position = None
         self.current_grid_direction = None
         self.current_row_started = False
         self.current_component_marker = 2
@@ -614,7 +614,6 @@ class Agent:
         if component_marker is None:
             component_marker = self.current_component_marker
 
-        # TODO: actually check component stuff
         directions = np.array([(1, 0), (-1, 0), (0, 1), (0, -1)])
         start_position = np.array(start_position)
         min_distance = 0

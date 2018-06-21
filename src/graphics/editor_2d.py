@@ -8,6 +8,9 @@ except ImportError:
 
 
 class Editor2D(Tk):
+    """
+    A simple editor for creating structures and saving them for later use.
+    """
 
     def __init__(self):
         Tk.__init__(self)
@@ -50,6 +53,10 @@ class Editor2D(Tk):
         self.redraw()
 
     def redraw(self):
+        """
+        Redraw the updated state.
+        """
+
         self.canvas.delete("all")
 
         # draw grid
@@ -81,6 +88,10 @@ class Editor2D(Tk):
                                                  fill="#f4e242")
 
     def setup(self):
+        """
+        Set up the user interface and its functionality.
+        """
+
         self.wm_title("Map editor")
         self.wm_minsize(800, 400)
 

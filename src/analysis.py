@@ -16,6 +16,13 @@ from matplotlib.colors import ListedColormap
 from agents.agent import Task
 from experiments import AGENT_TYPES, VALUES, short_form, long_form
 
+
+"""
+This file is not really part of the main code but contains some (very unorganised) functions which were
+used for analysing the experiment data. So far there was no time yet to clean up the code.
+"""
+
+
 style.use("ggplot")
 matplotlib.rcParams["savefig.directory"] = \
     "/home/simon/GoogleDrive/University Material/Bachelor Thesis/Images/Final plots/"
@@ -2691,7 +2698,6 @@ def show_max_speedup_all(map_generic=None, agent_type=None):
 
 
 def main():
-    # TODO: need some easy way to get the yerr
     # data = load_single_map_data(map_name)
     # show_all_agent_performance("block_10x10x10")
     # show_single_agent_type_performance("block_6x6x7", "GlobalShortestPathAgent",
