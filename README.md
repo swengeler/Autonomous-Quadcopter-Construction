@@ -1,6 +1,6 @@
 ## Autonomous construction of block structures with a swarm of quadcopters
 
-This repository contains part of the code for my Bachelor Thesis project at the Department of Data Science and Knowledge Engineering at Maastricht University. The code implements a high-level simulation for autonomous construction using quadcopters. The `res` folder contains files with representations for a large number of different structures that can be built using the simulator. All files containing results from the performed experiments are also included in `experiment_results.zip`.
+This repository contains part of the code for my Bachelor Thesis project at the Department of Data Science and Knowledge Engineering at Maastricht University. The code implements a high-level simulation for autonomous construction using quadcopters. The `res` folder contains files with representations for a large number of different structures that can be built using the simulator.
 
 ## Installation
 
