@@ -35,38 +35,6 @@ class Task(Enum):
     HOVER_OVER_COMPONENT = 16
 
 
-class AgentStatistics:
-
-    def __init__(self, agent):
-        self.agent = agent
-        self.task_counter = {
-            Task.FETCH_BLOCK: 0,
-            Task.PICK_UP_BLOCK: 0,
-            Task.TRANSPORT_BLOCK: 0,
-            Task.MOVE_TO_PERIMETER: 0,
-            Task.FIND_ATTACHMENT_SITE: 0,
-            Task.PLACE_BLOCK: 0,
-            Task.FIND_NEXT_COMPONENT: 0,
-            Task.SURVEY_COMPONENT: 0,
-            Task.RETURN_BLOCK: 0,
-            Task.CHECK_STASHES: 0,
-            Task.LAND: 0,
-            Task.FINISHED: 0,
-            Task.WAIT_ON_PERIMETER: 0,
-            Task.REJOIN_SWARM: 0,
-            Task.HOVER_OVER_COMPONENT: 0
-        }
-        self.previous_task = None
-        self.collision_danger = []
-        self.collision_avoidance_contribution = []
-        self.attachment_interval = []
-
-    def step(self, environment: env.map.Map):
-        if self.previous_task != self.agent.current_task:
-            self.previous_task = self.agent.current_task
-        self.task_counter[self.agent.current_task] = self.task_counter[self.agent.current_task] + 1
-
-
 def check_map(map_to_check, position, comparator=lambda x: x != 0):
     """
     Check whether the specified condition holds at the given position on the given map.
@@ -246,8 +214,6 @@ class Agent:
         Agent.AGENT_ID += 1
         self.collision_possible = True
 
-        self.agent_statistics = AgentStatistics(self)
-
         self.component_target_map = self.split_into_components()
         # self.multi_layer_component_target_map = self.merge_multi_layer_components()
         self.closing_corners, self.hole_map, self.hole_boundaries, self.closing_corner_boundaries, \
@@ -323,21 +289,17 @@ class Agent:
 
                     if not collision_count_updated:
                         self.collision_queue.append(1)
-                        self.agent_statistics.collision_danger.append(1)
                         self.collision_count += 1
                         self.per_task_collision_avoidance_count[self.current_task] += 1
                         collision_count_updated = True
 
         if not collision_count_updated:
-            self.agent_statistics.collision_danger.append(0)
             self.collision_queue.append(0)
 
         ca_contribution = sum(np.sqrt(total_ff_vector ** 2))
         pf_contribution = 1.0
         self.collision_avoidance_contribution_queue.append(ca_contribution)
         self.path_finding_contribution_queue.append(pf_contribution)
-
-        self.agent_statistics.collision_avoidance_contribution.append(ca_contribution)
 
         # normalising and scaling the vector
         if sum(np.sqrt(current_direction ** 2)) > 0:

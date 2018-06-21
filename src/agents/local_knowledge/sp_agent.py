@@ -485,7 +485,6 @@ class LocalShortestPathAgent(LocalKnowledgeAgent):
                 if self.rejoining_swarm:
                     self.rejoining_swarm = False
 
-                self.agent_statistics.attachment_interval.append(self.count_since_last_attachment)
                 self.attachment_frequency_count.append(self.count_since_last_attachment)
                 self.count_since_last_attachment = 0
 
@@ -552,8 +551,6 @@ class LocalShortestPathAgent(LocalKnowledgeAgent):
         if self.current_task != Task.LAND and self.check_structure_finished(self.local_occupancy_map):
             self.current_task = Task.LAND
             self.task_history.append(self.current_task)
-
-        self.agent_statistics.step(environment)
 
         if self.current_task == Task.FETCH_BLOCK:
             self.fetch_block(environment)

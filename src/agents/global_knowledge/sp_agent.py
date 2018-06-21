@@ -354,7 +354,6 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
                 if self.rejoining_swarm:
                     self.rejoining_swarm = False
 
-                self.agent_statistics.attachment_interval.append(self.count_since_last_attachment)
                 self.attachment_frequency_count.append(self.count_since_last_attachment)
                 self.count_since_last_attachment = 0
 
@@ -446,8 +445,6 @@ class GlobalShortestPathAgent(GlobalKnowledgeAgent):
 
         if self.initial_position is None:
             self.initial_position = np.copy(self.geometry.position)
-
-        self.agent_statistics.step(environment)
 
         if self.current_task == Task.FETCH_BLOCK:
             self.fetch_block(environment)

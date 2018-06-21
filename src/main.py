@@ -7,7 +7,6 @@ from agents import *
 from env import *
 from geom import *
 from graphics.graphics_2d import Graphics2D
-from structures import *
 
 random.seed(205)
 
@@ -15,7 +14,7 @@ request_queue = queue.Queue()
 return_queue = queue.Queue()
 
 
-def main():
+def run_simulation():
     # setting global parameters
     interval = 0.05
     paused = False
@@ -53,6 +52,7 @@ def main():
     dummy_agent = LocalPerimeterFollowingAgent([0, 0, 0], [0, 0, 0], target_map)
     component_target_map = dummy_agent.split_into_components()
     required_seeds = np.max(component_target_map) - 2
+    Agent.AGENT_ID -= 1
 
     # creating the blocks and a list of initial positions
     block_list = []
@@ -94,7 +94,7 @@ def main():
             processed.append(b)
 
     # creating the agents and placing
-    agent_count = 5
+    agent_count = 2
     agent_type = GlobalShortestPathAgent
     agent_list = [agent_type([50, 60, 7.5], [40, 40, 15], target_map, 10.0) for _ in range(0, agent_count)]
     for a in agent_list:
@@ -125,7 +125,7 @@ def main():
     environment.add_agents(agent_list)
 
     # starting the tkinter GUI
-    graphics = Graphics2D(environment, request_queue, return_queue, ["top", "front"], interval * 1000, render=True)
+    graphics = Graphics2D(environment, request_queue, return_queue, min_update_interval=interval * 1000, render=True)
     graphics.run()
 
     # stuck stuff
@@ -154,23 +154,6 @@ def main():
                 if all([a.current_task == Task.FINISHED for a in agent_list]):
                     print("Finished construction with {} agents in {} steps ({} colliding)."
                           .format(agent_count, steps, collisions / 2))
-                    average_stats = {}
-                    min_stats = {}
-                    max_stats = {}
-                    for k in list(agent_list[0].agent_statistics.task_counter.keys()):
-                        task_counters = [a.agent_statistics.task_counter[k] for a in agent_list]
-                        average_stats[k.name] = float(np.mean(task_counters))
-                        min_stats[k.name] = int(np.min(task_counters))
-                        max_stats[k.name] = int(np.max(task_counters))
-                    print("\nAverage statistics for agents:")
-                    for k in list(average_stats.keys()):
-                        print("{}: {}".format(k, average_stats[k]))
-                    print("\nMin statistics for agents:")
-                    for k in list(min_stats.keys()):
-                        print("{}: {}".format(k, min_stats[k]))
-                    print("\nMax statistics for agents:")
-                    for k in list(max_stats.keys()):
-                        print("{}: {}".format(k, max_stats[k]))
                     finished_successfully = True
                     print("\nFinal resulting map:")
                     print_map(environment.occupancy_map)
@@ -222,28 +205,20 @@ def main():
         if not finished_successfully:
             print("Interrupted construction with {} agents in {} steps ({} colliding)."
                   .format(agent_count, steps, collisions / 2))
-            average_stats = {}
-            min_stats = {}
-            max_stats = {}
-            for k in list(agent_list[0].agent_statistics.task_counter.keys()):
-                task_counters = [a.agent_statistics.task_counter[k] for a in agent_list]
-                average_stats[k.name] = float(np.mean(task_counters))
-                min_stats[k.name] = int(np.min(task_counters))
-                max_stats[k.name] = int(np.max(task_counters))
-            print("\nAverage statistics for agents:")
-            for k in list(average_stats.keys()):
-                print("{}: {}".format(k, average_stats[k]))
-            print("\nMin statistics for agents:")
-            for k in list(min_stats.keys()):
-                print("{}: {}".format(k, min_stats[k]))
-            print("\nMax statistics for agents:")
-            for k in list(max_stats.keys()):
-                print("{}: {}".format(k, max_stats[k]))
             print("\nFinal resulting map:")
             print_map(environment.occupancy_map)
             print("\nCollision data:\n{}".format(collision_pairs))
 
     print("\nMaximum steps without change: {}".format(max_no_change_counter))
+
+
+def main():
+    graphics = Graphics2D(request_queue, return_queue)
+    graphics.run()
+
+    while True:
+        # listen for events from graphics and if there is one
+        pass
 
 
 if __name__ == "__main__":

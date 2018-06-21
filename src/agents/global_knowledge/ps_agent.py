@@ -366,8 +366,6 @@ class GlobalPerimeterFollowingAgent(GlobalKnowledgeAgent):
             self.current_task = Task.LAND
             self.task_history.append(self.current_task)
 
-        self.agent_statistics.step(environment)
-
         if self.current_task == Task.FETCH_BLOCK:
             self.fetch_block(environment)
         elif self.current_task == Task.PICK_UP_BLOCK:

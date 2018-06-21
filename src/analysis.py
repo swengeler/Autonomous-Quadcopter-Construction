@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from pprint import pprint
 
 import matplotlib
@@ -13,12 +14,11 @@ from cycler import cycler
 from matplotlib.colors import ListedColormap
 
 from agents.agent import Task
-from experiments import AGENT_TYPES, VALUES
-from experiments import short_form
+from experiments import AGENT_TYPES, VALUES, short_form, long_form
 
 style.use("ggplot")
 matplotlib.rcParams["savefig.directory"] = \
-    "/home/simon/GoogleDrive/University Material/Bachelor Thesis/Images/Proper plots/"
+    "/home/simon/GoogleDrive/University Material/Bachelor Thesis/Images/Final plots/"
 matplotlib.rcParams["font.family"] = "serif"
 matplotlib.rcParams["font.size"] = 12
 
@@ -324,8 +324,6 @@ def show_task_bar_chart(map_name, agent_type, metric="step_count", statistic="me
         task_means = []
         for t_idx, task in enumerate(Task):
             task_stats = get_task_stats(data, task, agent_type, agent_count, True)
-            print("step_count mean for {} agents for task {}: {}".format(agent_count, task,
-                                                                         task_stats["step_count"]["mean"]))
             task_means.append(task_stats[metric][statistic])
             sum_per_task[t_idx] += task_stats[metric][statistic]
         task_means_all.append(task_means)
@@ -337,6 +335,7 @@ def show_task_bar_chart(map_name, agent_type, metric="step_count", statistic="me
 
     df = pd.DataFrame(task_means_all, index=counts, columns=task_names)
     df = df.loc[:, (df != 0).any(axis=0)]
+    print(df)
     # color_map = ListedColormap(sns.color_palette("Blues_r", len(df.columns)).as_hex())
     # test = ['#db5f57', '#b9db57', '#57db94', '#5784db', '#c957db'][:-1]
     color_map = ListedColormap(sns.color_palette("hls", len(df.columns)).as_hex()).reversed()
@@ -420,7 +419,7 @@ def show_steps_with_standard_deviations(map_name):
     plt.show()
 
 
-def show_steps_with_standard_deviations_new(map_name, additional_counts=None):
+def show_steps_with_standard_deviations_new(map_name, additional_counts=None, return_axis=False, axis=None):
     agent_types = sorted(list(AGENT_TYPES), key=lambda x: (len(x)))
 
     data = load_single_map_data(map_name, "defaults")
@@ -448,8 +447,17 @@ def show_steps_with_standard_deviations_new(map_name, additional_counts=None):
 
     df = pd.DataFrame(step_counts_total.transpose(), index=counts, columns=agent_types)
     color_map = ListedColormap(sns.color_palette(n_colors=len(df.columns)).as_hex())
-    ax = df.plot(kind="line", colormap=color_map, yerr=standard_deviations_total)
+
+    if axis is None:
+        ax = df.plot(kind="line", colormap=color_map, yerr=standard_deviations_total)
+    else:
+        ax = axis
+        df.plot(kind="line", colormap=color_map, yerr=standard_deviations_total, ax=ax)
     ax.set_ylim(ymin=0)
+
+    if return_axis:
+        return ax
+
     plt.xlabel("Number of agents")
     plt.ylabel("Steps")
     plt.gcf().subplots_adjust(left=0.17, right=0.95)
@@ -633,7 +641,7 @@ def show_average_distance_travelled(map_name):
     counts = [1, 2, 4, 8, 12, 16]
     distances_total = []
     data = load_single_map_data(map_name, "defaults")
-    agent_types = sorted(list(AGENT_TYPES.keys()))
+    agent_types = sorted(list(AGENT_TYPES.keys()), key=lambda x: (len(x), x))
     for at in agent_types:
         distances = [[] for _ in counts]
         for d in data:
@@ -652,6 +660,8 @@ def show_average_distance_travelled(map_name):
     distances_total = np.array(distances_total)
 
     df = pd.DataFrame(distances_total.transpose(), index=counts, columns=agent_types)
+    print(df[long_form("LSP")])
+    print(df[long_form("LPF")])
     ax = df.plot(kind="line")
     ax.set_axisbelow(True)
     ax.yaxis.grid(color="grey", linestyle='dashed')
@@ -690,7 +700,7 @@ def show_sp_researching_generic(map_generic, agent_type):
     for file_name in os.listdir(LOAD_DIRECTORY):
         if file_name.startswith(map_generic) and not file_name.endswith("padded"):
             if file_name not in map_names:
-                if "block" in map_generic and str(8) in file_name and str(9) not in file_name:
+                if "block" in map_generic and str(8) in file_name and not (str(7) in file_name or str(9) in file_name):
                     continue
                 map_names.append(file_name.replace(".npy", ""))
     map_names = sorted(map_names, key=lambda x: (len(x), x))
@@ -720,7 +730,7 @@ def show_sp_researching_generic(map_generic, agent_type):
     standard_deviations_total = np.array(standard_deviations_total)
 
     df = pd.DataFrame(research_counts_total.transpose(), index=counts, columns=map_names)
-    color_map = ListedColormap(sns.color_palette("hls", n_colors=len(df.columns)))
+    color_map = ListedColormap(sns.color_palette("Blues_d", n_colors=len(df.columns)))
     ax = df.plot(kind="line", colormap=color_map, yerr=standard_deviations_total, capsize=2)
     plt.xlabel("Number of agents")
     plt.ylabel("Number of searches\nbefore attachment")
@@ -784,10 +794,10 @@ def show_attached_block_count_distribution_all_types(map_name):
     plt.show()
 
 
-def show_collision_proportion(map_name):
+def show_collision_proportion(map_name, experiment_name="defaults"):
     # would be good to break this down by task
     counts = [1, 2, 4, 8, 12, 16]
-    data = load_single_map_data(map_name, experiment_name="defaults")
+    data = load_single_map_data(map_name, experiment_name=experiment_name)
     agent_types = sorted(list(AGENT_TYPES.keys()), key=lambda x: (len(x), x))
     data_frames = []
     for at in agent_types:
@@ -806,20 +816,21 @@ def show_collision_proportion(map_name):
                     step_avg += d["task_stats"][t]["step_count"]["mean"]
                     collision_avg += d["task_stats"][t]["collision_avoidance_count"]["mean"]
                     counter += 1
-                print("AC {}, AT {}: Step sum from tasks: {}".format(agent_count, at, step_avg))
-                print("AC {}, AT {}: Step sum from outside: {}".format(agent_count, at, d["step_count"]))
+                # print("AC {}, AT {}: Step sum from tasks: {}".format(agent_count, at, step_avg))
+                # print("AC {}, AT {}: Step sum from outside: {}".format(agent_count, at, d["step_count"]))
                 # step_avg /= agent_count
                 # collision_avg /= agent_count
                 steps_without_collisions[index].append(step_avg - collision_avg)
                 steps_with_collisions[index].append(collision_avg)
-                if agent_count == 16:
-                    print(collision_avg)
         steps_without_collisions = [float(np.mean(x)) for x in steps_without_collisions]
         steps_with_collisions = [float(np.mean(x)) for x in steps_with_collisions]
-        print(steps_with_collisions)
         total = np.array([steps_without_collisions, steps_with_collisions])
         df = pd.DataFrame(total.transpose(), index=counts, columns=["Steps w/o collision", "Steps w/ collision"])
         data_frames.append(df)
+
+        if at.startswith("Local"):
+            print(at)
+            print(df)
 
     # df = pd.DataFrame(proportions_total.transpose(), index=counts, columns=agent_types)
     color_map = ListedColormap(sns.color_palette("Paired", len(agent_types) * 2).as_hex()).reversed()
@@ -890,7 +901,7 @@ def show_perimeter_comparison(agent_type):
         data = load_single_map_data(map_name, "defaults")
         step_counts = [[] for _ in counts]
         for d in data:
-            if d["parameters"]["agent_type"] == agent_type and d["finished_successfully"]:
+            if d["parameters"]["agent_type"] == long_form(agent_type) and d["finished_successfully"]:
                 agent_count = d["parameters"]["agent_count"]
                 index = counts.index(agent_count)
                 step_count = d["step_count"]
@@ -1010,10 +1021,13 @@ def show_multiple_component_scaling_relative(agent_type):
     step_counts_total = np.array(step_counts_total[-1:0:-1])
     # map_names = list(reversed(map_names))
 
-    df = pd.DataFrame(step_counts_total.transpose(), index=counts, columns=map_names[-1:0:-1])
+    labels = ["{} (padded)".format(m[re.search("\d", m).start():re.search("\d", m).start()+3]) if "padded" in m
+              else m[re.search("\d", m).start():] for m in map_names[-1:0:-1]]
+    df = pd.DataFrame(step_counts_total.transpose(), index=counts, columns=labels)
     color_map = ListedColormap(sns.color_palette("Paired", len(df.columns)).as_hex())
     fig, ax = plt.subplots()
     df.plot(kind="bar", colormap=color_map, rot=0, ax=ax)
+    ax.set_ylim(ymin=-0.2)
     y_locs, y_labels = plt.yticks()
     plt.xlabel("Number of agents")
     plt.ylabel("Ratio observed/expected")
@@ -1038,6 +1052,8 @@ def show_component_finished_delay(map_name):
         for d in data:
             if d["parameters"]["agent_type"] == at and d["finished_successfully"]:
                 agent_count = d["parameters"]["agent_count"]
+                if agent_count not in counts:
+                    continue
                 index = counts.index(agent_count)
                 counter = 0
                 delay_average = 0
@@ -1126,25 +1142,29 @@ def show_single_agent_type_performance(map_name, agent_type, experiment_name="de
     plt.show()
 
 
-def show_wait_on_perimeter_difference(map_name, agent_type):
+def show_wait_on_perimeter_difference(map_name, agent_type, wait_on_perimeter_name="wait_on_perimeter"):
     counts = [1, 2, 4, 8, 12, 16]
     normal_data = load_single_map_data(map_name, "defaults")
     normal_step_counts = [[] for _ in counts]
     for d in normal_data:
         if d["parameters"]["agent_type"] == agent_type and d["finished_successfully"]:
             agent_count = d["parameters"]["agent_count"]
+            if agent_count not in counts:
+                continue
             index = counts.index(agent_count)
             normal_step_counts[index].append(d["step_count"])
     normal_step_counts = [float(np.mean(x)) for x in normal_step_counts]
 
     wop_step_counts = None
-    wop_exists = os.path.exists(LOAD_DIRECTORY + map_name + "/wait_on_perimeter")
+    wop_exists = os.path.exists(LOAD_DIRECTORY + map_name + "/" + wait_on_perimeter_name)
     if wop_exists:
-        wop_data = load_single_map_data(map_name, "wait_on_perimeter")
+        wop_data = load_single_map_data(map_name, wait_on_perimeter_name)
         wop_step_counts = [[] for _ in counts]
         for d in wop_data:
             if d["parameters"]["agent_type"] == agent_type and d["finished_successfully"]:
                 agent_count = d["parameters"]["agent_count"]
+                if agent_count not in counts:
+                    continue
                 index = counts.index(agent_count)
                 wop_step_counts[index].append(d["step_count"])
         wop_step_counts = [float(np.mean(x)) for x in wop_step_counts]
@@ -1171,12 +1191,18 @@ def show_wait_on_perimeter_difference_all_types(map_name, wop_experiment_name="w
         for d in normal_data:
             if d["parameters"]["agent_type"] == agent_type and d["finished_successfully"]:
                 agent_count = d["parameters"]["agent_count"]
+                if agent_count not in counts:
+                    continue
                 index = counts.index(agent_count)
                 normal_step_counts[index].append(d["step_count"])
         standard_deviations = [conf for _, conf in [mean_and_conf_size(x) for x in normal_step_counts]]
         normal_standard_deviations_total.append(standard_deviations)
         normal_step_counts = [float(np.mean(x)) for x in normal_step_counts]
         normal_step_counts_total.append(normal_step_counts)
+
+    print("Normal:")
+    df = pd.DataFrame(np.array(normal_step_counts_total).transpose(), index=counts, columns=agent_types)
+    print(df)
 
     wop_step_counts_total = None
     wop_standard_deviations_total = None
@@ -1190,12 +1216,18 @@ def show_wait_on_perimeter_difference_all_types(map_name, wop_experiment_name="w
             for d in wop_data:
                 if d["parameters"]["agent_type"] == agent_type and d["finished_successfully"]:
                     agent_count = d["parameters"]["agent_count"]
+                    if agent_count not in counts:
+                        continue
                     index = counts.index(agent_count)
                     wop_step_counts[index].append(d["step_count"])
             standard_deviations = [conf for _, conf in [mean_and_conf_size(x) for x in wop_step_counts]]
             wop_standard_deviations_total.append(standard_deviations)
             wop_step_counts = [float(np.mean(x)) for x in wop_step_counts]
             wop_step_counts_total.append(wop_step_counts)
+
+        print("WOP:")
+        df = pd.DataFrame(np.array(wop_step_counts_total).transpose(), index=counts, columns=agent_types)
+        print(df)
     else:
         print("No '{}' experiment exists.".format(wop_experiment_name))
 
@@ -1233,6 +1265,8 @@ def show_wait_on_perimeter_collision_proportion_difference(map_name, agent_type)
     for d in normal_data:
         if d["parameters"]["agent_type"] == agent_type and d["finished_successfully"]:
             agent_count = d["parameters"]["agent_count"]
+            if agent_count not in counts:
+                continue
             index = counts.index(agent_count)
             step_avg = 0
             collision_avg = 0
@@ -1254,6 +1288,8 @@ def show_wait_on_perimeter_collision_proportion_difference(map_name, agent_type)
         for d in wop_data:
             if d["parameters"]["agent_type"] == agent_type and d["finished_successfully"]:
                 agent_count = d["parameters"]["agent_count"]
+                if agent_count not in counts:
+                    continue
                 index = counts.index(agent_count)
                 step_avg = 0
                 collision_avg = 0
@@ -1342,6 +1378,8 @@ def show_all_local_global_proportions(map_names):
             for d in data:
                 if d["parameters"]["agent_type"] == at and d["finished_successfully"]:
                     agent_count = d["parameters"]["agent_count"]
+                    if agent_count not in counts:
+                        continue
                     index = counts.index(agent_count)
                     step_counts[index].append(d["step_count"])
             step_counts = [float(np.mean(x)) for x in step_counts]
@@ -1401,6 +1439,7 @@ def show_attachment_site_ordering_differences(agent_type, map_name):
     step_counts_total = np.array(step_counts_total)
 
     df = pd.DataFrame(step_counts_total.transpose(), index=counts, columns=options)
+    print(df)
     ax = df.plot(kind="line", yerr=standard_deviations_total, capsize=2)
     ax.set_ylim(ymin=0)
     plt.xlabel("Number of agents")
@@ -1480,10 +1519,19 @@ def show_component_ordering_differences_both_seeding_types(agent_type, map_name)
     step_counts_total = np.array(step_counts_total)
     standard_deviations_total = np.array(standard_deviations_total)
 
+    option_mapping = {
+        "distance_center": "Dist. to center",
+        "distance_self": "Dist. to agent",
+        "agent_count": "Agent count",
+        "center": "center",
+        "percentage": "percentage",
+        "agents": "agents",
+        "distance": "distance"
+    }
     combined_options = []
     for o in options:
-        combined_options.append("{} (no seed)".format(o))
-        combined_options.append("{} (seed)".format(o))
+        combined_options.append("{} (no seed)".format(option_mapping[o]))
+        combined_options.append("{} (seed)".format(option_mapping[o]))
 
     df = pd.DataFrame(step_counts_total.transpose(), index=counts, columns=combined_options)
     color_map = ListedColormap(sns.color_palette("Paired", len(df.columns)).as_hex())
@@ -1630,7 +1678,7 @@ def show_distribution_sp_pf_local_all():
     agent_types = sorted([at for at in AGENT_TYPES.keys() if "Local" in at])
     proportions = [[] for _ in counts]
     for map_name in os.listdir(LOAD_DIRECTORY):
-        if "defaults" in os.listdir(LOAD_DIRECTORY + map_name):
+        if ("block" not in map_name or "padded" not in map_name) and "defaults" in os.listdir(LOAD_DIRECTORY + map_name):
             data = load_single_map_data(map_name, "defaults")
             step_counts_total = {}
             for at in agent_types:
@@ -1638,6 +1686,8 @@ def show_distribution_sp_pf_local_all():
                 for d in data:
                     if d["parameters"]["agent_type"] == at and d["finished_successfully"]:
                         agent_count = d["parameters"]["agent_count"]
+                        if agent_count not in counts:
+                            continue
                         index = counts.index(agent_count)
                         step_counts[index].append(d["step_count"])
                 step_counts = [float(np.mean(x)) for x in step_counts]
@@ -1649,7 +1699,13 @@ def show_distribution_sp_pf_local_all():
 
             for i in range(len(counts)):
                 if not np.isnan(proportion[i]):
+                    if proportion[i] > 1:
+                        print("Larger than 1: {}".format(map_name))
                     proportions[i].append(proportion[i])
+
+    flat = np.array(proportions).flatten()
+    print("Mean: {}, std: {}".format(np.mean(flat), np.std(flat)))
+    print([np.mean(x) for x in proportions])
 
     sns.boxplot(data=proportions)
     plt.ylim(ymin=0)
@@ -1663,7 +1719,7 @@ def show_distribution_sp_pf_generic(map_generic, a_type="Local"):
     for file_name in os.listdir(LOAD_DIRECTORY):
         if file_name.startswith(map_generic) and ("component" in map_generic or not file_name.endswith("padded")):
             if file_name not in map_names:
-                if "block" in map_generic and str(8) in file_name and str(9) not in file_name:
+                if "block" in map_generic and str(8) in file_name and not (str(7) in file_name or str(9) in file_name):
                     continue
                 map_names.append(file_name.replace(".npy", ""))
     map_names = sorted(map_names, key=lambda x: (len(x), x))
@@ -1705,6 +1761,54 @@ def show_distribution_sp_pf_generic(map_generic, a_type="Local"):
     plt.show()
 
 
+def show_distribution_global_local_generic(map_generic, a_type="PerimeterFollowing"):
+    counts = [1, 2, 4, 8, 12, 16]
+    map_names = []
+    for file_name in os.listdir(LOAD_DIRECTORY):
+        if file_name.startswith(map_generic) and ("component" in map_generic or not file_name.endswith("padded")):
+            if file_name not in map_names:
+                if "block" in map_generic and str(8) in file_name and not (str(7) in file_name or str(9) in file_name):
+                    continue
+                map_names.append(file_name.replace(".npy", ""))
+    map_names = sorted(map_names, key=lambda x: (len(x), x))
+
+    agent_types = sorted([at for at in AGENT_TYPES.keys() if a_type in at])
+    proportions = [[] for _ in counts]
+    for map_name in map_names:
+        if "defaults" in os.listdir(LOAD_DIRECTORY + map_name):
+            data = load_single_map_data(map_name, "defaults")
+            step_counts_total = {}
+            for at in agent_types:
+                step_counts = [[] for _ in counts]
+                for d in data:
+                    if d["parameters"]["agent_type"] == at and d["finished_successfully"]:
+                        agent_count = d["parameters"]["agent_count"]
+                        if agent_count not in counts:
+                            continue
+                        index = counts.index(agent_count)
+                        step_counts[index].append(d["step_count"])
+                step_counts = [float(np.mean(x)) for x in step_counts]
+                step_counts_total[at] = step_counts
+
+            if "PerimeterFollowing" in a_type:
+                proportion = [step_counts_total["GlobalPerimeterFollowingAgent"][i] /
+                              step_counts_total["LocalPerimeterFollowingAgent"][i]
+                              for i in range(len(counts))]
+            else:
+                proportion = [step_counts_total["GlobalShortestPathAgent"][i] /
+                              step_counts_total["LocalShortestPathAgent"][i]
+                              for i in range(len(counts))]
+
+            for i in range(len(counts)):
+                if not np.isnan(proportion[i]):
+                    proportions[i].append(proportion[i])
+
+    sns.boxplot(data=proportions)
+    plt.ylim(ymin=0)
+    plt.xticks(range(len(counts)), counts)
+    plt.show()
+
+
 def show_distribution_sp_pf_global_all():
     counts = [1, 2, 4, 8, 12, 16]
     agent_types = sorted([at for at in AGENT_TYPES.keys() if "Global" in at])
@@ -1718,6 +1822,8 @@ def show_distribution_sp_pf_global_all():
                 for d in data:
                     if d["parameters"]["agent_type"] == at and d["finished_successfully"]:
                         agent_count = d["parameters"]["agent_count"]
+                        if agent_count not in counts:
+                            continue
                         index = counts.index(agent_count)
                         step_counts[index].append(d["step_count"])
                 step_counts = [float(np.mean(x)) for x in step_counts]
@@ -1737,9 +1843,855 @@ def show_distribution_sp_pf_global_all():
     plt.show()
 
 
+def show_fraction_collision_avoidance_generic(map_generic, agent_type=None, return_axis=False):
+    counts = [1, 2, 4, 8, 12, 16]
+    map_names = []
+    for file_name in os.listdir(LOAD_DIRECTORY):
+        if map_generic in file_name and ("component" in file_name or "padded" not in file_name):
+            if file_name not in map_names:
+                if "block" in map_generic and str(8) in file_name and not (str(7) in file_name or str(9) in file_name):
+                    continue
+                map_names.append(file_name.replace(".npy", ""))
+    if "component" in map_generic:
+        map_names = sorted(map_names)
+    else:
+        map_names = sorted(map_names, key=lambda x: (len(x), x))
+
+    ca_proportion_total = []
+    standard_deviations_total = []
+    for map_name in map_names:
+        data = load_single_map_data(map_name, "defaults")
+        ca_proportion = [[] for _ in counts]
+        for d in data:
+            if (agent_type is None or d["parameters"]["agent_type"] == long_form(agent_type)) \
+                    and d["finished_successfully"]:
+                agent_count = d["parameters"]["agent_count"]
+                if agent_count not in counts:
+                    continue
+                index = counts.index(agent_count)
+                step_avg = 0
+                collision_avg = 0
+                counter = 0
+                for t in d["task_stats"]:
+                    step_avg += d["task_stats"][t]["step_count"]["mean"]
+                    collision_avg += d["task_stats"][t]["collision_avoidance_count"]["mean"]
+                    counter += 1
+                ca_proportion[index].append(collision_avg / step_avg)
+        standard_deviations = [conf for _, conf in [mean_and_conf_size(x) for x in ca_proportion]]
+        standard_deviations_total.append(standard_deviations)
+        ca_proportion = [float(np.mean(x)) for x in ca_proportion]
+        ca_proportion_total.append(ca_proportion)
+    ca_proportion_total = np.array(ca_proportion_total)
+    standard_deviations_total = np.array(standard_deviations_total)
+
+    df = pd.DataFrame(ca_proportion_total.transpose(), index=counts, columns=[m[re.search("\d", m).start():] for m in map_names])
+
+    df.reindex(range(16)).fillna(0)
+
+    color_map = ListedColormap(sns.color_palette("Greys_d", len(df.columns)).as_hex()).reversed()
+    fig, ax = plt.subplots()
+    df.plot(kind="bar", colormap=color_map, rot=0, ax=ax, yerr=standard_deviations_total, capsize=2)
+
+    if return_axis:
+        return ax
+
+    plt.xlabel("Number of agents")
+    plt.ylabel("Fraction collision avoidance")
+    plt.gcf().subplots_adjust(left=0.17, right=0.95)
+    plt.suptitle("CA comparison for {} for {}".format(map_generic, agent_type))
+    plt.show()
+
+
+def show_fraction_ca_all_generics(axis=None):
+    counts = [1, 2, 4, 8, 12, 16]
+    generics = ["plate", "block", "perim", "component"]
+
+    ca_proportion_total = []
+    standard_deviations_total = []
+    for g in generics:
+        map_names = []
+        for file_name in os.listdir(LOAD_DIRECTORY):
+            if file_name.startswith(g) and ("component" in g or not file_name.endswith("padded")):
+                if file_name not in map_names:
+                    if "block" in g and str(8) in file_name and not (str(7) in file_name or str(9) in file_name):
+                        continue
+                    map_names.append(file_name.replace(".npy", ""))
+        map_names = sorted(map_names, key=lambda x: (len(x), x))
+
+        ca_proportion = [[] for _ in counts]
+        for map_name in map_names:
+            data = load_single_map_data(map_name, "defaults")
+            for d in data:
+                if d["finished_successfully"]:
+                    agent_count = d["parameters"]["agent_count"]
+                    if agent_count not in counts:
+                        continue
+                    index = counts.index(agent_count)
+                    step_avg = 0
+                    collision_avg = 0
+                    counter = 0
+                    for t in d["task_stats"]:
+                        step_avg += d["task_stats"][t]["step_count"]["mean"]
+                        collision_avg += d["task_stats"][t]["collision_avoidance_count"]["mean"]
+                        counter += 1
+                    ca_proportion[index].append(collision_avg / step_avg)
+        standard_deviations = [conf for _, conf in [mean_and_conf_size(x) for x in ca_proportion]]
+        standard_deviations = [np.std(x) for x in ca_proportion]
+        standard_deviations_total.append(standard_deviations)
+        ca_proportion = [float(np.mean(x)) for x in ca_proportion]
+        ca_proportion_total.append(ca_proportion)
+
+    ca_proportion_total = np.array(ca_proportion_total)
+    standard_deviations_total = np.array(standard_deviations_total)
+
+    if axis is None:
+        df = pd.DataFrame(ca_proportion_total.transpose(), index=counts, columns=generics)
+    else:
+        ticks, _ = plt.xticks()
+        df = pd.DataFrame(ca_proportion_total.transpose(), index=ticks, columns=[g if g != "perim" else "perimeter" for g in generics])
+    color_map = ListedColormap(sns.color_palette("hls", len(df.columns)).as_hex()).reversed()
+    if axis is None:
+        fig, ax = plt.subplots()
+    else:
+        ax = axis
+    df.plot(kind="line", colormap=color_map, rot=0, ax=ax)  #, yerr=standard_deviations_total, capsize=2)
+    plt.xlabel("Number of agents")
+    plt.ylabel("Fraction collision avoidance")
+    plt.gcf().subplots_adjust(left=0.17, right=0.95)
+    plt.suptitle("CA average for all generics")
+    plt.show()
+
+
+def show_fraction_collision_avoidance_all(agent_type=None):
+    counts = [1, 2, 4, 8, 12, 16]
+    map_names = []
+    for file_name in os.listdir(LOAD_DIRECTORY):
+        if file_name not in map_names:
+            map_names.append(file_name.replace(".npy", ""))
+    map_names = sorted(map_names, key=lambda x: (len(x), x))
+
+    ca_proportion = [[] for _ in counts]
+    for map_name in map_names:
+        if "defaults" in os.listdir(LOAD_DIRECTORY + map_name):
+            data = load_single_map_data(map_name, "defaults")
+            for d in data:
+                if (agent_type is None or d["parameters"]["agent_type"] == long_form(agent_type)) \
+                        and d["finished_successfully"]:
+                    agent_count = d["parameters"]["agent_count"]
+                    if agent_count not in counts:
+                        continue
+                    index = counts.index(agent_count)
+                    step_avg = 0
+                    collision_avg = 0
+                    counter = 0
+                    for t in d["task_stats"]:
+                        step_avg += d["task_stats"][t]["step_count"]["mean"]
+                        collision_avg += d["task_stats"][t]["collision_avoidance_count"]["mean"]
+                        counter += 1
+                    ca_proportion[index].append(collision_avg / step_avg)
+    standard_deviations = [conf for _, conf in [mean_and_conf_size(x) for x in ca_proportion]]
+    ca_proportion = [float(np.mean(x)) for x in ca_proportion]
+    ca_proportion_total = np.array(ca_proportion)
+    standard_deviations_total = np.array(standard_deviations)
+
+    df = pd.DataFrame(ca_proportion_total.transpose(), index=counts)
+    color_map = ListedColormap(sns.color_palette("hls", len(df.columns)).as_hex())
+    fig, ax = plt.subplots()
+    df.plot(kind="bar", colormap=color_map, rot=0, ax=ax, yerr=standard_deviations_total, capsize=2)
+    plt.xlabel("Number of agents")
+    plt.ylabel("CA proportion")
+    plt.gcf().subplots_adjust(left=0.17, right=0.95)
+    plt.suptitle("CA comparison for all for {}".format(agent_type))
+    plt.show()
+
+
+def show_boxplot_collision_avoidance_generic(map_generic=None, agent_type=None):
+    counts = [1, 2, 4, 8, 12, 16]
+    map_names = []
+    for file_name in os.listdir(LOAD_DIRECTORY):
+        if map_generic is None or (map_generic in file_name and "padded" not in file_name):
+            if file_name not in map_names:
+                if map_generic is not None and "block" in map_generic and str(8) in file_name and not (str(7) in file_name or str(9) in file_name):
+                    continue
+                map_names.append(file_name.replace(".npy", ""))
+    map_names = sorted(map_names, key=lambda x: (len(x), x))
+
+    ca_proportion = [[] for _ in counts]
+    for map_name in map_names:
+        if "defaults" in os.listdir(LOAD_DIRECTORY + map_name):
+            data = load_single_map_data(map_name, "defaults")
+            for d in data:
+                if (agent_type is None or d["parameters"]["agent_type"] == long_form(agent_type)) \
+                        and d["finished_successfully"]:
+                    agent_count = d["parameters"]["agent_count"]
+                    if agent_count not in counts:
+                        continue
+                    index = counts.index(agent_count)
+                    step_avg = 0
+                    collision_avg = 0
+                    counter = 0
+                    for t in d["task_stats"]:
+                        step_avg += d["task_stats"][t]["step_count"]["mean"]
+                        collision_avg += d["task_stats"][t]["collision_avoidance_count"]["mean"]
+                        counter += 1
+                    ca_proportion[index].append(collision_avg / step_avg)
+
+    max_len = max([len(x) for x in ca_proportion])
+    for i in range(len(ca_proportion)):
+        if len(ca_proportion[i]) < max_len:
+            ca_proportion[i].extend([np.nan] * (max_len - len(ca_proportion[i])))
+
+    ca_proportion_total = np.asarray(ca_proportion)
+
+    df = pd.DataFrame(ca_proportion_total.transpose(), columns=counts)
+    print(df.mean(), df.std())
+
+    df.plot.box()
+    plt.xlabel("Number of agents")
+    plt.ylabel("Fraction collision avoidance")
+    plt.gcf().subplots_adjust(left=0.17, right=0.95)
+    plt.suptitle("CA proprti for {} for {}".format(map_generic, agent_type))
+    plt.show()
+
+
+def save_global_local_sp_pf_stats_for_generics():
+    counts = [1, 2, 4, 8, 12, 16]
+    generics = ["plate", "block", "perim", "component"]
+
+    with open("/home/simon/conf_test.csv", "w") as f:
+        f.write("map_generic,ratio_type,")
+        for c in counts:
+            f.write(str(c) + ",")
+        f.write("\n")
+
+        for g in generics:
+            map_names = []
+            for file_name in os.listdir(LOAD_DIRECTORY):
+                if file_name.startswith(g) and ("component" in g or not file_name.endswith("padded")):
+                    if file_name not in map_names:
+                        if "block" in g and str(8) in file_name and not (str(7) in file_name or str(9) in file_name):
+                            continue
+                        map_names.append(file_name.replace(".npy", ""))
+            map_names = sorted(map_names, key=lambda x: (len(x), x))
+
+            # first global/local proportions
+            for a_type in ["PerimeterFollowing", "ShortestPath"]:
+                agent_types = sorted([at for at in AGENT_TYPES.keys() if a_type in at])
+                proportions = [[] for _ in counts]
+                for map_name in map_names:
+                    if "defaults" in os.listdir(LOAD_DIRECTORY + map_name):
+                        data = load_single_map_data(map_name, "defaults")
+                        step_counts_total = {}
+                        for at in agent_types:
+                            step_counts = [[] for _ in counts]
+                            for d in data:
+                                if d["parameters"]["agent_type"] == at and d["finished_successfully"]:
+                                    agent_count = d["parameters"]["agent_count"]
+                                    if agent_count not in counts:
+                                        continue
+                                    index = counts.index(agent_count)
+                                    step_counts[index].append(d["step_count"])
+                            step_counts = [float(np.mean(x)) for x in step_counts]
+                            step_counts_total[at] = step_counts
+
+                        if "PerimeterFollowing" in a_type:
+                            proportion = [step_counts_total["GlobalPerimeterFollowingAgent"][i] /
+                                          step_counts_total["LocalPerimeterFollowingAgent"][i]
+                                          for i in range(len(counts))]
+                        else:
+                            proportion = [step_counts_total["GlobalShortestPathAgent"][i] /
+                                          step_counts_total["LocalShortestPathAgent"][i]
+                                          for i in range(len(counts))]
+
+                        for i in range(len(counts)):
+                            if not np.isnan(proportion[i]):
+                                proportions[i].append(proportion[i])
+                standard_deviations = [np.std(x) for x in proportions]
+                standard_deviations = [conf for _, conf in [mean_and_conf_size(x) for x in proportions]]
+                proportions = [np.mean(x) for x in proportions]
+                f.write("{},gl_{},".format(g, a_type))
+                for p_idx, p in enumerate(proportions):
+                    f.write("{:.3f} ({:.3f}),".format(p, standard_deviations[p_idx]))
+                f.write("\n")
+
+            # then SP/PF proportions
+            for a_type in ["Local", "Global"]:
+                agent_types = sorted([at for at in AGENT_TYPES.keys() if a_type in at])
+                proportions = [[] for _ in counts]
+                for map_name in map_names:
+                    if "defaults" in os.listdir(LOAD_DIRECTORY + map_name):
+                        data = load_single_map_data(map_name, "defaults")
+                        step_counts_total = {}
+                        for at in agent_types:
+                            step_counts = [[] for _ in counts]
+                            for d in data:
+                                if d["parameters"]["agent_type"] == at and d["finished_successfully"]:
+                                    agent_count = d["parameters"]["agent_count"]
+                                    if agent_count not in counts:
+                                        continue
+                                    index = counts.index(agent_count)
+                                    step_counts[index].append(d["step_count"])
+                            step_counts = [float(np.mean(x)) for x in step_counts]
+                            step_counts_total[at] = step_counts
+
+                        if "Local" in a_type:
+                            proportion = [step_counts_total["LocalShortestPathAgent"][i] /
+                                          step_counts_total["LocalPerimeterFollowingAgent"][i]
+                                          for i in range(len(counts))]
+                        else:
+                            proportion = [step_counts_total["GlobalShortestPathAgent"][i] /
+                                          step_counts_total["GlobalPerimeterFollowingAgent"][i]
+                                          for i in range(len(counts))]
+
+                        for i in range(len(counts)):
+                            if not np.isnan(proportion[i]):
+                                proportions[i].append(proportion[i])
+                standard_deviations = [np.std(x) for x in proportions]
+                standard_deviations = [conf for _, conf in [mean_and_conf_size(x) for x in proportions]]
+                proportions = [np.mean(x) for x in proportions]
+                f.write("{},sp_pf_{},".format(g, a_type))
+                for p_idx, p in enumerate(proportions):
+                    f.write("{:.3f} ({:.3f}),".format(p, standard_deviations[p_idx]))
+                f.write("\n")
+
+
+def show_sp_pf_ratio_generic(map_generic, a_type="Local"):
+    counts = [1, 2, 4, 8, 12, 16]
+    map_names = []
+    for file_name in os.listdir(LOAD_DIRECTORY):
+        if file_name.startswith(map_generic) and ("component" in map_generic or not file_name.endswith("padded")):
+            if file_name not in map_names:
+                if "block" in map_generic and str(8) in file_name and not (str(7) in file_name or str(9) in file_name):
+                    continue
+                map_names.append(file_name.replace(".npy", ""))
+    map_names = sorted(map_names, key=lambda x: (len(x), x))
+
+    agent_types = sorted([at for at in AGENT_TYPES.keys() if a_type in at])
+    proportions_total = []
+    standard_deviations_total = []
+    for map_name in map_names:
+        proportions = [[] for _ in counts]
+        if "defaults" in os.listdir(LOAD_DIRECTORY + map_name):
+            data = load_single_map_data(map_name, "defaults")
+            step_counts_total = {}
+            for at in agent_types:
+                step_counts = [[] for _ in counts]
+                for d in data:
+                    if d["parameters"]["agent_type"] == at and d["finished_successfully"]:
+                        agent_count = d["parameters"]["agent_count"]
+                        if agent_count not in counts:
+                            continue
+                        index = counts.index(agent_count)
+                        step_counts[index].append(d["step_count"])
+                step_counts = [float(np.mean(x)) for x in step_counts]
+                step_counts_total[at] = step_counts
+
+            # min_number = 10000
+            # for at in agent_types:
+            #     if len(step_counts_total) < min_number:
+            #         min_number = len(step_counts_total)
+            # for at in agent_types:
+            #     step_counts_total[at] = step_counts_total[at][:min_number]
+
+            if "Local" in a_type:
+                # proportion = [[step_counts_total["LocalShortestPathAgent"][i][j] /
+                #                step_counts_total["LocalPerimeterFollowingAgent"][i][j]
+                #                for j in range(len(step_counts_total["LocalShortestPathAgent"][i]))]
+                #               for i in range(len(counts))]
+                proportion = [step_counts_total["LocalShortestPathAgent"][i] /
+                              step_counts_total["LocalPerimeterFollowingAgent"][i]
+                              for i in range(len(counts))]
+            else:
+                proportion = [step_counts_total["GlobalShortestPathAgent"][i] /
+                              step_counts_total["GlobalPerimeterFollowingAgent"][i]
+                              for i in range(len(counts))]
+
+            for i in range(len(counts)):
+                if not np.isnan(proportion[i]):
+                    proportions[i].append(proportion[i])
+
+        standard_deviations = [conf for _, conf in [mean_and_conf_size(x) for x in proportions]]
+        standard_deviations_total.append(standard_deviations)
+        proportions = [np.mean(x) for x in proportions]
+        proportions_total.append(proportions)
+
+    proportions_total = np.array(proportions_total)
+    standard_deviations_total = np.array(standard_deviations_total)
+    print(standard_deviations_total)
+
+    df = pd.DataFrame(proportions_total.transpose(), index=counts, columns=map_names)
+    color_map = ListedColormap(sns.color_palette("Blues_d", len(df.columns)).as_hex())
+    fig, ax = plt.subplots()
+    df.plot(kind="line", colormap=color_map, ax=ax, yerr=standard_deviations_total, capsize=2)
+    ax.set_ylim(ymin=0, ymax=1)
+    plt.xlabel("Number of agents")
+    plt.ylabel("SP/PF")
+    plt.gcf().subplots_adjust(left=0.17, right=0.95)
+    plt.suptitle("SP/PF for {} for {}".format(map_generic, a_type))
+    plt.show()
+
+
+def show_steps_with_standard_deviations_multiple(map_names):
+    map_names = ["plate_8x8", "plate_32x32", "block_4x4x4", "block_10x10x10"]
+
+    agent_types = sorted(list(AGENT_TYPES), key=lambda x: (len(x)))
+    counts = [1, 2, 4, 8, 12, 16]
+    markers = [".", "x", "o"]
+
+    fig = plt.figure(figsize=(7, 5))
+    ax1 = fig.add_subplot(2, 2, 1)
+    ax2 = fig.add_subplot(2, 2, 3, sharex=ax1)
+    ax3 = fig.add_subplot(2, 2, 2, sharey=ax1)
+    ax4 = fig.add_subplot(2, 2, 4, sharex=ax3, sharey=ax2)
+    ax = [ax1, ax2, ax3, ax4]
+    # fig, ax_all = plt.subplots(2, 2, sharex=True, sharey=True, figsize=(7, 5))
+    # ax = [ax_all[0][0], ax_all[1][0], ax_all[0][1], ax_all[1][1]]
+    for m_idx, map_name in enumerate(map_names):
+        if map_name == "block_4x4x4":
+            counts = [1, 2, 3, 4, 5, 6, 8, 12, 16]
+        data = load_single_map_data(map_name, "defaults")
+
+        step_counts_total = []
+        standard_deviations_total = []
+        for agent_type in agent_types:
+            step_counts = [[] for _ in counts]
+            for d in data:
+                if d["parameters"]["agent_type"] == agent_type and d["finished_successfully"]:
+                    agent_count = d["parameters"]["agent_count"]
+                    if agent_count not in counts:
+                        continue
+                    index = counts.index(agent_count)
+                    step_count = d["step_count"]
+                    step_counts[index].append(step_count)
+            standard_deviations = [conf for _, conf in [mean_and_conf_size(x) for x in step_counts]]
+            standard_deviations_total.append(standard_deviations)
+            step_counts = [float(np.mean(x)) for x in step_counts]
+            step_counts_total.append(step_counts)
+        step_counts_total = np.array(step_counts_total)
+        standard_deviations_total = np.array(standard_deviations_total)
+
+        df = pd.DataFrame(step_counts_total.transpose(), index=counts, columns=agent_types)
+        color_map = ListedColormap(sns.color_palette(n_colors=len(df.columns)).as_hex())
+
+        df.plot(kind="line", colormap=color_map, yerr=standard_deviations_total,
+                ax=ax[m_idx], legend=False, capsize=2)
+        ax[m_idx].set_ylim(ymin=0)
+        if m_idx == 1:
+            ax[m_idx].legend([short_form(at) for at in agent_types])
+            ax[m_idx].set_ylabel("Steps")
+            ax[m_idx].yaxis.set_label_coords(-0.3, 1.1)
+            ax[m_idx].set_xlabel("Number of agents")
+            ax[m_idx].xaxis.set_label_coords(1., -0.2)
+        ax[m_idx].set_xticks(range(2, 17, 2))
+
+        if map_name == "block_4x4x4":
+            counts = [1, 2, 4, 8, 12, 16]
+
+    # fig.text(0.06, 0.5, "Steps", ha="center", va="center", rotation="vertical")
+    plt.gcf().subplots_adjust(left=0.15, right=0.95)
+    plt.suptitle("Steps to construction for {}".format(map_names))
+    plt.show()
+
+
+def show_perim_multiple():
+    agent_types = ["LSP", "LPF"]
+    counts = [1, 2, 4, 8, 12, 16]
+    map_names = []
+    for file_name in os.listdir(LOAD_DIRECTORY):
+        if "perim" in file_name and file_name not in map_names:
+            map_names.append(file_name.replace(".npy", ""))
+    map_names = sorted(map_names, key=lambda x: (len(x), x))
+
+    fig = plt.figure(figsize=(7, 3.5))
+    ax2 = fig.add_subplot(1, 2, 2)
+    ax1 = fig.add_subplot(1, 2, 1, sharey=ax2)
+    ax = [ax1, ax2]
+    for at_idx, agent_type in enumerate(agent_types):
+        step_counts_total = []
+        standard_deviations_total = []
+        for map_name in map_names:
+            data = load_single_map_data(map_name, "defaults")
+            step_counts = [[] for _ in counts]
+            for d in data:
+                if d["parameters"]["agent_type"] == long_form(agent_type) and d["finished_successfully"]:
+                    agent_count = d["parameters"]["agent_count"]
+                    if agent_count not in counts:
+                        continue
+                    index = counts.index(agent_count)
+                    step_count = d["step_count"]
+                    step_counts[index].append(step_count)
+            standard_deviations = [conf for _, conf in [mean_and_conf_size(x) for x in step_counts]]
+            standard_deviations_total.append(standard_deviations)
+            step_counts = [float(np.mean(x)) for x in step_counts]
+            step_counts_total.append(step_counts)
+        step_counts_total = np.array(step_counts_total)
+        standard_deviations_total = np.array(standard_deviations_total)
+
+        df = pd.DataFrame(step_counts_total.transpose(), index=counts,
+                          columns=[m[re.search("\d", m).start():] for m in map_names])
+        color_map = ListedColormap(sns.color_palette("Blues_d", n_colors=len(df.columns)).as_hex()).reversed()
+
+        df.plot(kind="line", colormap=color_map, yerr=standard_deviations_total,
+                ax=ax[at_idx], legend=False, capsize=2)
+        ax[at_idx].set_ylim(ymin=0)
+        if at_idx == 0:
+            ax[at_idx].legend([m[re.search("\d", m).start():] for m in map_names], ncol=2)
+            ax[at_idx].set_ylabel("Steps")
+            # ax[at_idx].yaxis.set_label_coords(-0.3, 1.1)
+            ax[at_idx].set_xlabel("Number of agents")
+            ax[at_idx].xaxis.set_label_coords(1.1, -0.15)
+        ax[at_idx].set_xticks(range(2, 17, 2))
+
+    # fig.text(0.06, 0.5, "Steps", ha="center", va="center", rotation="vertical")
+    ax1.set_ylim(ymax=26000)
+    plt.gcf().subplots_adjust(left=0.15, right=0.95, bottom=0.2, wspace=0.1)
+    plt.suptitle("Steps to construction for perim")
+    plt.show()
+
+
+def show_attachment_multiple():
+    counts = [1, 2, 4, 8, 12, 16]
+    map_names = ["plate_24x24", "hole_half_width_24"]
+    options = VALUES["attachment_site_order"]
+
+    mapping = {
+        "shortest_path": "Shortest path",
+        "prioritise": "Prioritise",
+        "shortest_travel_path": "Shortest total path",
+        "agent_count": "Agent count"
+    }
+
+    fig = plt.figure(figsize=(7, 3.5))
+    ax2 = fig.add_subplot(1, 2, 2)
+    ax1 = fig.add_subplot(1, 2, 1, sharey=ax2)
+    ax = [ax1, ax2]
+    for m_idx, map_name in enumerate(map_names):
+        data = load_single_map_data(map_name)
+        step_counts_total = []
+        standard_deviations_total = []
+        for o in options:
+            step_counts = [[] for _ in counts]
+            for d in data:
+                if d["parameters"]["agent_type"] == "LocalShortestPathAgent" and d["finished_successfully"] \
+                        and "order_only_one_metric" in d["parameters"] and d["parameters"]["order_only_one_metric"] \
+                        and "attachment_site_order" in d["parameters"] and d["parameters"]["attachment_site_order"] == o:
+                    agent_count = d["parameters"]["agent_count"]
+                    if agent_count not in counts:
+                        continue
+                    index = counts.index(agent_count)
+                    step_count = d["step_count"]
+                    step_counts[index].append(step_count)
+            standard_deviations = [conf for _, conf in [mean_and_conf_size(x) for x in step_counts]]
+            standard_deviations_total.append(standard_deviations)
+            step_counts = [float(np.mean(x)) for x in step_counts]
+            step_counts_total.append(step_counts)
+        step_counts_total = np.array(step_counts_total)
+        standard_deviations_total = np.array(standard_deviations_total)
+
+        df = pd.DataFrame(step_counts_total.transpose(), index=counts, columns=options)
+        color_map = ListedColormap(sns.color_palette(n_colors=len(df.columns)).as_hex())
+
+        df.plot(kind="line", colormap=color_map, yerr=standard_deviations_total,
+                ax=ax[m_idx], legend=False, capsize=2)
+        ax[m_idx].set_ylim(ymin=0)
+        if m_idx == 0:
+            ax[m_idx].set_ylabel("Steps")
+            # ax[at_idx].yaxis.set_label_coords(-0.3, 1.1)
+            ax[m_idx].set_xlabel("Number of agents")
+            ax[m_idx].xaxis.set_label_coords(1., -0.15)
+        else:
+            ax[m_idx].legend([mapping[o] for o in options])
+        ax[m_idx].set_xticks(range(2, 17, 2))
+
+    # fig.text(0.06, 0.5, "Steps", ha="center", va="center", rotation="vertical")
+    # ax1.set_ylim(ymax=26000)
+    plt.gcf().subplots_adjust(left=0.15, right=0.95, bottom=0.2, wspace=0.1)
+    plt.suptitle("Steps to construction for stuff")
+    plt.show()
+
+
+def avg_step_count(map_generic, agent_type, agent_count):
+    map_names = []
+    for file_name in os.listdir(LOAD_DIRECTORY):
+        if file_name.startswith(map_generic) and ("component" in map_generic or not file_name.endswith("padded")):
+            if file_name not in map_names:
+                if "block" in map_generic and str(8) in file_name and not (str(7) in file_name or str(9) in file_name):
+                    continue
+                map_names.append(file_name.replace(".npy", ""))
+    map_names = sorted(map_names, key=lambda x: (len(x), x))
+
+    averages = []
+    for map_name in map_names:
+        if "defaults" in os.listdir(LOAD_DIRECTORY + map_name):
+            data = load_single_map_data(map_name, "defaults")
+            step_counts = []
+            for d in data:
+                if d["parameters"]["agent_type"] == long_form(agent_type) \
+                        and agent_count == d["parameters"]["agent_count"] \
+                        and d["finished_successfully"]:
+                    step_count = d["step_count"]
+                    step_counts.append(step_count)
+            averages.append(np.mean(step_counts))
+    averages = np.array(averages)
+
+    df = pd.DataFrame(averages, index=map_names)
+    print(df)
+
+
+def show_ca_per_ordering(agent_type, map_name):
+    if not agent_type.startswith("Local"):
+        return
+    options = VALUES["seeding_strategy"]
+
+    data = load_single_map_data(map_name)
+    counts = [1, 2, 4, 8, 12, 16]
+    ca_fractions_total = []
+    standard_deviations_total = []
+    for o in options:
+        for seed in (False, True):
+            ca_proportion = [[] for _ in counts]
+            for d in data:
+                if d["parameters"]["agent_type"] == agent_type and d["finished_successfully"] \
+                        and "seeding_strategy" in d["parameters"] and d["parameters"]["seeding_strategy"] == o \
+                        and (not agent_type.startswith("Local")
+                             or (agent_type.startswith("Local")
+                                 and d["parameters"]["seed_if_possible_enabled"] == seed)):
+                    # print(d["components_attached"])
+                    agent_count = d["parameters"]["agent_count"]
+                    index = counts.index(agent_count)
+                    step_avg = 0
+                    collision_avg = 0
+                    counter = 0
+                    for t in d["task_stats"]:
+                        step_avg += d["task_stats"][t]["step_count"]["mean"]
+                        collision_avg += d["task_stats"][t]["collision_avoidance_count"]["mean"]
+                        counter += 1
+                    ca_proportion[index].append(collision_avg / step_avg)
+            standard_deviations = [conf for _, conf in [mean_and_conf_size(x) for x in ca_proportion]]
+            standard_deviations_total.append(standard_deviations)
+            ca_proportion = [float(np.mean(x)) for x in ca_proportion]
+            ca_fractions_total.append(ca_proportion)
+    ca_fractions_total = np.array(ca_fractions_total)
+    standard_deviations_total = np.array(standard_deviations_total)
+
+    option_mapping = {
+        "distance_center": "Dist. to center",
+        "distance_self": "Dist. to agent",
+        "agent_count": "Agent count",
+        "center": "center",
+        "percentage": "percentage",
+        "agents": "agents",
+        "distance": "distance"
+    }
+    combined_options = []
+    for o in options:
+        combined_options.append("{} (no seed)".format(option_mapping[o]))
+        combined_options.append("{} (seed)".format(option_mapping[o]))
+
+    df = pd.DataFrame(ca_fractions_total.transpose(), index=counts, columns=combined_options)
+    print(df)
+    color_map = ListedColormap(sns.color_palette("Paired", len(df.columns)).as_hex())
+    ax = df.plot(kind="line", yerr=standard_deviations_total, capsize=2, colormap=color_map)
+    ax.set_ylim(ymin=0)
+    plt.xlabel("Number of agents")
+    plt.ylabel("Steps")
+    plt.gcf().subplots_adjust(left=0.17, right=0.95)
+    plt.suptitle("Component ordering for {} for {}".format(agent_type, map_name))
+    plt.show()
+
+
+def show_ca_per_attachment_strategy(agent_type, map_name):
+    if not agent_type.startswith("Local"):
+        return
+    options = VALUES["attachment_site_order"]
+
+    data = load_single_map_data(map_name)
+    counts = [1, 2, 4, 8, 12, 16]
+    ca_fractions_total = []
+    standard_deviations_total = []
+    for o in options:
+        ca_proportion = [[] for _ in counts]
+        for d in data:
+            if d["parameters"]["agent_type"] == agent_type and d["finished_successfully"] \
+                    and "attachment_site_order" in d["parameters"] and d["parameters"]["attachment_site_order"] == o:
+                agent_count = d["parameters"]["agent_count"]
+                index = counts.index(agent_count)
+                step_avg = 0
+                collision_avg = 0
+                counter = 0
+                for t in d["task_stats"]:
+                    step_avg += d["task_stats"][t]["step_count"]["mean"]
+                    collision_avg += d["task_stats"][t]["collision_avoidance_count"]["mean"]
+                    counter += 1
+                ca_proportion[index].append(collision_avg / step_avg)
+        standard_deviations = [conf for _, conf in [mean_and_conf_size(x) for x in ca_proportion]]
+        standard_deviations_total.append(standard_deviations)
+        ca_proportion = [float(np.mean(x)) for x in ca_proportion]
+        ca_fractions_total.append(ca_proportion)
+    ca_fractions_total = np.array(ca_fractions_total)
+    standard_deviations_total = np.array(standard_deviations_total)
+
+    option_mapping = {
+        "distance_center": "Dist. to center",
+        "distance_self": "Dist. to agent",
+        "agent_count": "Agent count",
+        "center": "center",
+        "percentage": "percentage",
+        "agents": "agents",
+        "distance": "distance"
+    }
+    # combined_options = []
+    # for o in options:
+    #     combined_options.append("{} (no seed)".format(option_mapping[o]))
+    #     combined_options.append("{} (seed)".format(option_mapping[o]))
+
+    df = pd.DataFrame(ca_fractions_total.transpose(), index=counts, columns=options)
+    print(df)
+    color_map = ListedColormap(sns.color_palette(n_colors=len(df.columns)).as_hex())
+    ax = df.plot(kind="line", yerr=standard_deviations_total, capsize=2, colormap=color_map)
+    ax.set_ylim(ymin=0)
+    plt.xlabel("Number of agents")
+    plt.ylabel("Steps")
+    plt.gcf().subplots_adjust(left=0.17, right=0.95)
+    plt.suptitle("Component ordering for {} for {}".format(agent_type, map_name))
+    plt.show()
+
+
+def show_returned_blocks(map_name):
+    agent_types = sorted(list(AGENT_TYPES), key=lambda x: (len(x)))
+
+    data = load_single_map_data(map_name, "defaults")
+    counts = [1, 2, 4, 8, 12, 16]
+
+    returned_counts_total = []
+    standard_deviations_total = []
+    for agent_type in agent_types:
+        returned_counts = [[] for _ in counts]
+        for d in data:
+            if d["parameters"]["agent_type"] == agent_type and d["finished_successfully"]:
+                agent_count = d["parameters"]["agent_count"]
+                if agent_count not in counts:
+                    continue
+                index = counts.index(agent_count)
+                returned_count = d["returned_block_counts"]
+                returned_counts[index].extend(returned_count)
+        standard_deviations = [conf for _, conf in [mean_and_conf_size(x) for x in returned_counts]]
+        standard_deviations_total.append(standard_deviations)
+        returned_counts = [float(np.mean(x)) for x in returned_counts]
+        returned_counts_total.append(returned_counts)
+    returned_counts_total = np.array(returned_counts_total)
+    standard_deviations_total = np.array(standard_deviations_total)
+
+    df = pd.DataFrame(returned_counts_total.transpose(), index=counts, columns=agent_types)
+    color_map = ListedColormap(sns.color_palette(n_colors=len(df.columns)).as_hex())
+
+    ax = df.plot(kind="line", colormap=color_map, yerr=standard_deviations_total)
+    ax.set_ylim(ymin=0)
+    plt.xlabel("Number of agents")
+    plt.ylabel("Steps")
+    plt.gcf().subplots_adjust(left=0.17, right=0.95)
+    plt.suptitle("Steps to construction and errors for {}".format(map_name.replace("_", "\\_")))
+    plt.show()
+
+
+def show_speedup_all(map_generic=None, agent_type=None):
+    counts = [1, 2, 4, 8, 12, 16]
+    map_names = []
+    for file_name in os.listdir(LOAD_DIRECTORY):
+        if map_generic is None or (map_generic in file_name and "padded" not in file_name):
+            if file_name not in map_names:
+                if map_generic is not None and "block" in map_generic \
+                        and (str(15) in file_name or (str(8) in file_name
+                                                      and not (str(7) in file_name or str(9) in file_name))):
+                    continue
+                map_names.append(file_name.replace(".npy", ""))
+    map_names = sorted(map_names, key=lambda x: (len(x), x))
+    agent_types = sorted(list(AGENT_TYPES.keys()), key=lambda x: (len(x), x))
+
+    speedups_total = []
+    for map_name in map_names:
+        if "defaults" in os.listdir(LOAD_DIRECTORY + map_name):
+            data = load_single_map_data(map_name, "defaults")
+            step_counts = [[] for _ in counts]
+            for d in data:
+                if d["finished_successfully"] \
+                        and (agent_type is None or d["parameters"]["agent_type"] == long_form(agent_type)):
+                    agent_count = d["parameters"]["agent_count"]
+                    if agent_count not in counts:
+                        continue
+                    index = counts.index(agent_count)
+                    step_counts[index].append(d["step_count"])
+            step_counts = [float(np.mean(x)) for x in step_counts]
+            speedups = [step_counts[0] / x for x in step_counts]
+            # speedups = [1]
+            # speedups.extend([step_counts[i - 1] / step_counts[i] for i in range(1, len(step_counts))])
+            speedups_total.append(speedups)
+    speedups_total = np.array(speedups_total)
+
+    df = pd.DataFrame(speedups_total, columns=counts)
+    df.plot.box()
+
+    # df = pd.DataFrame(speedups_total.transpose(), index=counts)
+    # color_map = ListedColormap(sns.color_palette("hls", len(df.columns)).as_hex())
+    # df.plot(kind="bar", colormap=color_map, rot=0, ax=ax)
+    plt.xlabel("Number of agents")
+    plt.ylabel("CA proportion")
+    plt.gcf().subplots_adjust(left=0.17, right=0.95)
+    plt.suptitle("CA comparison for {} for {}".format(map_generic, agent_type))
+    plt.show()
+
+
+def show_max_speedup_all(map_generic=None, agent_type=None):
+    counts = [1, 2, 4, 8, 12, 16]
+    map_names = []
+    for file_name in os.listdir(LOAD_DIRECTORY):
+        if map_generic is None or (map_generic in file_name and "padded" not in file_name):
+            if file_name not in map_names:
+                if map_generic is not None and "block" in map_generic \
+                        and (str(15) in file_name or (str(8) in file_name
+                                                      and not (str(7) in file_name or str(9) in file_name))):
+                    continue
+                map_names.append(file_name.replace(".npy", ""))
+    map_names = sorted(map_names, key=lambda x: (len(x), x))
+    agent_types = sorted(list(AGENT_TYPES.keys()), key=lambda x: (len(x), x))
+
+    speedups_total = [0 for _ in counts]
+    for map_name in map_names:
+        if "defaults" in os.listdir(LOAD_DIRECTORY + map_name):
+            data = load_single_map_data(map_name, "defaults")
+            for at in agent_types:
+                step_counts = [[] for _ in counts]
+                for d in data:
+                    if d["finished_successfully"] \
+                            and (at is None or d["parameters"]["agent_type"] == at):
+                        agent_count = d["parameters"]["agent_count"]
+                        if agent_count not in counts:
+                            continue
+                        index = counts.index(agent_count)
+                        step_counts[index].append(d["step_count"])
+                step_counts = [float(np.mean(x)) for x in step_counts]
+                speedups = [step_counts[0] / x for x in step_counts]
+                # speedups = [1]
+                # speedups.extend([step_counts[i - 1] / step_counts[i] for i in range(1, len(step_counts))])
+                for i in range(len(counts)):
+                    speedups_total[np.argmin(step_counts)] += 1
+
+    speedups_total = np.array(speedups_total)
+    print(speedups_total / sum(speedups_total))
+
+    fig, ax = plt.subplots()
+    ax.bar(counts, speedups_total)
+    plt.xlabel("Number of agents")
+    plt.ylabel("CA proportion")
+    plt.gcf().subplots_adjust(left=0.17, right=0.95)
+    plt.suptitle("CA comparison for {} for {}".format(map_generic, agent_type))
+    plt.show()
+
+    # NEED TO FIND SOME NICE WAY OF SUMMARISING WHAT THE HIGHEST SPEEDUP IS
+
+
 def main():
     # TODO: need some easy way to get the yerr
-    map_name = "components_6x6x1"
     # data = load_single_map_data(map_name)
     # show_all_agent_performance("block_10x10x10")
     # show_single_agent_type_performance("block_6x6x7", "GlobalShortestPathAgent",
@@ -1748,30 +2700,31 @@ def main():
     #                 ["wait_on_perimeter_higher_density_test", "wait_on_perimeter", "defaults"])
     # show_scaling_performance(data, parameters)
     # show_steps_with_standard_deviations("block_4x4x4")
-    # show_steps_with_standard_deviations_new("block_4x4x4", [3, 5, 6])
+    # show_steps_with_standard_deviations_new("plate_4x4")
+    # show_returned_blocks("block_4x4x4")
     # show_plate_block_comparison("block_4x4x4")
     # show_local_sp_researching_generic("plate")
-    # show_average_distance_travelled("plate_8x8")
-    # show_collision_proportion("block_4x4x4")
-    # show_collision_proportion_for_type("plate_32x32", "GlobalShortestPathAgent")
+    # show_average_distance_travelled("perim_16")
+    # show_collision_proportion("block_6x6x7", "defaults")
+    # show_collision_proportion_for_type("perim_2", "LocalPerimeterFollowingAgent")
     # show_attached_block_count_distribution("plate_16x16", "LocalShortestPathAgent")
     # show_attached_block_count_distribution_all_types("block_10x10x10")
-    # show_component_finished_delay("component_3x3")
-    # show_wait_on_perimeter_difference("block_6x6x7", "GlobalShortestPathAgent")
+    # show_component_finished_delay("block_10x10x10")
+    # show_wait_on_perimeter_difference("block_4x4x15", "LocalShortestPathAgent", "wait_on_perimeter_5")
     # show_wait_on_perimeter_difference_all_types("hole_half_width_8", "wait_on_perimeter_4_blocks_only")
-    # show_wait_on_perimeter_difference_all_types("block_6x6x7", "wait_on_perimeter_4") # also try pyramid
+    # show_wait_on_perimeter_difference_all_types("block_8x8x9", "wait_on_perimeter_4") # also try pyramid
     # show_wait_on_perimeter_collision_proportion_difference("block_4x4x4", "LocalPerimeterFollowingAgent")
-    # show_perimeter_comparison("GlobalPerimeterFollowingAgent")
+    # show_perimeter_comparison("GPF")
     # show_local_global_proportion("plate_32x32")
     # show_all_local_global_proportions(["plate_8x8", "plate_32x32", "block_4x4x4", "block_10x10x10"])
     # show_all_local_global_proportions(["perim_4", "perim_8", "perim_12", "perim_16"])
     # show_all_local_global_proportions(["component_1x1", "component_2x2", "component_3x3"])
-    # show_multiple_component_scaling("LocalPerimeterFollowingAgent")
+    # show_multiple_component_scaling("LocalShortestPathAgent")
     # show_multiple_component_scaling_relative("LocalPerimeterFollowingAgent")
     # show_component_local_global_proportions()
     # show_sp_per_search_attachment_site_count("hole_same_32", 2)
     # show_agents_over_construction_area("block_8x8x8", agent_count=8)
-    # show_task_bar_chart("block_6x6x7", "GlobalShortestPathAgent", experiment_name="defaults")
+    # show_task_bar_chart("block_6x6x7", "GlobalShortestPathAgent", experiment_name="wait_on_perimeter_5")
     # show_task_area_chart("block_6x6x7", "GlobalShortestPathAgent", experiment_name="wait_on_perimeter")
     # show_task_collision_proportion("block_6x6x7", "GlobalShortestPathAgent", Task.TRANSPORT_BLOCK)
     # show_task_collision_proportion_all_agents("block_6x6x7", Task.TRANSPORT_BLOCK)
@@ -1781,17 +2734,44 @@ def main():
     # show_block_comparison("LocalPerimeterFollowingAgent")
     # show_plate_equivalent_block_comparison_absolute("LocalShortestPathAgent", 4)
     # show_plate_equivalent_block_comparison_relative("LocalShortestPathAgent", 4)
-    # show_sp_researching_generic("plate", "LocalShortestPathAgent")
+    # show_sp_researching_generic("perim", "LocalShortestPathAgent")
     # show_steps_with_standard_deviations("block_6x6x7")
 
     # show_distribution_global_local_all()
     # show_distribution_sp_pf_local_all()
     # show_distribution_sp_pf_global_all()
 
-    show_distribution_sp_pf_generic("plate", "Global")
+    # ratio between sp and pf for a generic
+    # show_sp_pf_ratio_generic("perim", a_type="Local")
+
+    # multiple thingies in one
+    # show_steps_with_standard_deviations_multiple(["plate_8x8", "plate_32x32"])
+    # show_steps_with_standard_deviations_multiple(None)
+
+    # show_distribution_sp_pf_generic("block", "Global")
+    # show_distribution_global_local_generic("block", "ShortestPath")
+    # save_global_local_sp_pf_stats_for_generics()
 
     # different plot idea for comparing plate and block:
     # for each number of agents, for each map...
+
+    # average fraction of collision avoidance for each structure???
+    # ax = show_fraction_collision_avoidance_generic("plate", return_axis=True)
+    # show_fraction_collision_avoidance_generic("plate")
+    # show_fraction_collision_avoidance_generic("perim", "LSP")
+    # show_fraction_collision_avoidance_all()
+    # show_boxplot_collision_avoidance_generic()
+
+    # collision avoidance for all 4 generic types averaged?
+    # show_fraction_ca_all_generics(ax)
+
+    # improvement over 1 agent with x agents (to show scaling of multiple agents)
+
+    # perimeter combined graph
+    # show_perim_multiple()
+
+    # print averages
+    # avg_step_count("perim", "LSP", 16)
 
     # show_task_proportions("block_10x10x10", "GlobalShortestPathAgent", metric="collision_avoidance_count")
     # data = load_matching_map_data("plate")
@@ -1803,7 +2783,16 @@ def main():
     # -> probably doesn't show any real differences because even when agent count is first ordering criterion
     #    the distance thing is still second
     # show_component_ordering_differences("GlobalShortestPathAgent", "seed_comp_4x4_2_1")
-    # show_component_ordering_differences_both_seeding_types("LocalPerimeterFollowingAgent", "seed_comp_4x4_3_1")
+    # show_component_ordering_differences_both_seeding_types("LocalShortestPathAgent", "seed_comp_4x4_3_4")
+    # show_ca_per_ordering("LocalShortestPathAgent", "seed_comp_4x4_3_4")
+    # show_ca_per_attachment_strategy("LocalShortestPathAgent", "plate_16x16")
+    # show_attachment_multiple()
+
+    # show_component_finished_delay("block_10x10x10")
+
+    show_speedup_all()
+    # show_max_speedup_all()
+    pass
 
 
 if __name__ == "__main__":

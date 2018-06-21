@@ -5,16 +5,15 @@ import random
 from argparse import ArgumentParser
 from pprint import pprint
 
-from agents.agent import Task
-from agents.global_knowledge.ps_agent import GlobalPerimeterFollowingAgent
-from agents.global_knowledge.sp_agent import GlobalShortestPathAgent
-from agents.local_knowledge.ps_agent import LocalPerimeterFollowingAgent
-from agents.local_knowledge.sp_agent import LocalShortestPathAgent
+from agents import *
 from env.block import *
 from env.map import *
 from env.util import *
 from geom.shape import *
-from structures import *
+
+"""
+Information about this file
+"""
 
 # the default directories to load maps (structures) from and save the results to
 LOAD_DIRECTORY_NAME = "/home/simon/maps/"
@@ -70,7 +69,7 @@ def run_experiment(parameters):
     agent_type = AGENT_TYPES[parameters["agent_type"]]
     offset_stashes = parameters["offset_stashes"]
 
-    # stuff...
+    # remnants of the first version of the simulation
     palette_block = list(sns.color_palette("Blues_d", target_map.shape[0]))
     palette_seed = list(sns.color_palette("Reds_d", target_map.shape[0]))
     hex_palette_block = []
