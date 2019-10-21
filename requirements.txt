@@ -65,7 +65,7 @@ python-qt-binding==0.3.3
 python-systemd==231
 python-vlc==3.0.102
 pytz==2018.4
-pyxdg==0.25
+pyxdg==0.26
 PyYAML==3.11
 qt-dotgraph==0.3.8
 qt-gui==0.3.8
