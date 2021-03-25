@@ -66,7 +66,7 @@ python-systemd==231
 python-vlc==3.0.102
 pytz==2018.4
 pyxdg==0.25
-PyYAML==3.11
+PyYAML==5.4
 qt-dotgraph==0.3.8
 qt-gui==0.3.8
 qt-gui-cpp==0.3.8
