@@ -151,7 +151,7 @@ ttkthemes==2.0.3
 ubuntu-drivers-common==0.0.0
 ufw==0.35
 unattended-upgrades==0.1
-urllib3==1.13.1
+urllib3==1.26.5
 vboxapi==1.0
 vectormath==0.2.0
 wavefront-reader==0.1.0
