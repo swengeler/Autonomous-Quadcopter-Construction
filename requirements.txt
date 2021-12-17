@@ -48,7 +48,7 @@ pandas==0.22.0
 pexpect==4.0.1
 Pillow==8.3.2
 pluginlib==1.11.3
-psutil==3.4.2
+psutil==5.6.6
 ptyprocess==0.5
 pycups==1.9.73
 pycurl==7.43.0
