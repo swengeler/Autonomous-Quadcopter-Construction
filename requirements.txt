@@ -73,7 +73,7 @@ qt-gui-cpp==0.3.8
 qt-gui-py-common==0.3.8
 ratcave==0.7.1
 remarkable==1.87
-reportlab==3.3.0
+reportlab==3.5.55
 requests==2.9.1
 resource-retriever==1.12.4
 rosbag==1.12.13
