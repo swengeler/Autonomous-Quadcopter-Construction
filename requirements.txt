@@ -46,7 +46,7 @@ numpy==1.14.2
 onboard==1.2.0
 pandas==0.22.0
 pexpect==4.0.1
-Pillow==8.3.2
+Pillow==9.0.0
 pluginlib==1.11.3
 psutil==3.4.2
 ptyprocess==0.5
