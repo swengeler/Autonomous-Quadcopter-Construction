@@ -34,7 +34,7 @@ kiwisolver==1.0.1
 language-selector==0.1
 laser-geometry==1.6.4
 lightdm-gtk-greeter-settings==1.2.1
-lxml==4.6.5
+lxml==4.9.1
 Markdown==2.6.6
 matplotlib==2.2.2
 menulibre==2.1.3
